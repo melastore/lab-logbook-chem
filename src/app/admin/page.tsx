@@ -1001,10 +1001,6 @@ function LogTypeTable({ activityType, records, form, onAmend, amendedIds }: {
   amendedIds: Set<string>;
 }) {
   void activityType;
-  // Status and Amend columns were removed from the table; these props are kept
-  // on the signature so the parent's amend infrastructure stays wired.
-  void onAmend;
-  void amendedIds;
   // "instrumentUsed" is dropped — the Instrument column already covers it.
   const fields = (form?.fields || []).filter((f) => f.key !== "instrumentUsed");
   const isSample = form?.scope === "sample";
@@ -1022,6 +1018,7 @@ function LogTypeTable({ activityType, records, form, onAmend, amendedIds }: {
                 <th key={f.key} style={{ minWidth: colMinWidth(f) }}>{f.label}</th>
               ))}
               <th style={{ minWidth: 120 }}>Signature</th>
+              {onAmend && <th style={{ minWidth: 110, textAlign: "center" }}>Amend</th>}
             </tr>
           </thead>
           <tbody>
@@ -1047,6 +1044,24 @@ function LogTypeTable({ activityType, records, form, onAmend, amendedIds }: {
                       <span style={{ color: "var(--muted)", fontSize: 11 }}>{signature.typed || "—"}</span>
                     )}
                   </td>
+                  {onAmend && (
+                    <td className="doc-cell" style={{ textAlign: "center", whiteSpace: "nowrap" }}>
+                      {rec.amends ? (
+                        <span className="record-flag correction" title={rec.amendmentReason}><Pencil size={10} /> Correction</span>
+                      ) : amendedIds.has(rec.id) ? (
+                        <span className="record-flag superseded"><History size={10} /> Amended</span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-sm btn-icon-gap"
+                          onClick={() => onAmend(rec)}
+                          title="Amend — issue an append-only correction"
+                        >
+                          <Pencil size={14} /> <span>Amend</span>
+                        </button>
+                      )}
+                    </td>
+                  )}
                 </tr>
               );
             })}

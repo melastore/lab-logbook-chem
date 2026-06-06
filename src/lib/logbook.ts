@@ -879,7 +879,11 @@ async function getProfile(userId: string, metadata?: AuthMetadata): Promise<AppU
   const rows = await supabaseRest<ProfileRow[]>(
     `/profiles?id=eq.${encodeURIComponent(userId)}&select=*`
   );
-  return rows[0] ? mapProfile(rows[0], metadata) : null;
+  if (!rows[0]) return null;
+  // Archiving a user revokes access immediately: treat an archived profile as
+  // no session, so any live cookie stops working on the next request.
+  if (rows[0].archived === true) return null;
+  return mapProfile(rows[0], metadata);
 }
 
 function mapProfile(row: ProfileRow, metadata?: AuthMetadata): AppUser {
