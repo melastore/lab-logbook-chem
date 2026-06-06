@@ -3649,6 +3649,25 @@ button:disabled {
 .filter-item label { font-size: 11px; font-weight: 800; text-transform: uppercase; color: var(--muted); }
 .filter-item select, .filter-item input { padding: 8px 12px; border-radius: var(--radius-sm); border: 1px solid var(--outline-variant); background: var(--surface-1); font-size: 14px; }
 
+/* ── Admin panel: mobile layout ──
+   Placed after the ≤560 topbar rules so these win the cascade. Turns the tall
+   stack of full-width topbar buttons into a tidy wrapped row, drops the
+   redundant header avatar (the bottom rail already shows it), and tightens the
+   tabs/toolbar/count strip for narrow screens. */
+@media (max-width: 768px) {
+  .topbar-nav-btns { display: flex; flex-wrap: wrap; gap: 8px; }
+  .topbar-nav-btns .btn { width: auto; }
+  .topbar .user-chip { display: none; }
+
+  .admin-tab-btn { padding: 10px 14px; font-size: 13px; gap: 8px; }
+  .toolbar-modern { padding: 12px; }
+  .search-box-modern { flex-basis: 100%; min-width: 0; }
+  .toolbar-actions-modern { width: 100%; flex-wrap: wrap; }
+
+  .results-count-strip { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .integrity-strip { width: 100%; flex-wrap: wrap; }
+}
+
 .records-panel-modern { display: grid; gap: 16px; }
 .log-type-tag {
   display: inline-flex;
@@ -3921,6 +3940,11 @@ button:disabled {
 .entry-topbar-title h1 { font-size: 22px; font-weight: 800; line-height: 1.2; }
 .entry-topbar-title .eyebrow { font-size: 12px; }
 .entry-topbar-actions { flex-shrink: 0; }
+
+/* Hide the page title on small screens to save space (rail/logo cover branding). */
+@media (max-width: 768px) {
+  .entry-topbar-title { display: none; }
+}
 
 .entry-welcome {
   text-align: center;
@@ -4698,13 +4722,47 @@ button:disabled {
 }
 
 @media (max-width: 900px) {
+  /* 2x2 grid so all four sections are visible at once — no awkward sideways
+     scrolling through full-width tabs. */
   .settings-side-nav {
-    flex-direction: row;
-    overflow-x: auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
     position: static;
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--outline-variant);
+    height: auto;
   }
+  .settings-nav-item {
+    padding: 12px 14px;
+    font-size: 13px;
+    gap: 10px;
+  }
+}
+
+/* Phones: keep the sticky settings header from overflowing. */
+@media (max-width: 640px) {
+  .settings-header {
+    padding: 14px 16px;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .settings-header-left { gap: 12px; }
+  .settings-header-left h1 { font-size: 20px; }
+  .settings-back-btn { width: 38px; height: 38px; }
+  .settings-header-right { gap: 10px; }
+  /* Avatar chip is redundant on mobile (identity lives in the Profile tab);
+     drop it and reduce Sign out to a tidy icon button next to the title. */
+  .settings-header-right .user-chip { display: none; }
+  .settings-header-right .btn {
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    justify-content: center;
+  }
+  .settings-header-right .btn span { display: none; }
+  .settings-content-grid { padding: 16px; gap: 24px; }
+  /* Stack action buttons full-width so they're easy to tap. */
+  .settings-footer-actions { flex-direction: column-reverse; gap: 10px; }
+  .settings-footer-actions .btn { width: 100%; }
 }
 
 .settings-nav-item {

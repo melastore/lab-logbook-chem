@@ -2,11 +2,9 @@
 
 import { FormEvent, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { LabLogo } from "@/components/LabLogo";
-import { 
-  User, Lock, Eye, EyeOff, ArrowRight, Shield, Database, ShieldCheck, Cpu, RefreshCw, AlertTriangle
+import {
+  User, Lock, Eye, EyeOff, ArrowRight, Shield, RefreshCw, AlertTriangle
 } from "lucide-react";
 
 function LoginForm() {
@@ -59,46 +57,14 @@ function LoginForm() {
 
         <div className="auth-visual-brand">
           <LabLogo size={36} />
-          <span className="auth-visual-brand-name">Metrology Lab</span>
+          <span className="auth-visual-brand-name">Ethiopian Metrology Institute</span>
         </div>
 
         <div className="auth-visual-main">
-          <h2 className="auth-visual-title">
-            Analytical Record <br />
-            <span>Append-Only Ledger</span>
-          </h2>
-          
-          <div className="auth-visual-features">
-            <div className="auth-feature-row">
-              <div className="auth-feature-icon">
-                <Database size={18} />
-              </div>
-              <div className="auth-feature-text">
-                <h4>Tamper-Evident Security</h4>
-                <p>Every log sheet is signed and chained cryptographically using SHA-256 hash sealing.</p>
-              </div>
-            </div>
-
-            <div className="auth-feature-row">
-              <div className="auth-feature-icon">
-                <ShieldCheck size={18} />
-              </div>
-              <div className="auth-feature-text">
-                <h4>ISO/IEC 17025 Conformity</h4>
-                <p>Fully compliant digital log sheets with immutable trace history protection.</p>
-              </div>
-            </div>
-
-            <div className="auth-feature-row">
-              <div className="auth-feature-icon">
-                <Cpu size={18} />
-              </div>
-              <div className="auth-feature-text">
-                <h4>Advanced Metrology Integration</h4>
-                <p>Direct electronic signature captures for analysts and supervising officers.</p>
-              </div>
-            </div>
-          </div>
+          <h2 className="auth-visual-title">Analytical Instruments Logbook</h2>
+          <p style={{ color: "rgba(255,255,255,0.82)", fontSize: 15, lineHeight: 1.6, maxWidth: 360, marginTop: 14 }}>
+            Secure digital log sheets for the Chemical Metrology Laboratory.
+          </p>
         </div>
 
         <div className="auth-visual-foot">
@@ -109,8 +75,6 @@ function LoginForm() {
 
       {/* ── Right Form Panel (Centered card) ── */}
       <div className="auth-form-side">
-        <ThemeToggle variant="floating" />
-        
         <div className="auth-content">
           <div className="auth-card-minimal">
             <div className="auth-card-header">
