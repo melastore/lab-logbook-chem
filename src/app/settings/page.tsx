@@ -214,7 +214,9 @@ export default function SettingsPage() {
         </div>
         <nav className="rail-nav">
           <Link className="rail-link" href="/"><Activity size={22} /><span>Entry</span></Link>
-          <Link className="rail-link" href="/admin"><LayoutDashboard size={22} /><span>{canAccessAdmin ? "Admin" : "Logs"}</span></Link>
+          {canAccessAdmin && (
+            <Link className="rail-link" href="/admin"><LayoutDashboard size={22} /><span>Admin</span></Link>
+          )}
           <Link className="rail-link active" href="/settings"><SettingsIcon size={22} /><span>Settings</span></Link>
         </nav>
       </aside>

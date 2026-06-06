@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { 
   PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, 
   AreaChart, Area 
@@ -46,6 +47,7 @@ export default function AdminDashboard() {
   const [authReady, setAuthReady] = useState(false);
   const [authMessage, setAuthMessage] = useState("");
   const [forms, setForms] = useState<FormDef[]>(ALL_FORMS);
+  const router = useRouter();
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -67,8 +69,16 @@ export default function AdminDashboard() {
   }
 
   const isAdmin = user?.role === "admin" || user?.role === "supervisor";
+
+  // Analysts have no business on the admin/logs dashboard (it lists every
+  // analyst's records). Their own logs are on the entry page's "Logs" button.
+  // Bounce a signed-in non-admin back home; only admins/supervisors stay.
+  useEffect(() => {
+    if (authReady && user && !isAdmin) router.replace("/");
+  }, [authReady, user, isAdmin, router]);
+
   const visibleTabs = useMemo<Tab[]>(() => (
-    isAdmin ? ["instruments", "records", "insights", "users", "forms"] : ["records", "insights"]
+    isAdmin ? ["instruments", "records", "insights", "users", "forms"] : []
   ), [isAdmin]);
   const activeTab = tab && visibleTabs.includes(tab) ? tab : visibleTabs[0];
 
@@ -84,10 +94,12 @@ export default function AdminDashboard() {
             <Activity size={22} />
             <span>Entry</span>
           </Link>
-          <Link className="rail-link active" href="/admin">
-            <LayoutDashboard size={22} />
-            <span>{isAdmin ? "Admin" : "Logs"}</span>
-          </Link>
+          {isAdmin && (
+            <Link className="rail-link active" href="/admin">
+              <LayoutDashboard size={22} />
+              <span>Admin</span>
+            </Link>
+          )}
           {user && (
             <Link className="rail-link" href="/settings">
               <Settings size={22} />
@@ -152,6 +164,10 @@ export default function AdminDashboard() {
 
       {authMessage && <div className="notice notice-info">{authMessage}</div>}
       
+      {authReady && user && !isAdmin && (
+        <div className="notice notice-info">Redirecting to the entry page…</div>
+      )}
+
       {authReady && !user && (
         <div className="notice notice-warning shadow-sm" style={{ borderLeft: '4px solid var(--warning)', borderRadius: 8 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
