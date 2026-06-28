@@ -452,6 +452,9 @@ export default function AnalystEntryPage() {
           <div className="entry-topbar-actions" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             {user ? (
               <>
+              <Link href="/weekly-plan" className="btn btn-outline btn-sm btn-icon-gap" title="Weekly Plan & Report">
+                <ScrollText size={16} /> <span className="hidden-mobile">Weekly Plan</span>
+              </Link>
               <button
                 className="btn btn-outline btn-sm btn-icon-gap"
                 type="button"
