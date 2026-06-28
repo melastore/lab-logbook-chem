@@ -61,7 +61,9 @@ export default function SettingsPage() {
           total += (localStorage[key].length + key.length) * 2;
         }
       }
-      setStorageSize((total / 1024).toFixed(2) + " KB");
+      setTimeout(() => {
+        setStorageSize((total / 1024).toFixed(2) + " KB");
+      }, 0);
     }
   }, [theme, fontSize, formLayout]);
 
@@ -98,41 +100,37 @@ export default function SettingsPage() {
     setUser(result.user);
     setUsername(result.user.username);
     setAvatarSeed(result.user.avatarSeed);
-    setProfileNotice({ type: "success", text: "Profile settings saved successfully." });
+    setProfileNotice({ type: "success", text: "Identity profile successfully synchronized." });
     setSavingProfile(false);
   }
 
   async function savePassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setSavingPassword(true);
     setPasswordNotice(null);
 
-    if (newPassword.length < 8) {
-      setPasswordNotice({ type: "error", text: "Password must be at least 8 characters." });
-      return;
-    }
-
     if (newPassword !== confirmPassword) {
-      setPasswordNotice({ type: "error", text: "Passwords do not match." });
-      return;
-    }
-
-    setSavingPassword(true);
-    const response = await fetch("/api/auth/change-password", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ newPassword }),
-    });
-    const result = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      setPasswordNotice({ type: "error", text: result.error || "Password change failed." });
+      setPasswordNotice({ type: "error", text: "Passphrases do not match." });
       setSavingPassword(false);
       return;
     }
 
-    setNewPassword("");
-    setConfirmPassword("");
-    setPasswordNotice({ type: "success", text: "Password updated successfully." });
+    const response = await fetch("/api/auth/profile", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: newPassword }),
+    });
+    const result = await response.json();
+
+    if (!response.ok) {
+      setPasswordNotice({ type: "error", text: result.error || "Passphrase update failed." });
+    } else {
+      setPasswordNotice({ type: "success", text: "Passphrase securely updated." });
+      setNewPassword("");
+      setConfirmPassword("");
+      setShowNewPassword(false);
+      setShowConfirmPassword(false);
+    }
     setSavingPassword(false);
   }
 
@@ -161,7 +159,7 @@ export default function SettingsPage() {
     setTheme("light");
     setFontSize("medium");
     setFormLayout("spreadsheet");
-    setStorageSize("0 KB");
+    setTimeout(() => setStorageSize("0 KB"), 0);
     setShowClearModal(false);
     setProfileNotice({ type: "success", text: "Cache cleared successfully. Themes & layouts have been reset." });
     // Apply changes to document element
@@ -222,26 +220,26 @@ export default function SettingsPage() {
       </aside>
 
       <div className="app-frame settings-frame-modern">
-        <header className="settings-header">
-          <div className="settings-header-left">
+        <header className="settings-header" style={{ padding: "32px 48px", borderBottom: "1px solid var(--outline-variant)", background: "var(--surface)" }}>
+          <div className="settings-header-left" style={{ gap: "24px" }}>
             <Link href="/" className="settings-back-btn" title="Back to Entry">
-              <ArrowLeft size={20} />
+              <ArrowLeft size={22} />
             </Link>
             <div>
-              <p className="eyebrow">User Preferences</p>
-              <h1>Control Center</h1>
+              <p className="eyebrow" style={{ color: "var(--primary)", letterSpacing: "1px", fontWeight: "800" }}>USER PREFERENCES</p>
+              <h1 style={{ fontSize: "32px", letterSpacing: "-0.5px" }}>Control Center</h1>
             </div>
           </div>
           <div className="settings-header-right">
             {user && (
               <>
-                <span className="user-chip shadow-sm" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "6px 14px", background: "var(--surface-2)", border: "1px solid var(--outline-variant)", borderRadius: "99px" }}>
+                <span className="user-chip shadow-sm" style={{ display: "flex", alignItems: "center", gap: "12px", padding: "8px 20px", background: "var(--surface-1)", border: "1px solid var(--outline-variant)", borderRadius: "99px" }}>
                   <UserAvatar name={user.username} seed={avatarSeed} size="sm" />
-                  <span className="user-chip-name" style={{ fontWeight: 700, fontSize: "13px" }}>{user.username}</span>
-                  <span className="user-role-badge" style={{ fontSize: "10px", padding: "2px 8px", background: "var(--primary-container)", color: "var(--primary)" }}>{user.role}</span>
+                  <span className="user-chip-name" style={{ fontWeight: 800, fontSize: "14px" }}>{user.username}</span>
+                  <span className="user-role-badge" style={{ fontSize: "11px", padding: "4px 10px", background: "var(--primary-container)", color: "var(--primary)" }}>{user.role}</span>
                 </span>
-                <button className="btn btn-outline btn-sm btn-icon-gap" onClick={logout} style={{ display: "inline-flex", alignItems: "center", gap: "8px", borderRadius: "99px" }}>
-                  <LogOut size={15} /> <span>Sign out</span>
+                <button className="btn btn-outline btn-sm btn-icon-gap" onClick={logout} style={{ display: "inline-flex", alignItems: "center", gap: "8px", borderRadius: "99px", padding: "0 20px", height: "42px" }}>
+                  <LogOut size={16} /> <span style={{ fontWeight: 700 }}>Sign out</span>
                 </button>
               </>
             )}
