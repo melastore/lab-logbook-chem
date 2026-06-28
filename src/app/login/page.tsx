@@ -56,7 +56,7 @@ function LoginForm() {
         </div>
 
         <div className="auth-visual-brand">
-          <LabLogo size={36} />
+          <LabLogo size={72} />
           <span className="auth-visual-brand-name">Ethiopian Metrology Institute</span>
         </div>
 
@@ -67,10 +67,7 @@ function LoginForm() {
           </p>
         </div>
 
-        <div className="auth-visual-foot">
-          <span>Version 1.2.4</span>
-          <span>Security Level: High</span>
-        </div>
+
       </div>
 
       {/* ── Right Form Panel (Centered card) ── */}
@@ -156,10 +153,7 @@ function LoginForm() {
               </button>
             </form>
 
-            <div className="auth-card-footer" style={{ marginTop: "32px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", fontSize: "11px", color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.5px", fontWeight: "700" }}>
-              <Shield size={14} style={{ color: "var(--primary)" }} />
-              <span>Contact Administrator for credentials</span>
-            </div>
+
           </div>
         </div>
       </div>

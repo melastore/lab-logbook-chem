@@ -429,10 +429,19 @@ function RecordsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmin: b
   const [integrity, setIntegrity] = useState<{ state: "idle" | "checking" | "ok" | "bad" | "error"; checked?: number; firstBad?: string | null }>({ state: "idle" });
 
   // ids of records that have been superseded by a later amendment
-  const amendedIds = useMemo(
-    () => new Set(records.map((r) => r.amends).filter((id): id is string => !!id)),
-    [records]
-  );
+  const latestActiveIds = useMemo(() => {
+    const latestActiveIds = new Set<string>();
+    const byRoot = new Map<string, LogbookRecord>();
+    for (const rec of records) {
+      const rootId = rec.amends || rec.id;
+      const existing = byRoot.get(rootId);
+      if (!existing || new Date(rec.createdAt).getTime() > new Date(existing.createdAt).getTime()) {
+        byRoot.set(rootId, rec);
+      }
+    }
+    for (const rec of byRoot.values()) latestActiveIds.add(rec.id);
+    return latestActiveIds;
+  }, [records]);
 
   async function verifyIntegrity() {
     setIntegrity({ state: "checking" });
@@ -462,8 +471,8 @@ function RecordsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmin: b
 
   async function loadRecords() {
     setLoading(true);
-    const r = await fetch("/api/logbook");
-    if (r.ok) { const d = await r.json(); setRecords(d.records); }
+    const res = await fetch("/api/logbook", { cache: "no-store" });
+    if (res.ok) { const d = await res.json(); setRecords(d.records); }
     setLoading(false);
   }
 
@@ -497,7 +506,7 @@ function RecordsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmin: b
       remarks: std.remarks ?? original.remarks,
       metadata,
       analystSignature: original.analystSignature,
-      amends: original.id,
+      amends: original.amends || original.id,
       amendmentReason: reason,
     };
     const r = await fetch("/api/logbook", {
@@ -770,7 +779,7 @@ function RecordsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmin: b
       </div>
 
       {viewMode === "table" ? (
-        <RecordsTable records={filtered} loading={loading} forms={forms} onAmend={isAdmin ? setAmendTarget : undefined} amendedIds={amendedIds} />
+        <RecordsTable records={filtered} loading={loading} forms={forms} onAmend={isAdmin ? setAmendTarget : undefined} latestActiveIds={latestActiveIds} />
       ) : (
       <div className="records-panel-modern">
         {loading && [1, 2, 3].map((i) => <div key={i} className="skeleton record-skeleton" style={{ height: 80, borderRadius: 12 }} />)}
@@ -803,7 +812,7 @@ function RecordsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmin: b
                       <Tag size={10} /> {logTypeLabel}
                     </span>
                     {rec.amends && <span className="record-flag correction" title={rec.amendmentReason}><Pencil size={10} /> Correction</span>}
-                    {amendedIds.has(rec.id) && <span className="record-flag superseded"><History size={10} /> Amended</span>}
+                    {!latestActiveIds.has(rec.id) && <span className="record-flag superseded"><History size={10} /> Correction</span>}
                   </div>
                   <div className="record-meta-modern">
                     <span title="Analyst"><User size={12} /> {rec.analyst}</span>
@@ -944,12 +953,12 @@ function colMinWidth(field: FormField): number {
   return 130;
 }
 
-function RecordsTable({ records, loading, forms, onAmend, amendedIds }: {
+function RecordsTable({ records, loading, forms, onAmend, latestActiveIds }: {
   records: LogbookRecord[];
   loading: boolean;
   forms: FormDef[];
   onAmend?: (rec: LogbookRecord) => void;
-  amendedIds: Set<string>;
+  latestActiveIds: Set<string>;
 }) {
   const [selectedType, setSelectedType] = useState<string | null>(null);
 
@@ -1004,22 +1013,54 @@ function RecordsTable({ records, loading, forms, onAmend, amendedIds }: {
           );
         })}
       </div>
-      {activeType && <LogTypeTable activityType={activeType} records={groups.get(activeType)!} form={forms.find((f) => f.activityType === activeType)} onAmend={onAmend} amendedIds={amendedIds} />}
+      {activeType && <LogTypeTable activityType={activeType} records={groups.get(activeType)!} form={forms.find((f) => f.activityType === activeType)} onAmend={onAmend} latestActiveIds={latestActiveIds} />}
     </div>
   );
 }
 
-function LogTypeTable({ activityType, records, form, onAmend, amendedIds }: {
+function LogTypeTable({ activityType, records, form, onAmend, latestActiveIds }: {
   activityType: string;
   records: LogbookRecord[];
   form: FormDef | undefined;
   onAmend?: (rec: LogbookRecord) => void;
-  amendedIds: Set<string>;
+  latestActiveIds: Set<string>;
 }) {
   void activityType;
   // "instrumentUsed" is dropped — the Instrument column already covers it.
   const fields = (form?.fields || []).filter((f) => f.key !== "instrumentUsed");
   const isSample = form?.scope === "sample";
+
+  // Group amendments with their original records
+  const threadedRecords: LogbookRecord[] = [];
+  const byAmends = new Map<string, LogbookRecord[]>();
+  const roots: LogbookRecord[] = [];
+
+  for (const rec of records) {
+    if (rec.amends) {
+      const arr = byAmends.get(rec.amends);
+      if (arr) arr.push(rec);
+      else byAmends.set(rec.amends, [rec]);
+    } else {
+      roots.push(rec);
+    }
+  }
+
+  for (const root of roots) {
+    threadedRecords.push(root);
+    const children = byAmends.get(root.id);
+    if (children) {
+      // Sort children chronologically (oldest amendment first)
+      children.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      threadedRecords.push(...children);
+    }
+  }
+
+  // Any orphaned amendments (shouldn't happen, but just in case)
+  for (const rec of records) {
+    if (rec.amends && !roots.some(r => r.id === rec.amends)) {
+      threadedRecords.push(rec);
+    }
+  }
 
   return (
     <section>
@@ -1038,7 +1079,7 @@ function LogTypeTable({ activityType, records, form, onAmend, amendedIds }: {
             </tr>
           </thead>
           <tbody>
-            {records.map((rec, idx) => {
+            {threadedRecords.map((rec, idx) => {
               const signature = parseAnalystSignature(rec.analystSignature);
               return (
                 <tr key={rec.id}>
@@ -1062,10 +1103,21 @@ function LogTypeTable({ activityType, records, form, onAmend, amendedIds }: {
                   </td>
                   {onAmend && (
                     <td className="doc-cell" style={{ textAlign: "center", whiteSpace: "nowrap" }}>
-                      {rec.amends ? (
-                        <span className="record-flag correction" title={rec.amendmentReason}><Pencil size={10} /> Correction</span>
-                      ) : amendedIds.has(rec.id) ? (
-                        <span className="record-flag superseded"><History size={10} /> Amended</span>
+                      {!latestActiveIds.has(rec.id) ? (
+                        <span className="record-flag superseded" title={rec.amendmentReason || "Has newer correction"}><History size={10} /> Correction</span>
+                      ) : rec.amends ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
+                          <span className="record-flag correction" title={rec.amendmentReason}><Pencil size={10} /> Correction</span>
+                          <button
+                            type="button"
+                            className="btn btn-outline btn-sm"
+                            style={{ fontSize: 11, padding: "2px 6px" }}
+                            onClick={() => onAmend(rec)}
+                            title="Amend this correction"
+                          >
+                            Amend
+                          </button>
+                        </div>
                       ) : (
                         <button
                           type="button"
@@ -1105,12 +1157,18 @@ function AmendModal({ record, form, onCancel, onSubmit }: {
   const [error, setError] = useState("");
 
   async function save() {
-    if (!reason.trim()) { setError("Please enter a reason for this correction."); return; }
+    if (!reason.trim()) { 
+      setError("Please enter a reason for this correction."); 
+      alert("Please enter a reason for this correction.");
+      return; 
+    }
     setSaving(true); setError("");
     try {
       await onSubmit(values, reason.trim());
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Amendment failed.");
+      const msg = e instanceof Error ? e.message : "Amendment failed.";
+      setError(msg);
+      alert("Error: " + msg);
       setSaving(false);
     }
   }

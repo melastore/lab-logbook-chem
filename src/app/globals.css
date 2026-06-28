@@ -4574,7 +4574,7 @@ button:disabled {
 }
 
 /* Admin Table spreadsheet fixes */
-.doc-cell {
+.spreadsheet-table td.doc-cell {
   padding: 10px 12px;
   font-size: 13px;
   border-right: 1px solid var(--outline-variant);
@@ -7030,17 +7030,19 @@ button:disabled {
 .auth-visual-brand {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 24px;
   z-index: 5;
 }
 
 .auth-visual-brand-name {
-  font-size: 16px;
+  font-size: 28px;
+  line-height: 1.3;
   font-weight: 950;
   letter-spacing: 1px;
   text-transform: uppercase;
   color: #2cc9b6;
   text-shadow: 0 0 10px rgba(44, 201, 182, 0.3);
+  max-width: 350px;
 }
 
 .auth-visual-main {
@@ -7161,39 +7163,49 @@ button:disabled {
   position: absolute;
   inset: 0;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
   z-index: 10;
-  padding: 80px 24px 32px;
-  background: rgba(var(--surface-rgb, 255, 255, 255), 0.15);
-  backdrop-filter: blur(3px);
+  padding: 24px;
+  background: rgba(243, 244, 246, 0.85);
+  backdrop-filter: blur(4px);
+  animation: fadeInOverlay 0.3s ease-out forwards;
+}
+
+[data-theme="dark"] .auth-lock-overlay {
+  background: rgba(17, 24, 39, 0.9);
+}
+
+@keyframes fadeInOverlay {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .auth-lock-card {
-  background: var(--surface-1);
+  background: var(--surface);
   border: 1px solid var(--outline-variant);
-  border-radius: 28px;
-  padding: 40px 32px;
+  border-radius: 12px;
+  padding: 40px;
   text-align: center;
-  max-width: 480px;
+  max-width: 400px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 22px;
-  box-shadow: var(--shadow-5, 0 24px 48px -12px rgba(0, 0, 0, 0.18));
-  animation: floatLockCard 6s ease-in-out infinite;
+  gap: 20px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  animation: cardEntrance 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transform: translateY(10px);
+  opacity: 0;
 }
 
 [data-theme="dark"] .auth-lock-card {
-  background: rgba(30, 42, 38, 0.9);
-  border-color: rgba(44, 201, 182, 0.25);
-  backdrop-filter: blur(24px);
-  box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.5);
+  background: var(--surface-1);
+  border: 1px solid var(--outline-variant);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
 }
 
-@keyframes floatLockCard {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-8px); }
+@keyframes cardEntrance {
+  to { transform: translateY(0); opacity: 1; }
 }
 
 .auth-lock-icon-pulse {
@@ -7225,11 +7237,11 @@ button:disabled {
 }
 
 .auth-lock-title {
-  font-size: 20px;
-  font-weight: 950;
+  font-size: 24px;
+  font-weight: 700;
   color: var(--on-surface);
   margin: 0;
-  letter-spacing: -0.5px;
+  letter-spacing: -0.3px;
 }
 
 .auth-lock-desc {
@@ -7274,8 +7286,22 @@ button:disabled {
 .lock-btn {
   width: 100%;
   justify-content: center;
-  box-shadow: 0 6px 20px rgba(44, 201, 182, 0.25);
-  font-weight: 850;
+  font-weight: 600;
+  font-size: 15px;
+  border-radius: 8px;
+  padding: 12px 24px;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+  background-color: var(--primary);
+  color: white;
+  border: none;
+}
+
+.lock-btn:hover {
+  background-color: color-mix(in srgb, var(--primary) 85%, black);
+}
+
+.lock-btn:active {
+  transform: translateY(1px);
 }
 
 /* --- Vertical Layout (Form Cards) Improvement --- */

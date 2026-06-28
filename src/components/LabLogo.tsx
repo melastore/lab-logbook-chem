@@ -1,15 +1,24 @@
 /**
  * Exact brand mark for the lab logbook: EMI (Ethiopian Metrology Institute).
- * Uses the provided PNG logo asset directly without any additional elements.
+ * Clean and professional presentation.
  */
 export function LabLogo({ size = 32, className }: { size?: number; className?: string }) {
   return (
-    <img 
-      src="/emi-logo.png" 
-      alt="Ethiopian Metrology Institute Logo" 
-      height={size}
-      className={className}
-      style={{ display: "block", objectFit: "contain", width: "auto" }}
-    />
+    <div className={`lab-logo-container ${className || ''}`} style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+    }}>
+      <img 
+        src="/emi-logo.png" 
+        alt="Ethiopian Metrology Institute Logo" 
+        height={size}
+        style={{ 
+          display: "block", 
+          objectFit: "contain", 
+          width: "auto"
+        }}
+      />
+    </div>
   );
 }
