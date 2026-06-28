@@ -646,26 +646,13 @@ export default function AnalystEntryPage() {
 
                     <div className="auth-lock-overlay">
                       <div className="auth-lock-card shadow-lg">
-                        <div className="auth-lock-logo">
-                          <LabLogo size={56} />
-                        </div>
+                        <LabLogo size={60} />
                         <div className="auth-lock-heading">
                           <h3 className="auth-lock-title">Sign in to continue</h3>
                           <p className="auth-lock-desc">
                             Log entries are signed and sealed in a secure hash chain.
                             Sign in to record and submit your work.
                           </p>
-                        </div>
-
-                        <div className="auth-lock-features">
-                          <div className="auth-feature-item">
-                            <span className="auth-feature-dot" />
-                            <span>Tamper-evident, append-only records</span>
-                          </div>
-                          <div className="auth-feature-item">
-                            <span className="auth-feature-dot" />
-                            <span>Your signature on every entry</span>
-                          </div>
                         </div>
 
                         <Link href="/login" className="btn btn-primary btn-lg btn-icon-gap lock-btn">

@@ -14,7 +14,7 @@ import {
   ArrowLeft, FileOutput, Calendar, User, Hash, Info,
   Plus, Edit2, Trash2, ShieldAlert, Tag, Table as TableIcon, LayoutGrid,
   FileSpreadsheet, Archive, ArchiveRestore, KeyRound, UserCheck,
-  ShieldCheck, AlertTriangle, Pencil, History
+  ShieldCheck, AlertTriangle, Pencil, History, TrendingUp, ChevronRight
 } from "lucide-react";
 import type { AppUser, InstrumentCategory, InstrumentTemplate, LogbookRecord, ProfilePublic } from "@/lib/logbook";
 import { LOG_TYPES } from "@/lib/logbook";
@@ -26,8 +26,9 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { LabLogo } from "@/components/LabLogo";
 import { parseAnalystSignature, signatureSummary, type AnalystSignaturePayload } from "@/lib/signature";
+import type { WeeklyPlan } from "@/lib/weekly-plan";
 
-type Tab = "instruments" | "records" | "insights" | "users" | "forms";
+type Tab = "instruments" | "records" | "insights" | "users" | "forms" | "weekly";
 
 function formatRunTime(start: string, end: string) {
   if (!start && !end) return "";
@@ -78,7 +79,7 @@ export default function AdminDashboard() {
   }, [authReady, user, isAdmin, router]);
 
   const visibleTabs = useMemo<Tab[]>(() => (
-    isAdmin ? ["instruments", "records", "insights", "users", "forms"] : []
+    isAdmin ? ["instruments", "records", "weekly", "insights", "users", "forms"] : []
   ), [isAdmin]);
   const activeTab = tab && visibleTabs.includes(tab) ? tab : visibleTabs[0];
 
@@ -189,11 +190,12 @@ export default function AdminDashboard() {
             <button key={t} className={`admin-tab-btn ${activeTab === t ? "active" : ""}`} type="button" onClick={() => setTab(t)}>
               {t === "instruments" && <Microscope size={16} />}
               {t === "records" && <FileText size={16} />}
+              {t === "weekly" && <Calendar size={16} />}
               {t === "insights" && <LayoutDashboard size={16} />}
               {t === "users" && <Users size={16} />}
               {t === "forms" && <FileSpreadsheet size={16} />}
               <span>
-                {t === "instruments" ? "Instruments" : t === "records" ? "Log Records" : t === "insights" ? "Report" : t === "users" ? "Users" : "Forms"}
+                {t === "instruments" ? "Instruments" : t === "records" ? "Log Records" : t === "weekly" ? "Weekly Reports" : t === "insights" ? "Report" : t === "users" ? "Users" : "Forms"}
               </span>
             </button>
           ))}
@@ -203,6 +205,7 @@ export default function AdminDashboard() {
       <div className="admin-content-area">
         {activeTab === "insights"    && <InsightsTab />}
         {activeTab === "records"     && <RecordsTab user={user} isAdmin={isAdmin} forms={forms} />}
+        {isAdmin && activeTab === "weekly"      && <WeeklyReportsTab />}
         {isAdmin && activeTab === "instruments" && <InstrumentsTab user={user} isAdmin={isAdmin} forms={forms} />}
         {isAdmin && activeTab === "users"       && <UsersTab user={user} isAdmin={isAdmin} />}
         {isAdmin && activeTab === "forms"       && <FormsTab forms={forms} setForms={setForms} />}
@@ -2670,6 +2673,196 @@ function SignatureReview({ signature }: { signature: AnalystSignaturePayload | n
   return (
     <div className="sig-review-wrap">
       <img src={signature.image} alt="Analyst Signature" className="sig-image-small" style={{ filter: 'var(--theme-sig-filter)' }} />
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Tab — Weekly Reports (read-only view of every analyst's weekly plan/report)
+   ════════════════════════════════════════════════════════════════════════════ */
+
+const WP_WEEKLY_HOURS = 40;
+
+function wpWeekRange(weekStart: string) {
+  const start = new Date(weekStart + "T00:00:00");
+  if (isNaN(start.getTime())) return weekStart;
+  const end = new Date(start);
+  end.setDate(start.getDate() + 4);
+  const fmt = (d: Date) =>
+    `${String(d.getDate()).padStart(2, "0")}-${String(d.getMonth() + 1).padStart(2, "0")}-${d.getFullYear()}`;
+  return `${fmt(start)} → ${fmt(end)}`;
+}
+
+function wpStats(plan: WeeklyPlan) {
+  const totalHours = plan.tasks.reduce((s, t) => s + (Number(t.hours) || 0), 0);
+  const totalWeight = totalHours / WP_WEEKLY_HOURS;
+  const totalExec = plan.tasks.reduce(
+    (s, t) => s + ((Number(t.hours) || 0) / WP_WEEKLY_HOURS) * ((Number(t.executionPercent) || 0) / 100), 0);
+  const achievement = totalWeight > 0 ? (totalExec / totalWeight) * 100 : 0;
+  const completed = plan.tasks.filter((t) => (Number(t.executionPercent) || 0) >= 100).length;
+  return { totalHours, achievement, completed, taskCount: plan.tasks.length };
+}
+
+function wpColor(pct: number) {
+  return pct >= 90 ? "var(--success)" : pct >= 50 ? "var(--tertiary)" : "var(--primary)";
+}
+
+function WeeklyReportsTab() {
+  const [plans, setPlans] = useState<WeeklyPlan[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [weekFilter, setWeekFilter] = useState("");
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/weekly-plan")
+      .then((r) => (r.ok ? r.json() : { plans: [] }))
+      .then((d) => setPlans((d.plans as WeeklyPlan[]) || []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const weeks = useMemo(
+    () => [...new Set(plans.map((p) => p.weekStartDate))].sort().reverse(),
+    [plans]
+  );
+
+  const rows = useMemo(() => {
+    let p = plans.filter((x) => x.tasks.length > 0);
+    if (weekFilter) p = p.filter((x) => x.weekStartDate === weekFilter);
+    return p.sort(
+      (a, b) => b.weekStartDate.localeCompare(a.weekStartDate) || a.username.localeCompare(b.username)
+    );
+  }, [plans, weekFilter]);
+
+  // Export the visible reports: a summary sheet plus a detail sheet with every
+  // task. xlsx is loaded lazily to keep it out of the initial bundle.
+  async function exportXlsx() {
+    if (rows.length === 0) return;
+    const XLSX = await import("xlsx");
+    const summary: (string | number)[][] = [
+      ["Analyst", "Week", "Tasks", "Completed", "Total Hours", "Achievement %", "Last Updated"],
+      ...rows.map((p) => {
+        const s = wpStats(p);
+        return [
+          p.username, wpWeekRange(p.weekStartDate), s.taskCount, s.completed, s.totalHours,
+          Number(s.achievement.toFixed(1)), p.updatedAt ? new Date(p.updatedAt).toLocaleString() : "",
+        ];
+      }),
+    ];
+    const detail: (string | number)[][] = [
+      ["Analyst", "Week", "No.", "Date", "Hours", "Main Task", "Achievement %", "Comment / Issues"],
+    ];
+    for (const p of rows) {
+      p.tasks.forEach((t, i) =>
+        detail.push([
+          p.username, wpWeekRange(p.weekStartDate), i + 1, t.date || "", Number(t.hours) || 0,
+          t.activity || "", Number(t.executionPercent) || 0, t.comment || "",
+        ]));
+    }
+    const wb = XLSX.utils.book_new();
+    const sumWs = XLSX.utils.aoa_to_sheet(summary);
+    sumWs["!cols"] = [{ wch: 16 }, { wch: 24 }, { wch: 7 }, { wch: 10 }, { wch: 11 }, { wch: 14 }, { wch: 22 }];
+    XLSX.utils.book_append_sheet(wb, sumWs, "Summary");
+    const detWs = XLSX.utils.aoa_to_sheet(detail);
+    detWs["!cols"] = [{ wch: 16 }, { wch: 24 }, { wch: 5 }, { wch: 12 }, { wch: 7 }, { wch: 40 }, { wch: 14 }, { wch: 32 }];
+    XLSX.utils.book_append_sheet(wb, detWs, "Task Detail");
+    const tag = weekFilter || "all";
+    XLSX.writeFile(wb, `weekly_reports_${tag}.xlsx`);
+  }
+
+  if (loading) return <div style={{ textAlign: "center", padding: 48, color: "var(--muted)" }}>Loading weekly reports…</div>;
+
+  return (
+    <div className="wp-admin">
+      <div className="wp-admin-head">
+        <div>
+          <h2 className="wp-admin-title">Weekly Reports</h2>
+          <p className="wp-admin-sub">Plan-vs-achievement submitted by each analyst</p>
+        </div>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 12 }}>
+          <label className="wp-week-picker">
+            <span>Week</span>
+            <select className="input-modern" value={weekFilter} onChange={(e) => setWeekFilter(e.target.value)} style={{ minWidth: 200 }}>
+              <option value="">All weeks</option>
+              {weeks.map((w) => <option key={w} value={w}>{wpWeekRange(w)}</option>)}
+            </select>
+          </label>
+          <button className="btn btn-outline btn-sm" onClick={exportXlsx} disabled={rows.length === 0}>
+            <FileSpreadsheet size={16} /> Export
+          </button>
+        </div>
+      </div>
+
+      {rows.length === 0 ? (
+        <div className="empty-state-modern">No weekly reports submitted yet.</div>
+      ) : (
+        <div className="wp-admin-list">
+          {rows.map((plan) => {
+            const s = wpStats(plan);
+            const color = wpColor(s.achievement);
+            const key = `${plan.username}:${plan.weekStartDate}`;
+            const open = expanded === key;
+            return (
+              <div key={key} className={`wp-admin-card ${open ? "open" : ""}`}>
+                <button type="button" className="wp-admin-row" onClick={() => setExpanded(open ? null : key)}>
+                  <ChevronRight size={16} className={`wp-admin-caret ${open ? "open" : ""}`} />
+                  <div className="wp-admin-who">
+                    <strong>{plan.username}</strong>
+                    <span>{wpWeekRange(plan.weekStartDate)}</span>
+                  </div>
+                  <div className="wp-admin-meta">
+                    <span><Calendar size={13} /> {s.taskCount} tasks</span>
+                    <span><Clock size={13} /> {s.totalHours} hrs</span>
+                    <span><CheckCircle2 size={13} /> {s.completed}/{s.taskCount} done</span>
+                  </div>
+                  <div className="wp-admin-ach">
+                    <div className="wp-progress" style={{ width: 110 }}>
+                      <span style={{ width: `${Math.min(s.achievement, 100)}%`, background: color }} />
+                    </div>
+                    <strong style={{ color }}><TrendingUp size={14} /> {s.achievement.toFixed(1)}%</strong>
+                  </div>
+                </button>
+
+                {open && (
+                  <div className="wp-admin-detail">
+                    <table className="spreadsheet-table">
+                      <thead>
+                        <tr>
+                          <th className="doc-rowno-head">No.</th>
+                          <th style={{ minWidth: 110 }}>Date</th>
+                          <th style={{ minWidth: 70 }}>Hours</th>
+                          <th style={{ minWidth: 260 }}>Main Task</th>
+                          <th style={{ minWidth: 110 }}>Achievement</th>
+                          <th style={{ minWidth: 220 }}>Comment / Issues</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {plan.tasks.map((t, i) => {
+                          const exec = Number(t.executionPercent) || 0;
+                          const done = exec >= 100;
+                          return (
+                            <tr key={t.id} className={done ? "wp-row-done" : ""}>
+                              <td className="doc-rowno">{i + 1}</td>
+                              <td className="spreadsheet-cell" style={{ padding: "8px 12px", fontSize: 13 }}>{t.date || "—"}</td>
+                              <td className="spreadsheet-cell wp-calc">{t.hours || 0}</td>
+                              <td className="spreadsheet-cell" style={{ padding: "8px 12px", fontSize: 13 }}>{t.activity || "—"}</td>
+                              <td className="spreadsheet-cell wp-calc" style={{ color: wpColor(exec), fontWeight: 800 }}>{exec}%</td>
+                              <td className="spreadsheet-cell" style={{ padding: "8px 12px", fontSize: 13, color: "var(--muted)" }}>{t.comment || "—"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    {plan.updatedAt && (
+                      <p className="wp-admin-updated">Last updated {new Date(plan.updatedAt).toLocaleString()}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

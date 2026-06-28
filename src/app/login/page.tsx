@@ -79,7 +79,6 @@ function LoginForm() {
                 <LabLogo size={60} />
               </div>
               <p className="auth-eyebrow">Chemical Metrology System</p>
-              <h1 style={{ fontSize: "24px", fontWeight: 900, marginBottom: "8px", color: "var(--on-surface)" }}>Logbook Portal</h1>
               <p className="auth-subtitle">Sign in to submit instrument daily use records and manage review logs.</p>
             </div>
 
