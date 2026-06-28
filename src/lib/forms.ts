@@ -181,20 +181,76 @@ export const ANALYTICAL_FORMS: FormDef[] = [
 
 // ─── Sample-preparation forms ────────────────────────────────────────────────
 
+export const SAMPLE_RECEIVING: FormDef = {
+  id: "samplerecv",
+  title: "Data Recording Sheet for Sample Receiving",
+  activityType: "RECV",
+  scope: "sample",
+  fields: [
+    { key: "clientName",        label: "Name of the Client",            type: "text", required: true },
+    { key: "registrationNo",    label: "Registration No.",              type: "text" },
+    { key: "sampleName",        label: "Name of the Sample",            type: "text" },
+    { key: "placeTaken",        label: "Place Taken",                   type: "text" },
+    { key: "sampleId",          label: "Sample ID",                     type: "text", required: true },
+    { key: "matrix",            label: "Sample Matrix",                 type: "text" },
+    { key: "quantity",          label: "Quantity",                      type: "text" },
+    { key: "condition",         label: "Condition of Receipt",          type: "text", full: true },
+    { key: "remarks",           label: "Note",                          type: "textarea", full: true },
+    { key: "date",              label: "Date Received",                 type: "date", required: true },
+    { key: "analyst",           label: "Received By",                   type: "text", required: true },
+  ],
+};
+
+export const SAMPLE_WEIGHING: FormDef = {
+  id: "sampleweigh",
+  title: "Data Recording Sheet for Sample Weighing",
+  activityType: "WEIGH",
+  scope: "sample",
+  fields: [
+    { key: "clientName",        label: "Name of the Client",            type: "text" },
+    { key: "registrationNo",    label: "Registration No.",              type: "text" },
+    { key: "sampleName",        label: "Name of the Sample",            type: "text" },
+    { key: "dateReceived",      label: "Date Received",                 type: "date" },
+    { key: "balanceId",         label: "Weighing Balance ID",           type: "text" },
+    { key: "resolution",        label: "Resolution",                    type: "text" },
+    { key: "stabilizationDate", label: "Stabilization Date",            type: "date" },
+    { key: "stdDeviationDate",  label: "Standard Deviation Date",       type: "date" },
+    { key: "date",              label: "Date of Measurement Value",     type: "date", required: true },
+    { key: "sampleId",          label: "Sample ID",                     type: "text", required: true },
+    { key: "theoreticalMass",   label: "Theoretical Mass",              type: "text" },
+    { key: "measuredMass",      label: "Measured Mass",                 type: "text" },
+    { key: "exactMass",         label: "Exact Mass",                    type: "text" },
+    { key: "equipmentUsed",     label: "Equipment used to weigh",       type: "text", full: true },
+    { key: "remarks",           label: "Note",                          type: "textarea", full: true },
+    { key: "analyst",           label: "Measured By",                   type: "text", required: true },
+    { key: "checkedBy",         label: "Checked By",                    type: "text" },
+  ],
+};
+
 export const SAMPLE_PREPARATION: FormDef = {
   id: "sampleprep",
-  title: "Sample Preparation Record",
+  title: "Data Recording Sheet for Sample Preparation",
   activityType: "PREP",
   scope: "sample",
   fields: [
-    { key: "instrumentUsed",    label: "Instrument Used",    type: "text", placeholder: "e.g. ICP-MS" },
-    { key: "date",              label: "Date",               type: "date", required: true },
-    { key: "sampleId",          label: "Sample ID",          type: "text", required: true, placeholder: "e.g. S-001" },
-    { key: "matrix",            label: "Matrix",             type: "text", placeholder: "e.g. Water / Soil" },
-    { key: "methodUsed",        label: "Preparation Method", type: "text", placeholder: "e.g. Acid digestion", full: true },
-    { key: "reagentsUsed",      label: "Reagents Used",      type: "text", placeholder: "e.g. HNO₃, HCl", full: true },
-    { key: "dilutionFactor",    label: "Dilution Factor",    type: "text", placeholder: "e.g. x10" },
-    { key: "analyst",           label: "Analyst",            type: "text", required: true, placeholder: "Full name" },
+    { key: "clientName",        label: "Name of the Client",            type: "text" },
+    { key: "registrationNo",    label: "Registration No.",              type: "text" },
+    { key: "sampleName",        label: "Name of the Sample",            type: "text" },
+    { key: "dateReceived",      label: "Date Received",                 type: "date" },
+    { key: "title",             label: "Title",                         type: "text", full: true },
+    { key: "description",       label: "Description",                   type: "text", full: true },
+    { key: "sampleId",          label: "Sample/s ID",                   type: "text", required: true },
+    { key: "matrix",            label: "Sample Matrix",                 type: "text" },
+    { key: "methodUsed",        label: "Preparation Method",            type: "text" },
+    { key: "prepProcedure",     label: "Preparation Procedure",         type: "textarea", full: true },
+    { key: "equipmentUsed",     label: "Equipment Used",                type: "text" },
+    { key: "reagentsUsed",      label: "Reagent Used",                  type: "text" },
+    { key: "dilutionFactor",    label: "Dilution Factor",               type: "text" },
+    { key: "finalVolume",       label: "Final Volume",                  type: "text" },
+    { key: "remarkShort",       label: "Remark",                        type: "text" },
+    { key: "remarks",           label: "Note",                          type: "textarea", full: true },
+    { key: "date",              label: "Date",                          type: "date", required: true },
+    { key: "analyst",           label: "Analyzed By",                   type: "text", required: true },
   ],
 };
 
@@ -217,7 +273,7 @@ export const REAGENT_STANDARD: FormDef = {
   ],
 };
 
-export const SAMPLE_FORMS: FormDef[] = [SAMPLE_PREPARATION, REAGENT_STANDARD];
+export const SAMPLE_FORMS: FormDef[] = [SAMPLE_RECEIVING, SAMPLE_WEIGHING, SAMPLE_PREPARATION, REAGENT_STANDARD];
 
 export const INSTRUMENT_INFO_FORM: FormDef = {
   id: "instrument",
