@@ -3679,6 +3679,8 @@ button:disabled {
     margin: -16px -16px 16px -16px;
     border-radius: 0;
     border-top: 1px solid var(--outline-variant);
+    overflow: hidden;
+    width: 100vw;
   }
   
   .admin-tabs-modern {
@@ -3687,6 +3689,9 @@ button:disabled {
     scroll-snap-type: x mandatory;
     -webkit-overflow-scrolling: touch;
     border-bottom: 1px solid var(--outline-variant);
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    scrollbar-width: none;
   }
   
   .admin-tab-btn { 
