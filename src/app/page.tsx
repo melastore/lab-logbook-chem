@@ -643,11 +643,28 @@ export default function AnalystEntryPage() {
 
                     <div className="auth-lock-overlay">
                       <div className="auth-lock-card shadow-lg">
-                        <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}>
-                          <LabLogo size={64} />
+                        <div className="auth-lock-logo">
+                          <LabLogo size={56} />
                         </div>
-                        <h3 className="auth-lock-title">Sign In Required</h3>
-                        
+                        <div className="auth-lock-heading">
+                          <h3 className="auth-lock-title">Sign in to continue</h3>
+                          <p className="auth-lock-desc">
+                            Log entries are signed and sealed in a secure hash chain.
+                            Sign in to record and submit your work.
+                          </p>
+                        </div>
+
+                        <div className="auth-lock-features">
+                          <div className="auth-feature-item">
+                            <span className="auth-feature-dot" />
+                            <span>Tamper-evident, append-only records</span>
+                          </div>
+                          <div className="auth-feature-item">
+                            <span className="auth-feature-dot" />
+                            <span>Your signature on every entry</span>
+                          </div>
+                        </div>
+
                         <Link href="/login" className="btn btn-primary btn-lg btn-icon-gap lock-btn">
                           <span>Sign In</span>
                           <ArrowRight size={18} />
@@ -775,26 +792,33 @@ function FormSpreadsheet({
   }
 
   return (
-    <div className={`doc-table-scroll spreadsheet-container ${disabled ? "spreadsheet-disabled" : ""}`}>
+    <div className={`spreadsheet-container ${disabled ? "spreadsheet-disabled" : ""}`}>
       <table className="doc-entry-table spreadsheet-table" ref={tableRef}>
-        <thead>
+        <thead className="spreadsheet-thead">
           <tr>
             <th className="doc-rowno-head">No.</th>
-            {fields.map((f) => (
-              <th key={f.key} className={f.full ? 'col-wide' : ''}>
-                {f.label}{f.required && <span className="req"> *</span>}
-              </th>
-            ))}
+            {fields.map((f) => {
+              const minWidth =
+                f.type === "textarea" ? 300 :
+                f.type === "date" || f.type === "time" ? 160 :
+                f.type === "select" ? 190 : 190;
+              return (
+                <th key={f.key} style={{ minWidth }}>
+                  {f.label}{f.required && <span className="req"> *</span>}
+                </th>
+              );
+            })}
           </tr>
         </thead>
-        <tbody>
+        <tbody className="spreadsheet-tbody">
           {rows.map((row, i) => (
-            <tr key={i}>
+            <tr key={i} className="spreadsheet-row">
               <td className="doc-rowno">{i + 1}</td>
               {fields.map((f, fi) => (
-                <td key={f.key} className={f.type === "textarea" ? "doc-cell-wide" : ""}>
+                <td key={f.key} className="spreadsheet-cell">
                   {f.type === "textarea" ? (
                     <textarea
+                      className="spreadsheet-input"
                       value={row[f.key] || ""}
                       onChange={(e) => updateCell(i, f.key, e.target.value)}
                       onKeyDown={(e) => handleKeyDown(e, i, fi)}
@@ -804,6 +828,7 @@ function FormSpreadsheet({
                     />
                   ) : f.type === "select" ? (
                     <select
+                      className="spreadsheet-input"
                       value={row[f.key] || ""}
                       onChange={(e) => updateCell(i, f.key, e.target.value)}
                       onKeyDown={(e) => handleKeyDown(e, i, fi)}
@@ -814,6 +839,7 @@ function FormSpreadsheet({
                     </select>
                   ) : (
                     <input
+                      className="spreadsheet-input"
                       type={f.type}
                       value={row[f.key] || ""}
                       onChange={(e) => updateCell(i, f.key, e.target.value)}
@@ -832,7 +858,7 @@ function FormSpreadsheet({
       {!disabled && (
         <div className="spreadsheet-footer">
           <div className="spreadsheet-tip">
-            <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd> to navigate
+            <kbd>←</kbd> <kbd>→</kbd> to navigate
           </div>
         </div>
       )}

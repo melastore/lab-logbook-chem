@@ -908,43 +908,52 @@ button:disabled {
 .signature-pad {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px;
+  gap: 12px;
+  padding: 16px;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+  transition: all 0.2s ease;
+}
+
+[data-theme="dark"] .signature-pad {
   background: var(--surface-1);
-  border: 1px solid var(--outline-variant);
-  border-radius: 14px;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  border-color: var(--outline-variant);
 }
 
 .signature-pad.signed {
-  border-color: color-mix(in srgb, var(--success) 45%, var(--outline-variant));
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--success) 22%, transparent);
+  border-color: #22c55e;
+  box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.2), 0 4px 6px -1px rgba(0, 0, 0, 0.05);
 }
 
 .signature-frame {
   position: relative;
-  border-radius: 10px;
+  border-radius: 8px;
   overflow: hidden;
-  border: 1px solid var(--outline-variant);
+  border: 2px dashed #cbd5e1;
+  background: #f8fafc;
+  transition: border-color 0.2s ease;
+}
+
+[data-theme="dark"] .signature-frame {
+  border-color: var(--outline-variant);
+  background: var(--surface-2);
+}
+
+.signature-frame:hover {
+  border-color: #94a3b8;
 }
 
 .signature-canvas {
   display: block;
   width: 100%;
-  height: 170px;
-  touch-action: none; /* keep drawing from scrolling the page on touch */
-  /* faint baseline ~44px from the bottom, on a paper-white sheet */
-  background:
-    linear-gradient(
-      transparent calc(100% - 44px),
-      color-mix(in srgb, var(--primary) 24%, transparent) calc(100% - 44px),
-      color-mix(in srgb, var(--primary) 24%, transparent) calc(100% - 43px),
-      transparent calc(100% - 43px)),
-    #ffffff;
+  height: 160px;
+  touch-action: none;
+  background: transparent;
   cursor: crosshair;
 }
 
-/* Centered hint that sits over the empty canvas (never blocks the pen). */
 .signature-placeholder {
   position: absolute;
   inset: 0;
@@ -953,9 +962,9 @@ button:disabled {
   justify-content: center;
   gap: 8px;
   pointer-events: none;
-  color: color-mix(in srgb, var(--primary) 55%, var(--muted));
-  font-size: 13px;
-  font-weight: 600;
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 500;
   letter-spacing: 0.01em;
 }
 
@@ -1459,10 +1468,16 @@ button:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding: 24px;
-  background: var(--surface-1);
-  border: 1px solid var(--outline-variant);
-  border-radius: 16px;
+  padding: 20px 28px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="dark"] .submit-strip-modern {
+  background: linear-gradient(180deg, var(--surface-1) 0%, var(--surface-2) 100%);
+  border-color: var(--outline-variant);
 }
 
 /* Side Panel Modern */
@@ -4261,11 +4276,13 @@ button:disabled {
    Spreadsheet Entry Styles
    ========================================================================== */
 .spreadsheet-container {
-  margin: 0 24px 24px;
+  margin: 0 24px;
   border: 1px solid var(--outline-variant);
-  border-radius: 12px;
+  border-radius: 14px;
   background: var(--surface-1);
-  overflow-x: auto; /* Changed from overflow: hidden to allow scrolling */
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
 }
 
 .spreadsheet-table {
@@ -4277,22 +4294,41 @@ button:disabled {
 .spreadsheet-table th {
   position: sticky;
   top: 0;
-  background: var(--surface-variant);
+  background: linear-gradient(180deg, var(--surface-1) 0%, var(--surface-2) 100%);
   z-index: 10;
-  padding: 10px 12px;
+  padding: 11px 14px;
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 700;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--muted);
-  border-bottom: 1px solid var(--outline-variant);
+  border-bottom: 2px solid var(--outline-variant);
   border-right: 1px solid var(--outline-variant);
+  text-align: left;
+  white-space: nowrap;
+  user-select: none;
+}
+
+[data-theme="dark"] .spreadsheet-table th {
+  background: linear-gradient(180deg, var(--surface-2) 0%, var(--surface-1) 100%);
+  color: var(--muted);
+  border-color: var(--outline-variant);
 }
 
 .spreadsheet-table td {
   padding: 0;
   border-bottom: 1px solid var(--outline-variant);
   border-right: 1px solid var(--outline-variant);
-  background: var(--surface-1);
+  background: var(--surface);
+}
+
+[data-theme="dark"] .spreadsheet-table td {
+  border-color: var(--outline-variant);
+}
+
+/* Subtle zebra striping for row legibility. */
+.spreadsheet-table tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--surface-2) 55%, var(--surface));
 }
 
 .spreadsheet-table tr:last-child td {
@@ -4304,60 +4340,96 @@ button:disabled {
   border-right: none;
 }
 
-.spreadsheet-table .doc-rowno {
+.spreadsheet-table .doc-rowno,
+.spreadsheet-table .doc-rowno-head {
   position: sticky;
   left: 0;
-  z-index: 2;
+  z-index: 11;
   background: var(--surface-2);
-  width: 36px;
+  width: 44px;
   font-size: 11px;
   font-weight: 700;
   color: var(--muted);
   text-align: center;
   border-right: 1px solid var(--outline-variant);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
 }
 
-.spreadsheet-table input,
-.spreadsheet-table select,
-.spreadsheet-table textarea {
+[data-theme="dark"] .spreadsheet-table .doc-rowno,
+[data-theme="dark"] .spreadsheet-table .doc-rowno-head {
+  background: var(--surface-2);
+  color: var(--muted);
+  border-color: var(--outline-variant);
+}
+
+.spreadsheet-table .spreadsheet-input {
   width: 100%;
   height: 100%;
   border: none;
   background: transparent;
-  padding: 10px 12px;
-  font-size: 13px;
+  padding: 13px 14px;
+  font-size: 14px;
   color: var(--on-surface);
   border-radius: 0;
-  transition: background 0.1s ease;
+  transition: background 0.12s ease, box-shadow 0.12s ease;
+  min-height: 52px;
 }
 
-.spreadsheet-table input:focus,
-.spreadsheet-table select:focus,
-.spreadsheet-table textarea:focus {
+.spreadsheet-table .spreadsheet-input::placeholder {
+  color: color-mix(in srgb, var(--muted) 70%, transparent);
+}
+
+.spreadsheet-table .spreadsheet-input:focus {
   outline: 2px solid var(--primary);
   outline-offset: -2px;
-  background: white;
+  background: color-mix(in srgb, var(--primary) 6%, var(--surface-1));
   z-index: 5;
   position: relative;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
 }
 
-[data-theme="dark"] .spreadsheet-table input:focus,
-[data-theme="dark"] .spreadsheet-table select:focus,
-[data-theme="dark"] .spreadsheet-table textarea:focus {
-  background: var(--surface-2);
+[data-theme="dark"] .spreadsheet-table .spreadsheet-input:focus {
+  background: color-mix(in srgb, var(--primary) 14%, var(--surface-2));
 }
 
-.spreadsheet-table tr:hover td {
-  background: var(--surface-2);
+.spreadsheet-table .spreadsheet-cell {
+  padding: 0;
+  border-bottom: 1px solid var(--outline-variant);
+  border-right: 1px solid var(--outline-variant);
+}
+
+[data-theme="dark"] .spreadsheet-table .spreadsheet-cell {
+  border-color: var(--outline-variant);
+}
+
+.spreadsheet-table tbody tr:hover td {
+  background: color-mix(in srgb, var(--primary) 5%, var(--surface));
+}
+
+/* Highlight the whole row that contains the active cell, like a spreadsheet's
+   selected-row gutter. Wins over zebra striping and hover. */
+.spreadsheet-table tbody tr:focus-within td {
+  background: color-mix(in srgb, var(--primary) 9%, var(--surface));
+}
+
+.spreadsheet-table tbody tr:focus-within .doc-rowno {
+  background: color-mix(in srgb, var(--primary) 16%, var(--surface-2));
+  color: var(--primary);
+  box-shadow: inset 2px 0 0 var(--primary);
 }
 
 .spreadsheet-footer {
+  position: sticky;
+  left: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
+  padding: 10px 16px;
   background: var(--surface-2);
   border-top: 1px solid var(--outline-variant);
+  border-bottom-left-radius: 14px;
+  border-bottom-right-radius: 14px;
 }
 
 .btn-add-row {
@@ -4575,11 +4647,15 @@ button:disabled {
 
 /* Admin Table spreadsheet fixes */
 .spreadsheet-table td.doc-cell {
-  padding: 10px 12px;
+  padding: 6px 10px;
   font-size: 13px;
-  border-right: 1px solid var(--outline-variant);
-  border-bottom: 1px solid var(--outline-variant);
+  border-right: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e5e7eb;
   white-space: nowrap;
+}
+
+[data-theme="dark"] .spreadsheet-table td.doc-cell {
+  border-color: var(--outline-variant);
 }
 
 .records-table-wrap {
@@ -7182,20 +7258,38 @@ button:disabled {
 }
 
 .auth-lock-card {
-  background: var(--surface);
+  background: var(--surface-1);
   border: 1px solid var(--outline-variant);
-  border-radius: 12px;
-  padding: 40px;
+  border-radius: 20px;
+  padding: 36px 36px 32px;
   text-align: center;
-  max-width: 400px;
+  max-width: 380px;
+  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 20px;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 18px 40px -12px rgba(16, 24, 40, 0.22), 0 4px 10px -4px rgba(16, 24, 40, 0.12);
   animation: cardEntrance 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   transform: translateY(10px);
   opacity: 0;
+}
+
+.auth-lock-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 84px;
+  height: 84px;
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--primary) 10%, var(--surface-1));
+  border: 1px solid color-mix(in srgb, var(--primary) 22%, transparent);
+}
+
+.auth-lock-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 [data-theme="dark"] .auth-lock-card {
