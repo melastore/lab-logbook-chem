@@ -1519,7 +1519,7 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
           {[1, 2, 3, 4].map((i) => <div key={i} className="skeleton" style={{ height: 60, borderRadius: 12 }} />)}
         </div>
       ) : (
-        <div className="table-scroll shadow-sm" style={{ border: '1px solid var(--outline-variant)', borderRadius: 12, overflow: 'hidden' }}>
+        <div className="table-scroll shadow-sm" style={{ border: '1px solid var(--outline-variant)', borderRadius: 12, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
           <table className="data-table">
             <thead>
               <tr>
@@ -2174,7 +2174,7 @@ function UsersTable({
   const allSelected = selectable.length > 0 && selectable.every((p) => selected.has(p.username));
 
   return (
-    <div className="table-scroll shadow-sm" style={{ border: '1px solid var(--outline-variant)', borderRadius: 12, overflow: 'hidden' }}>
+    <div className="table-scroll shadow-sm" style={{ border: '1px solid var(--outline-variant)', borderRadius: 12, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
       <table className="data-table">
         <thead>
           <tr>
@@ -2416,7 +2416,7 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
           {[1, 2, 3].map((i) => <div key={i} className="skeleton" style={{ height: 60, borderRadius: 12 }} />)}
         </div>
       ) : (
-        <div className="table-scroll shadow-sm" style={{ border: '1px solid var(--outline-variant)', borderRadius: 12, overflow: 'hidden' }}>
+        <div className="table-scroll shadow-sm" style={{ border: '1px solid var(--outline-variant)', borderRadius: 12, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
           <table className="data-table">
             <thead>
               <tr>

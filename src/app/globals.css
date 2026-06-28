@@ -3777,7 +3777,8 @@ button:disabled {
     border-top: 1px solid var(--outline-variant);
   }
   
-  .spreadsheet-container {
+  .spreadsheet-container,
+  .table-scroll {
     margin: 0 -16px;
     border-radius: 0;
     border-left: none;
