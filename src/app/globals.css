@@ -7820,6 +7820,128 @@ button:disabled {
 .wp-ach-input { -moz-appearance: textfield; appearance: textfield; }
 .wp-ach-pct { font-size: 12px; color: var(--muted); padding-right: 6px; }
 
+/* ── Weekly plan: Excel-style formula (fx) bar ── */
+.wp-fx-bar {
+  display: flex; align-items: stretch; gap: 0;
+  border: 1px solid var(--outline-variant);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface-1);
+  max-width: 1280px; margin: 0 auto; width: 100%;
+}
+.wp-fx-namebox {
+  display: flex; align-items: center; justify-content: center;
+  min-width: 86px; padding: 0 12px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 13px; font-weight: 700; color: var(--on-surface);
+  background: var(--surface-2);
+  border-right: 1px solid var(--outline-variant);
+}
+.wp-fx-icon {
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 14px; color: var(--muted);
+  border-right: 1px solid var(--outline-variant);
+}
+.wp-fx-icon em { font-style: italic; font-family: Georgia, "Times New Roman", serif; font-size: 16px; font-weight: 600; }
+.wp-fx-input {
+  flex: 1; min-width: 0; border: none; outline: none;
+  padding: 10px 14px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 13.5px; color: var(--on-surface);
+  background: transparent;
+}
+.wp-fx-input:read-only { color: var(--muted); cursor: default; }
+.wp-fx-input:not(:read-only):focus { background: color-mix(in srgb, var(--primary) 5%, var(--surface-1)); }
+
+/* Selectable calc cells + active-cell highlight (Excel selection box). */
+.wp-cell-sel { cursor: cell; }
+.wp-cell-active {
+  box-shadow: inset 0 0 0 2px var(--primary);
+  background: color-mix(in srgb, var(--primary) 7%, var(--surface)) !important;
+}
+.wp-ach-value {
+  display: block; text-align: right; padding: 0 10px;
+  font-variant-numeric: tabular-nums; font-weight: 700; color: var(--on-surface);
+}
+.wp-ach-formula {
+  width: 100% !important; text-align: left;
+  font-family: var(--font-mono, ui-monospace, monospace) !important;
+  font-size: 13px !important; letter-spacing: -0.3px;
+}
+
+/* ── Weekly plan: report history drawer ── */
+.wp-history-overlay {
+  position: fixed; inset: 0; z-index: 60;
+  background: color-mix(in srgb, var(--scrim, #0b1220) 45%, transparent);
+  backdrop-filter: blur(2px);
+  display: flex; justify-content: flex-end;
+  animation: wp-fade 0.18s ease;
+}
+@keyframes wp-fade { from { opacity: 0; } to { opacity: 1; } }
+.wp-history-panel {
+  width: min(440px, 100%);
+  height: 100%;
+  background: var(--surface);
+  border-left: 1px solid var(--outline-variant);
+  box-shadow: -16px 0 48px rgba(16, 24, 40, 0.18);
+  display: flex; flex-direction: column;
+  animation: wp-slide 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes wp-slide { from { transform: translateX(24px); opacity: 0.4; } to { transform: translateX(0); opacity: 1; } }
+.wp-history-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  padding: 22px 22px 18px; border-bottom: 1px solid var(--outline-variant);
+}
+.wp-history-head h3 { display: flex; align-items: center; gap: 9px; font-size: 17px; font-weight: 800; }
+.wp-history-head p { font-size: 13px; color: var(--muted); margin-top: 3px; }
+.wp-history-close {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; border-radius: 10px; border: none; cursor: pointer;
+  background: var(--surface-2); color: var(--muted); transition: all 0.15s ease;
+}
+.wp-history-close:hover { background: var(--surface-variant); color: var(--on-surface); }
+.wp-history-list { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.wp-history-empty { text-align: center; color: var(--muted); padding: 48px 16px; font-size: 14px; }
+.wp-history-item {
+  display: flex; align-items: stretch; gap: 4px;
+  border: 1px solid var(--outline-variant); border-radius: 14px;
+  background: var(--surface-1); overflow: hidden;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.wp-history-item:hover { border-color: color-mix(in srgb, var(--primary) 40%, var(--outline-variant)); box-shadow: 0 2px 8px rgba(16, 24, 40, 0.06); }
+.wp-history-item.current { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 6%, var(--surface-1)); }
+.wp-history-main {
+  flex: 1; min-width: 0; text-align: left; cursor: pointer;
+  background: transparent; border: none; padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.wp-history-week { display: flex; align-items: center; gap: 8px; }
+.wp-history-week strong { font-size: 14px; font-weight: 700; }
+.wp-history-badge {
+  font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--primary); background: var(--primary-container);
+  padding: 2px 8px; border-radius: 999px;
+}
+.wp-history-meta { display: flex; align-items: center; gap: 14px; font-size: 12.5px; color: var(--muted); font-weight: 600; }
+.wp-history-meta span { display: inline-flex; align-items: center; gap: 5px; }
+.wp-history-ach { font-weight: 800 !important; }
+.wp-history-del {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 46px; flex-shrink: 0; border: none; cursor: pointer;
+  background: transparent; color: var(--muted);
+  border-left: 1px solid var(--outline-variant); transition: all 0.15s ease;
+}
+.wp-history-del:hover { background: var(--error-container); color: var(--error); }
+.wp-history-confirm {
+  display: flex; align-items: center; gap: 6px; padding: 0 12px; flex-shrink: 0;
+  border-left: 1px solid var(--outline-variant); font-size: 12px; font-weight: 700; color: var(--muted);
+}
+.wp-history-confirm-yes, .wp-history-confirm-no {
+  border: none; cursor: pointer; border-radius: 7px; padding: 5px 10px; font-weight: 800; font-size: 12px;
+}
+.wp-history-confirm-yes { background: var(--error); color: #fff; }
+.wp-history-confirm-no { background: var(--surface-2); color: var(--on-surface); }
+
 /* ── Two-factor authentication (settings) ── */
 .twofa-status-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .twofa-status-text { flex: 1; min-width: 220px; }
@@ -7868,6 +7990,71 @@ button:disabled {
 
 /* The 2FA subsection lives inside the Security card; give it breathing room. */
 .settings-card + .section-head { margin-top: 8px; }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Settings — Material 3 refresh
+   Replaces the frosted-glass cards with solid tonal surfaces, real elevation
+   tiers, tonal section icons and tidier headers. Scoped to the dashboard so
+   nothing else changes.
+   ───────────────────────────────────────────────────────────────────────── */
+.settings-dashboard .settings-card {
+  background: var(--surface-1);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border: 1px solid var(--outline-variant);
+  border-radius: 20px;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+[data-theme="dark"] .settings-dashboard .settings-card {
+  background: var(--surface-1);
+  border: 1px solid var(--outline-variant);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+.settings-dashboard .settings-card:hover {
+  box-shadow: 0 4px 10px rgba(16, 24, 40, 0.08), 0 2px 4px rgba(16, 24, 40, 0.05);
+  border-color: color-mix(in srgb, var(--primary) 22%, var(--outline-variant));
+  transform: none;
+}
+[data-theme="dark"] .settings-dashboard .settings-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+/* Tonal (filled) section icons — Material 3 primary container. */
+.settings-dashboard .section-icon {
+  background: var(--primary-container);
+  border: none;
+  color: var(--primary);
+  box-shadow: none;
+  border-radius: 16px;
+}
+
+/* The profile hero reads as the card's tonal header strip. */
+.settings-dashboard .profile-hero-modern {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 10%, var(--surface-1)), var(--surface-1));
+  border-bottom: 1px solid var(--outline-variant);
+}
+
+/* Segmented-control feel for the appearance pickers. */
+.settings-dashboard .theme-opt,
+.settings-dashboard .font-opt,
+.settings-dashboard .layout-opt {
+  border-radius: 16px;
+  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.settings-dashboard .theme-opt.active,
+.settings-dashboard .font-opt.active,
+.settings-dashboard .layout-opt.active {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 55%, transparent) inset;
+}
+
+/* Material filled buttons inside the dashboard: pill shape, state layer. */
+.settings-dashboard .btn-primary {
+  border-radius: 999px;
+}
+.settings-dashboard .diag-stat-row {
+  border-radius: 14px;
+}
 
 .wp-row-done td { background: color-mix(in srgb, var(--success) 7%, var(--surface)) !important; }
 
@@ -7921,3 +8108,38 @@ button:disabled {
 }
 
 
+
+/* Excel Top Summary UI */
+.wp-excel-summary-container {
+  overflow-x: auto;
+  margin-bottom: 24px;
+}
+.wp-excel-summary {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  font-size: 14px;
+}
+.wp-excel-summary td {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+}
+.wp-excel-title {
+  font-weight: 600;
+  color: var(--text);
+}
+.wp-excel-saved {
+  text-align: right;
+  color: var(--text-dim);
+}
+.wp-excel-label {
+  font-weight: 500;
+  color: var(--text-muted);
+}
+.wp-excel-val, .wp-excel-pct {
+  text-align: right;
+  font-weight: 600;
+  color: var(--primary);
+}

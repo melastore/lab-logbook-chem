@@ -26,7 +26,7 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { LabLogo } from "@/components/LabLogo";
 import { parseAnalystSignature, signatureSummary, type AnalystSignaturePayload } from "@/lib/signature";
-import type { WeeklyPlan } from "@/lib/weekly-plan";
+import { taskWeight, taskAchWeight, type WeeklyPlan } from "@/lib/weekly-plan";
 
 type Tab = "instruments" | "records" | "insights" | "users" | "forms" | "weekly";
 
@@ -2681,8 +2681,6 @@ function SignatureReview({ signature }: { signature: AnalystSignaturePayload | n
    Tab — Weekly Reports (read-only view of every analyst's weekly plan/report)
    ════════════════════════════════════════════════════════════════════════════ */
 
-const WP_WEEKLY_HOURS = 40;
-
 function wpWeekRange(weekStart: string) {
   const start = new Date(weekStart + "T00:00:00");
   if (isNaN(start.getTime())) return weekStart;
@@ -2695,12 +2693,11 @@ function wpWeekRange(weekStart: string) {
 
 function wpStats(plan: WeeklyPlan) {
   const totalHours = plan.tasks.reduce((s, t) => s + (Number(t.hours) || 0), 0);
-  const totalWeight = totalHours / WP_WEEKLY_HOURS;
-  const totalExec = plan.tasks.reduce(
-    (s, t) => s + ((Number(t.hours) || 0) / WP_WEEKLY_HOURS) * ((Number(t.executionPercent) || 0) / 100), 0);
+  const totalWeight = plan.tasks.reduce((s, t) => s + taskWeight(t), 0);
+  const totalExec = plan.tasks.reduce((s, t) => s + taskAchWeight(t), 0);
   const achievement = totalWeight > 0 ? (totalExec / totalWeight) * 100 : 0;
-  const completed = plan.tasks.filter((t) => (Number(t.executionPercent) || 0) >= 100).length;
-  return { totalHours, achievement, completed, taskCount: plan.tasks.length };
+  const completed = plan.tasks.filter((t) => { const w = taskWeight(t); return w > 0 && taskAchWeight(t) >= w - 1e-9; }).length;
+  return { totalHours, totalWeight, achievement, completed, taskCount: plan.tasks.length };
 }
 
 function wpColor(pct: number) {
@@ -2750,21 +2747,25 @@ function WeeklyReportsTab() {
       }),
     ];
     const detail: (string | number)[][] = [
-      ["Analyst", "Week", "No.", "Date", "Hours", "Main Task", "Achievement %", "Comment / Issues"],
+      ["Analyst", "Week", "No.", "Date", "Hours", "Main Task", "Weight", "Ach. Weight", "Achievement %", "Comment / Issues"],
     ];
     for (const p of rows) {
-      p.tasks.forEach((t, i) =>
+      const tw = p.tasks.reduce((s, t) => s + taskWeight(t), 0);
+      p.tasks.forEach((t, i) => {
+        const aw = taskAchWeight(t);
         detail.push([
           p.username, wpWeekRange(p.weekStartDate), i + 1, t.date || "", Number(t.hours) || 0,
-          t.activity || "", Number(t.executionPercent) || 0, t.comment || "",
-        ]));
+          t.activity || "", Number(taskWeight(t).toFixed(3)), Number(aw.toFixed(3)),
+          Number((tw > 0 ? (aw / tw) * 100 : 0).toFixed(1)), t.comment || "",
+        ]);
+      });
     }
     const wb = XLSX.utils.book_new();
     const sumWs = XLSX.utils.aoa_to_sheet(summary);
     sumWs["!cols"] = [{ wch: 16 }, { wch: 24 }, { wch: 7 }, { wch: 10 }, { wch: 11 }, { wch: 14 }, { wch: 22 }];
     XLSX.utils.book_append_sheet(wb, sumWs, "Summary");
     const detWs = XLSX.utils.aoa_to_sheet(detail);
-    detWs["!cols"] = [{ wch: 16 }, { wch: 24 }, { wch: 5 }, { wch: 12 }, { wch: 7 }, { wch: 40 }, { wch: 14 }, { wch: 32 }];
+    detWs["!cols"] = [{ wch: 16 }, { wch: 24 }, { wch: 5 }, { wch: 12 }, { wch: 7 }, { wch: 40 }, { wch: 9 }, { wch: 11 }, { wch: 14 }, { wch: 32 }];
     XLSX.utils.book_append_sheet(wb, detWs, "Task Detail");
     const tag = weekFilter || "all";
     XLSX.writeFile(wb, `weekly_reports_${tag}.xlsx`);
@@ -2832,21 +2833,27 @@ function WeeklyReportsTab() {
                           <th style={{ minWidth: 110 }}>Date</th>
                           <th style={{ minWidth: 70 }}>Hours</th>
                           <th style={{ minWidth: 260 }}>Main Task</th>
+                          <th style={{ minWidth: 80 }}>Weight</th>
+                          <th style={{ minWidth: 100 }}>Ach. Weight</th>
                           <th style={{ minWidth: 110 }}>Achievement</th>
                           <th style={{ minWidth: 220 }}>Comment / Issues</th>
                         </tr>
                       </thead>
                       <tbody>
                         {plan.tasks.map((t, i) => {
-                          const exec = Number(t.executionPercent) || 0;
-                          const done = exec >= 100;
+                          const weight = taskWeight(t);
+                          const achWeight = taskAchWeight(t);
+                          const achPct = s.totalWeight > 0 ? (achWeight / s.totalWeight) * 100 : 0;
+                          const done = weight > 0 && achWeight >= weight - 1e-9;
                           return (
                             <tr key={t.id} className={done ? "wp-row-done" : ""}>
                               <td className="doc-rowno">{i + 1}</td>
                               <td className="spreadsheet-cell" style={{ padding: "8px 12px", fontSize: 13 }}>{t.date || "—"}</td>
                               <td className="spreadsheet-cell wp-calc">{t.hours || 0}</td>
                               <td className="spreadsheet-cell" style={{ padding: "8px 12px", fontSize: 13 }}>{t.activity || "—"}</td>
-                              <td className="spreadsheet-cell wp-calc" style={{ color: wpColor(exec), fontWeight: 800 }}>{exec}%</td>
+                              <td className="spreadsheet-cell wp-calc">{weight.toFixed(3)}</td>
+                              <td className="spreadsheet-cell wp-calc wp-calc-strong">{achWeight.toFixed(3)}</td>
+                              <td className="spreadsheet-cell wp-calc" style={{ color: wpColor(achPct), fontWeight: 800 }}>{achPct.toFixed(1)}%</td>
                               <td className="spreadsheet-cell" style={{ padding: "8px 12px", fontSize: 13, color: "var(--muted)" }}>{t.comment || "—"}</td>
                             </tr>
                           );
