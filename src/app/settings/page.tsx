@@ -6,7 +6,8 @@ import {
   User, Lock, Palette, LayoutDashboard, 
   Activity, Settings as SettingsIcon, LogOut, ArrowLeft, 
   CheckCircle2, XCircle, RefreshCw, 
-  Type, Fingerprint, Eye, EyeOff, Cpu, Info, Check, Trash2, Wifi, AlertTriangle, ShieldCheck
+  Type, Fingerprint, Eye, EyeOff, Cpu, Info, Check, Trash2, Wifi, AlertTriangle, ShieldCheck,
+  QrCode, Smartphone
 } from "lucide-react";
 import type { AppUser } from "@/lib/logbook";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -27,7 +28,14 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
-  const [activeTab, setActiveTab] = useState<"profile" | "security" | "appearance" | "diagnostics">("profile");
+
+  // Two-factor authentication (TOTP / authenticator app)
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState<boolean | null>(null);
+  const [twoFactorSetup, setTwoFactorSetup] = useState<{ uri: string; secret: string; qr: string } | null>(null);
+  const [twoFactorCode, setTwoFactorCode] = useState("");
+  const [twoFactorBusy, setTwoFactorBusy] = useState(false);
+  const [twoFactorNotice, setTwoFactorNotice] = useState<Notice>(null);
+  const [disabling2fa, setDisabling2fa] = useState(false);
 
   // Diagnostics and Storage stats
   const [diagnosticsRunning, setDiagnosticsRunning] = useState(false);
@@ -70,6 +78,78 @@ export default function SettingsPage() {
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     window.location.href = "/login";
+  }
+
+  // Load current 2FA state once the user is known.
+  useEffect(() => {
+    fetch("/api/auth/2fa")
+      .then((r) => (r.ok ? r.json() : { enabled: false }))
+      .then((d) => setTwoFactorEnabled(!!d.enabled))
+      .catch(() => setTwoFactorEnabled(false));
+  }, []);
+
+  // Begin enrollment: get a fresh secret + otpauth URI, render a QR locally.
+  async function startTwoFactorSetup() {
+    setTwoFactorBusy(true);
+    setTwoFactorNotice(null);
+    setTwoFactorCode("");
+    try {
+      const res = await fetch("/api/auth/2fa/setup", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not start setup.");
+      const QRCode = await import("qrcode");
+      const toDataURL = QRCode.toDataURL || QRCode.default?.toDataURL;
+      const qr = await toDataURL(data.uri, { margin: 1, width: 220 });
+      setTwoFactorSetup({ uri: data.uri, secret: data.secret, qr });
+    } catch (e) {
+      setTwoFactorNotice({ type: "error", text: e instanceof Error ? e.message : "Setup failed." });
+    } finally {
+      setTwoFactorBusy(false);
+    }
+  }
+
+  async function confirmTwoFactor() {
+    setTwoFactorBusy(true);
+    setTwoFactorNotice(null);
+    try {
+      const res = await fetch("/api/auth/2fa/enable", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: twoFactorCode }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Verification failed.");
+      setTwoFactorEnabled(true);
+      setTwoFactorSetup(null);
+      setTwoFactorCode("");
+      setTwoFactorNotice({ type: "success", text: "Two-factor authentication is now enabled." });
+    } catch (e) {
+      setTwoFactorNotice({ type: "error", text: e instanceof Error ? e.message : "Verification failed." });
+    } finally {
+      setTwoFactorBusy(false);
+    }
+  }
+
+  async function disableTwoFactor() {
+    setTwoFactorBusy(true);
+    setTwoFactorNotice(null);
+    try {
+      const res = await fetch("/api/auth/2fa/disable", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: twoFactorCode }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not disable 2FA.");
+      setTwoFactorEnabled(false);
+      setDisabling2fa(false);
+      setTwoFactorCode("");
+      setTwoFactorNotice({ type: "success", text: "Two-factor authentication disabled." });
+    } catch (e) {
+      setTwoFactorNotice({ type: "error", text: e instanceof Error ? e.message : "Could not disable 2FA." });
+    } finally {
+      setTwoFactorBusy(false);
+    }
   }
 
   function generateAvatar() {
@@ -246,33 +326,10 @@ export default function SettingsPage() {
           </div>
         </header>
 
-        <div className="settings-content-grid">
-          {/* ── Left Column: Nav ── */}
-          <nav className="settings-side-nav">
-            <button type="button" onClick={() => setActiveTab("profile")} className={`settings-nav-item ${activeTab === "profile" ? "active" : ""}`}>
-              <User size={18} />
-              <span>Identity Profile</span>
-            </button>
-            <button type="button" onClick={() => setActiveTab("security")} className={`settings-nav-item ${activeTab === "security" ? "active" : ""}`}>
-              <Lock size={18} />
-              <span>Credentials & Safety</span>
-            </button>
-            <button type="button" onClick={() => setActiveTab("appearance")} className={`settings-nav-item ${activeTab === "appearance" ? "active" : ""}`}>
-              <Palette size={18} />
-              <span>UI Theme & Layout</span>
-            </button>
-            <button type="button" onClick={() => setActiveTab("diagnostics")} className={`settings-nav-item ${activeTab === "diagnostics" ? "active" : ""}`}>
-              <Cpu size={18} />
-              <span>Diagnostics & Quota</span>
-            </button>
-          </nav>
+        <div className="settings-dashboard">
 
-          {/* ── Right Column: Dynamic Panel Content ── */}
-          <div className="settings-sections">
-            
-            {/* PROFILE PANEL */}
-            {activeTab === "profile" && (
-              <div className="settings-tab-content">
+            {/* PROFILE */}
+            <div className="settings-tab-content">
                 <div className="section-head">
                   <div className="section-icon"><User size={22} /></div>
                   <div>
@@ -337,12 +394,10 @@ export default function SettingsPage() {
                     </div>
                   </form>
                 </div>
-              </div>
-            )}
+            </div>
 
-            {/* SECURITY PANEL */}
-            {activeTab === "security" && (
-              <div className="settings-tab-content">
+            {/* SECURITY */}
+            <div className="settings-tab-content">
                 <div className="section-head">
                   <div className="section-icon"><Lock size={22} /></div>
                   <div>
@@ -457,12 +512,115 @@ export default function SettingsPage() {
                     </div>
                   </form>
                 </div>
-              </div>
-            )}
 
-            {/* APPEARANCE PANEL */}
-            {activeTab === "appearance" && (
-              <div className="settings-tab-content">
+                {/* TWO-FACTOR AUTHENTICATION */}
+                <div className="section-head" style={{ marginTop: 8 }}>
+                  <div className="section-icon"><Smartphone size={22} /></div>
+                  <div>
+                    <h2>Two-Factor Authentication</h2>
+                    <p>Add a one-time code from an authenticator app (Google Authenticator, Authy, 1Password…) on top of your password.</p>
+                  </div>
+                </div>
+
+                <div className="settings-card">
+                  <div className="twofa-status-row">
+                    <div className="twofa-status-text">
+                      <span className={`twofa-badge ${twoFactorEnabled ? "on" : "off"}`}>
+                        {twoFactorEnabled ? <ShieldCheck size={15} /> : <Lock size={15} />}
+                        {twoFactorEnabled === null ? "Checking…" : twoFactorEnabled ? "Enabled" : "Disabled"}
+                      </span>
+                      <p>
+                        {twoFactorEnabled
+                          ? "Your account asks for an authenticator code at sign-in."
+                          : "Protect your account with a time-based one-time code."}
+                      </p>
+                    </div>
+                    {twoFactorEnabled === false && !twoFactorSetup && (
+                      <button type="button" className="btn btn-primary" onClick={startTwoFactorSetup} disabled={twoFactorBusy}>
+                        {twoFactorBusy ? <RefreshCw className="spin" size={15} /> : <QrCode size={16} />}
+                        <span style={{ marginLeft: 8 }}>Turn on 2FA</span>
+                      </button>
+                    )}
+                    {twoFactorEnabled === true && !disabling2fa && (
+                      <button type="button" className="btn btn-outline" onClick={() => { setDisabling2fa(true); setTwoFactorCode(""); setTwoFactorNotice(null); }}>
+                        Turn off
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Enrollment: scan QR + confirm a code */}
+                  {twoFactorSetup && (
+                    <div className="twofa-enroll">
+                      <ol className="twofa-steps">
+                        <li>Scan this QR code with your authenticator app.</li>
+                        <li>Enter the 6-digit code it shows to confirm.</li>
+                      </ol>
+                      <div className="twofa-qr-wrap">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={twoFactorSetup.qr} alt="2FA QR code" width={200} height={200} />
+                        <div className="twofa-manual">
+                          <span>Can&apos;t scan? Enter this key manually:</span>
+                          <code>{twoFactorSetup.secret}</code>
+                        </div>
+                      </div>
+                      <div className="twofa-confirm">
+                        <input
+                          className="input-modern"
+                          type="text"
+                          inputMode="numeric"
+                          maxLength={6}
+                          placeholder="123456"
+                          value={twoFactorCode}
+                          onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, ""))}
+                        />
+                        <button type="button" className="btn btn-primary" onClick={confirmTwoFactor} disabled={twoFactorBusy || twoFactorCode.length !== 6}>
+                          {twoFactorBusy ? <RefreshCw className="spin" size={15} /> : <Check size={16} />}
+                          <span style={{ marginLeft: 8 }}>Verify &amp; Enable</span>
+                        </button>
+                        <button type="button" className="btn btn-outline" onClick={() => { setTwoFactorSetup(null); setTwoFactorCode(""); setTwoFactorNotice(null); }} disabled={twoFactorBusy}>
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Disable: require a current code */}
+                  {disabling2fa && (
+                    <div className="twofa-confirm" style={{ marginTop: 16 }}>
+                      <input
+                        className="input-modern"
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={6}
+                        placeholder="Current code"
+                        value={twoFactorCode}
+                        onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, ""))}
+                      />
+                      <button type="button" className="btn btn-primary" onClick={disableTwoFactor} disabled={twoFactorBusy || twoFactorCode.length !== 6}>
+                        {twoFactorBusy ? <RefreshCw className="spin" size={15} /> : <span>Confirm disable</span>}
+                      </button>
+                      <button type="button" className="btn btn-outline" onClick={() => { setDisabling2fa(false); setTwoFactorCode(""); }} disabled={twoFactorBusy}>
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+
+                  {twoFactorNotice && (
+                    <div className={`notice notice-${twoFactorNotice.type} notice-inline`} style={{
+                      marginTop: 16,
+                      background: twoFactorNotice.type === "success" ? "var(--success-container)" : "var(--error-container)",
+                      color: twoFactorNotice.type === "success" ? "var(--success)" : "var(--error)",
+                      border: `1px solid ${twoFactorNotice.type === "success" ? "var(--success)" : "var(--error)"}20`
+                    }}>
+                      {twoFactorNotice.type === "success" ? <CheckCircle2 size={18} /> : <XCircle size={18} />}
+                      <span>{twoFactorNotice.text}</span>
+                    </div>
+                  )}
+                </div>
+            </div>
+
+            {/* APPEARANCE */}
+            <div className="settings-tab-content settings-tab-wide">
                 <div className="section-head">
                   <div className="section-icon"><Palette size={22} /></div>
                   <div>
@@ -568,12 +726,10 @@ export default function SettingsPage() {
 
                   </div>
                 </div>
-              </div>
-            )}
+            </div>
 
-            {/* DIAGNOSTICS & SYSTEM PANEL */}
-            {activeTab === "diagnostics" && (
-              <div className="settings-tab-content">
+            {/* DIAGNOSTICS & SYSTEM */}
+            <div className="settings-tab-content settings-tab-wide">
                 <div className="section-head">
                   <div className="section-icon"><Cpu size={22} /></div>
                   <div>
@@ -664,10 +820,8 @@ export default function SettingsPage() {
                   </div>
 
                 </div>
-              </div>
-            )}
+            </div>
 
-          </div>
         </div>
       </div>
 

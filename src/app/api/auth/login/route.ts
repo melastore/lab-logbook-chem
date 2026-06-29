@@ -2,6 +2,8 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { loginWithUsername } from "@/lib/logbook";
 import { sessionCookieName } from "@/lib/session";
+import { getTwoFactor } from "@/lib/twofactor";
+import { verifyTotp } from "@/lib/totp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,6 +12,7 @@ export async function POST(request: Request) {
   const body = await request.json();
   const username = clean(body.username);
   const password = clean(body.password);
+  const twoFactorToken = clean(body.twoFactorToken);
 
   if (!username || !password) {
     return NextResponse.json({ error: "Username and password are required." }, { status: 400 });
@@ -17,6 +20,22 @@ export async function POST(request: Request) {
 
   try {
     const session = await loginWithUsername(username, password);
+
+    // Password is valid — enforce the second factor if the account has it on.
+    const twoFactor = await getTwoFactor(username);
+    if (twoFactor?.enabled) {
+      if (!twoFactorToken) {
+        // Don't issue a cookie yet; the client re-submits with the code.
+        return NextResponse.json({ twoFactorRequired: true });
+      }
+      if (!verifyTotp(twoFactor.secret, twoFactorToken)) {
+        return NextResponse.json(
+          { error: "Invalid authentication code.", twoFactorRequired: true },
+          { status: 401 }
+        );
+      }
+    }
+
     const cookieStore = await cookies();
     cookieStore.set(sessionCookieName, session.token, {
       httpOnly: true,

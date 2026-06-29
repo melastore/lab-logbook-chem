@@ -4,7 +4,7 @@ import { FormEvent, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { LabLogo } from "@/components/LabLogo";
 import {
-  User, Lock, Eye, EyeOff, ArrowRight, Shield, RefreshCw, AlertTriangle
+  User, Lock, Eye, EyeOff, ArrowRight, Shield, RefreshCw, AlertTriangle, ShieldCheck
 } from "lucide-react";
 
 function LoginForm() {
@@ -17,6 +17,9 @@ function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // Second factor: shown only after a password check passes for a 2FA account.
+  const [twoFactorRequired, setTwoFactorRequired] = useState(false);
+  const [twoFactorToken, setTwoFactorToken] = useState("");
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -26,16 +29,26 @@ function LoginForm() {
     const response = await fetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify(
+        twoFactorRequired ? { username, password, twoFactorToken } : { username, password }
+      ),
     });
 
-    if (!response.ok) {
-      setMessage("Invalid username or password.");
+    const result = await response.json().catch(() => ({}));
+
+    // Account has 2FA: switch to the code step (or report a bad code).
+    if (result.twoFactorRequired) {
+      setTwoFactorRequired(true);
+      setMessage(response.ok ? "" : "Invalid authentication code.");
       setSubmitting(false);
       return;
     }
 
-    const result = await response.json();
+    if (!response.ok) {
+      setMessage(twoFactorRequired ? "Invalid authentication code." : "Invalid username or password.");
+      setSubmitting(false);
+      return;
+    }
 
     if (result.passwordChangeRequired) {
       router.push(`/change-password?redirect=${encodeURIComponent(redirectTo)}`);
@@ -83,47 +96,76 @@ function LoginForm() {
             </div>
 
             <form className="auth-form-minimal" onSubmit={handleSubmit}>
-              <div className="auth-field-group">
-                <label className="auth-field-label" htmlFor="username">Username</label>
-                <div className="input-field">
-                  <div className="input-icon"><User size={18} /></div>
-                  <input
-                    id="username"
-                    type="text"
-                    autoComplete="username"
-                    placeholder="Enter your username"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    required
-                  />
-                </div>
-              </div>
+              {!twoFactorRequired ? (
+                <>
+                  <div className="auth-field-group">
+                    <label className="auth-field-label" htmlFor="username">Username</label>
+                    <div className="input-field">
+                      <div className="input-icon"><User size={18} /></div>
+                      <input
+                        id="username"
+                        type="text"
+                        autoComplete="username"
+                        placeholder="Enter your username"
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                        required
+                      />
+                    </div>
+                  </div>
 
-              <div className="auth-field-group">
-                <label className="auth-field-label" htmlFor="password">Password</label>
-                <div className="input-field">
-                  <div className="input-icon"><Lock size={18} /></div>
-                  <input
-                    id="password"
-                    type={showPassword ? "text" : "password"}
-                    autoComplete="current-password"
-                    placeholder="Enter your password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                  />
-                  <button
-                    type="button"
-                    className="input-trailing-btn"
-                    onClick={() => setShowPassword((v) => !v)}
-                    aria-label={showPassword ? "Hide password" : "Show password"}
-                    title={showPassword ? "Hide password" : "Show password"}
-                    tabIndex={-1}
-                  >
-                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
+                  <div className="auth-field-group">
+                    <label className="auth-field-label" htmlFor="password">Password</label>
+                    <div className="input-field">
+                      <div className="input-icon"><Lock size={18} /></div>
+                      <input
+                        id="password"
+                        type={showPassword ? "text" : "password"}
+                        autoComplete="current-password"
+                        placeholder="Enter your password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        required
+                      />
+                      <button
+                        type="button"
+                        className="input-trailing-btn"
+                        onClick={() => setShowPassword((v) => !v)}
+                        aria-label={showPassword ? "Hide password" : "Show password"}
+                        title={showPassword ? "Hide password" : "Show password"}
+                        tabIndex={-1}
+                      >
+                        {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="auth-field-group">
+                  <label className="auth-field-label" htmlFor="twoFactorToken">
+                    <ShieldCheck size={15} style={{ verticalAlign: "-2px", marginRight: 6 }} />
+                    Authentication code
+                  </label>
+                  <div className="input-field">
+                    <div className="input-icon"><Shield size={18} /></div>
+                    <input
+                      id="twoFactorToken"
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      placeholder="6-digit code"
+                      maxLength={6}
+                      value={twoFactorToken}
+                      onChange={(e) => setTwoFactorToken(e.target.value.replace(/\D/g, ""))}
+                      autoFocus
+                      required
+                    />
+                  </div>
+                  <p className="auth-hint" style={{ fontSize: 13, color: "var(--muted)", marginTop: 6 }}>
+                    Open your authenticator app and enter the current code for this account.
+                  </p>
                 </div>
-              </div>
+              )}
 
               {message && (
                 <div className="notice notice-error notice-inline" style={{ marginTop: "8px" }}>
@@ -145,11 +187,22 @@ function LoginForm() {
                   </>
                 ) : (
                   <>
-                    <span>Sign In</span>
+                    <span>{twoFactorRequired ? "Verify Code" : "Sign In"}</span>
                     <ArrowRight size={16} />
                   </>
                 )}
               </button>
+
+              {twoFactorRequired && (
+                <button
+                  type="button"
+                  className="auth-back-link"
+                  style={{ background: "none", border: "none", color: "var(--muted)", fontSize: 13, cursor: "pointer", marginTop: 4 }}
+                  onClick={() => { setTwoFactorRequired(false); setTwoFactorToken(""); setMessage(""); }}
+                >
+                  ← Use a different account
+                </button>
+              )}
             </form>
 
 

@@ -56,3 +56,4 @@ history.txt
 # private / presentation docs (not for the repo)
 /private-docs/
 *.docx
+*.xlsx

@@ -242,7 +242,7 @@ export default function WeeklyPlanPage() {
                             onChange={(e) => updateTask(task.id, "date", e.target.value)} />
                         </td>
                         <td className="spreadsheet-cell">
-                          <input className="spreadsheet-input" type="number" min="0" step="0.5" value={task.hours}
+                          <input className="spreadsheet-input" type="number" min="0" step="0.5" value={task.hours || ""}
                             onChange={(e) => updateTask(task.id, "hours", parseFloat(e.target.value) || 0)} />
                         </td>
                         <td className="spreadsheet-cell">
@@ -252,7 +252,7 @@ export default function WeeklyPlanPage() {
                         <td className="spreadsheet-cell wp-calc">{planPct.toFixed(1)}%</td>
                         <td className="spreadsheet-cell">
                           <div className="wp-ach-cell">
-                            <input className="spreadsheet-input wp-ach-input" type="number" min="0" max="100" value={task.executionPercent}
+                            <input className="spreadsheet-input wp-ach-input" type="number" min="0" max="100" value={task.executionPercent || ""}
                               onChange={(e) => updateTask(task.id, "executionPercent", Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)))} />
                             <span className="wp-ach-pct">%</span>
                           </div>

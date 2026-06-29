@@ -7812,9 +7812,62 @@ button:disabled {
 }
 .wp-calc-strong { color: var(--on-surface); font-weight: 800; }
 
-.wp-ach-cell { display: flex; align-items: center; gap: 4px; padding-left: 6px; }
-.wp-ach-input { width: 64px !important; text-align: center; }
+.wp-ach-cell { display: flex; align-items: center; gap: 2px; padding-left: 6px; }
+.wp-ach-input { width: 72px !important; text-align: center; padding-left: 6px !important; padding-right: 6px !important; }
+/* Hide the number spinners — they steal horizontal room and clip "100". */
+.wp-ach-input::-webkit-outer-spin-button,
+.wp-ach-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.wp-ach-input { -moz-appearance: textfield; appearance: textfield; }
 .wp-ach-pct { font-size: 12px; color: var(--muted); padding-right: 6px; }
+
+/* ── Two-factor authentication (settings) ── */
+.twofa-status-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.twofa-status-text { flex: 1; min-width: 220px; }
+.twofa-status-text p { margin: 8px 0 0; color: var(--muted); font-size: 14px; }
+.twofa-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; padding: 4px 10px; border-radius: 999px; }
+.twofa-badge.on { color: var(--success); background: var(--success-container); }
+.twofa-badge.off { color: var(--muted); background: var(--surface-2); }
+.twofa-enroll { margin-top: 18px; border-top: 1px solid var(--outline-variant); padding-top: 18px; }
+.twofa-steps { margin: 0 0 16px; padding-left: 20px; color: var(--on-surface); font-size: 14px; line-height: 1.7; }
+.twofa-qr-wrap { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+.twofa-qr-wrap img { border-radius: 12px; background: #fff; padding: 8px; border: 1px solid var(--outline-variant); }
+.twofa-manual { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
+.twofa-manual code { font-size: 14px; letter-spacing: 1px; word-break: break-all; color: var(--on-surface); background: var(--surface-2); padding: 8px 10px; border-radius: 8px; }
+.twofa-confirm { display: flex; align-items: center; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+.twofa-confirm .input-modern { width: 150px; letter-spacing: 4px; text-align: center; font-size: 18px; font-weight: 600; }
+
+/* ── Settings: card dashboard layout (replaces the old tab/sidebar grid) ── */
+.settings-dashboard {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 28px;
+  align-items: start;
+  padding: 40px 48px;
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+}
+/* Form-heavy sections get the full row; lighter ones pair up two-across. */
+.settings-tab-content.settings-tab-wide { grid-column: 1 / -1; }
+
+/* Tighter section headers so each card reads as a tile, not a full page. */
+.settings-dashboard .section-head { margin-bottom: 18px; gap: 14px; }
+.settings-dashboard .section-icon { width: 46px; height: 46px; border-radius: 13px; }
+.settings-dashboard .section-icon svg { width: 22px; height: 22px; }
+.settings-dashboard .section-head h2 { font-size: 19px; font-weight: 800; }
+.settings-dashboard .section-head p { font-size: 13px; line-height: 1.45; }
+.settings-dashboard .section-head + .section-head { margin-top: 28px; }
+/* Cards sit in a grid — drop the lift-on-hover so rows don't jump. */
+.settings-dashboard .settings-card:hover { transform: none; }
+.settings-dashboard .profile-hero-modern { padding: 28px; gap: 24px; }
+
+@media (max-width: 1000px) {
+  .settings-dashboard { grid-template-columns: 1fr; padding: 20px; gap: 20px; }
+  .settings-tab-content.settings-tab-wide { grid-column: auto; }
+}
+
+/* The 2FA subsection lives inside the Security card; give it breathing room. */
+.settings-card + .section-head { margin-top: 8px; }
 
 .wp-row-done td { background: color-mix(in srgb, var(--success) 7%, var(--surface)) !important; }
 
