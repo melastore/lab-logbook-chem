@@ -1555,9 +1555,9 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
                           </button>
                         </div>
                         <button className="btn btn-ghost btn-sm btn-icon-only" type="button" onClick={() => { openEdit(tpl); setInstrTab("content"); }} title="Edit General Info"><FileText size={14} /></button>
-                        <button className="btn btn-outline btn-sm btn-icon-only" type="button" onClick={() => openEdit(tpl)} title="Edit specifications"><Edit2 size={14} /></button>
-                        <button className="btn btn-danger btn-sm btn-icon-only" type="button" disabled={deleting === tpl.id} onClick={() => deleteTemplate(tpl.id)} title="Delete">
-                          {deleting === tpl.id ? "…" : <Trash2 size={14} />}
+                        <button className="btn btn-outline btn-sm" type="button" onClick={() => openEdit(tpl)} title="Edit specifications"><Edit2 size={14} /> <span>Edit</span></button>
+                        <button className="btn btn-danger btn-sm" type="button" disabled={deleting === tpl.id} onClick={() => deleteTemplate(tpl.id)} title="Delete">
+                          {deleting === tpl.id ? <span>Deleting…</span> : (<><Trash2 size={14} /> <span>Delete</span></>)}
                         </button>
                       </div>
                     </td>
@@ -2447,8 +2447,8 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
                     <div style={{ display: "flex", gap: 8 }}>
                       <button className="btn btn-outline btn-sm btn-icon-gap" type="button" onClick={() => openEdit(f, i)}><Edit2 size={14} /> <span>Edit</span></button>
                       <button className="btn btn-ghost btn-sm btn-icon-gap" type="button" onClick={() => cloneForm(f)} title="Clone Form"><FileOutput size={14} /> <span>Clone</span></button>
-                      <button className="btn btn-danger btn-sm btn-icon-only" type="button" disabled={deleting === f.id || f.id === "instrument"} onClick={() => removeForm(f.id)} title={f.id === "instrument" ? "System form cannot be deleted" : "Delete form"}>
-                        {deleting === f.id ? "…" : <Trash2 size={14} />}
+                      <button className="btn btn-danger btn-sm btn-icon-gap" type="button" disabled={deleting === f.id || f.id === "instrument"} onClick={() => removeForm(f.id)} title={f.id === "instrument" ? "System form cannot be deleted" : "Delete form"}>
+                        {deleting === f.id ? <span>Deleting…</span> : (<><Trash2 size={14} /> <span>Delete</span></>)}
                       </button>
                     </div>
                   </td>
@@ -2697,7 +2697,7 @@ function wpStats(plan: WeeklyPlan) {
   const totalExec = plan.tasks.reduce((s, t) => s + taskAchWeight(t), 0);
   const achievement = totalWeight > 0 ? (totalExec / totalWeight) * 100 : 0;
   const completed = plan.tasks.filter((t) => { const w = taskWeight(t); return w > 0 && taskAchWeight(t) >= w - 1e-9; }).length;
-  return { totalHours, totalWeight, achievement, completed, taskCount: plan.tasks.length };
+  return { totalHours, totalWeight, totalExec, achievement, completed, taskCount: plan.tasks.length };
 }
 
 function wpColor(pct: number) {
@@ -2830,19 +2830,21 @@ function WeeklyReportsTab() {
                       <thead>
                         <tr>
                           <th className="doc-rowno-head">No.</th>
-                          <th style={{ minWidth: 110 }}>Date</th>
-                          <th style={{ minWidth: 70 }}>Hours</th>
-                          <th style={{ minWidth: 260 }}>Main Task</th>
-                          <th style={{ minWidth: 80 }}>Weight</th>
-                          <th style={{ minWidth: 100 }}>Ach. Weight</th>
-                          <th style={{ minWidth: 110 }}>Achievement</th>
-                          <th style={{ minWidth: 220 }}>Comment / Issues</th>
+                          <th style={{ minWidth: 110 }}><span className="wp-th-am">ቀን</span><span className="wp-th-en">Date</span></th>
+                          <th style={{ minWidth: 70 }}><span className="wp-th-am">ሰዓት</span><span className="wp-th-en">Hours</span></th>
+                          <th style={{ minWidth: 260 }}><span className="wp-th-am">ዋና ዋና ተግባራት</span><span className="wp-th-en">Main Tasks</span></th>
+                          <th style={{ minWidth: 80 }}><span className="wp-th-am">እቅድ (የሳምንቱ)</span><span className="wp-th-en">Plan %</span></th>
+                          <th style={{ minWidth: 120 }}><span className="wp-th-am">አፈጻጸም (የሳምንቱ)</span><span className="wp-th-en">Achievement %</span></th>
+                          <th style={{ minWidth: 220 }}><span className="wp-th-am">አስተያየት</span><span className="wp-th-en">Comment / Issues</span></th>
+                          <th style={{ minWidth: 90 }}><span className="wp-th-am">የስራው ክብደት</span><span className="wp-th-en">Weight</span></th>
+                          <th style={{ minWidth: 110 }}><span className="wp-th-am">የአፈጻጸም ክብደት</span><span className="wp-th-en">Ach. Weight</span></th>
                         </tr>
                       </thead>
                       <tbody>
                         {plan.tasks.map((t, i) => {
                           const weight = taskWeight(t);
                           const achWeight = taskAchWeight(t);
+                          const planPct = s.totalWeight > 0 ? (weight / s.totalWeight) * 100 : 0;
                           const achPct = s.totalWeight > 0 ? (achWeight / s.totalWeight) * 100 : 0;
                           const done = weight > 0 && achWeight >= weight - 1e-9;
                           return (
@@ -2851,14 +2853,28 @@ function WeeklyReportsTab() {
                               <td className="spreadsheet-cell" style={{ padding: "8px 12px", fontSize: 13 }}>{t.date || "—"}</td>
                               <td className="spreadsheet-cell wp-calc">{t.hours || 0}</td>
                               <td className="spreadsheet-cell" style={{ padding: "8px 12px", fontSize: 13 }}>{t.activity || "—"}</td>
-                              <td className="spreadsheet-cell wp-calc">{weight.toFixed(3)}</td>
-                              <td className="spreadsheet-cell wp-calc wp-calc-strong">{achWeight.toFixed(3)}</td>
+                              <td className="spreadsheet-cell wp-calc">{planPct.toFixed(1)}%</td>
                               <td className="spreadsheet-cell wp-calc" style={{ color: wpColor(achPct), fontWeight: 800 }}>{achPct.toFixed(1)}%</td>
                               <td className="spreadsheet-cell" style={{ padding: "8px 12px", fontSize: 13, color: "var(--muted)" }}>{t.comment || "—"}</td>
+                              <td className="spreadsheet-cell wp-calc">{weight.toFixed(3)}</td>
+                              <td className="spreadsheet-cell wp-calc wp-calc-strong">{achWeight.toFixed(3)}</td>
                             </tr>
                           );
                         })}
                       </tbody>
+                      <tfoot>
+                        <tr className="wp-total-row">
+                          <td className="doc-rowno" />
+                          <td className="wp-total-label"><span className="wp-th-am">ድምር</span><span className="wp-th-en">Total</span></td>
+                          <td className="wp-calc">{s.totalHours}</td>
+                          <td />
+                          <td className="wp-calc">{s.totalHours > 0 ? "100.0%" : "0%"}</td>
+                          <td className="wp-calc" style={{ color: wpColor(s.achievement) }}>{s.achievement.toFixed(1)}%</td>
+                          <td />
+                          <td className="wp-calc">{s.totalWeight.toFixed(3)}</td>
+                          <td className="wp-calc wp-calc-strong">{s.totalExec.toFixed(3)}</td>
+                        </tr>
+                      </tfoot>
                     </table>
                     {plan.updatedAt && (
                       <p className="wp-admin-updated">Last updated {new Date(plan.updatedAt).toLocaleString()}</p>
