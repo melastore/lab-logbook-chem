@@ -6,7 +6,7 @@ import {
   User, Lock, Palette, LayoutDashboard, 
   Activity, Settings as SettingsIcon, LogOut, ArrowLeft, 
   CheckCircle2, XCircle, RefreshCw, 
-  Type, Fingerprint, Eye, EyeOff, Cpu, Info, Check, Trash2, Wifi, AlertTriangle, ShieldCheck,
+  Type, Fingerprint, Eye, EyeOff, Check, ShieldCheck,
   QrCode, Smartphone
 } from "lucide-react";
 import type { AppUser } from "@/lib/logbook";
@@ -37,13 +37,6 @@ export default function SettingsPage() {
   const [twoFactorNotice, setTwoFactorNotice] = useState<Notice>(null);
   const [disabling2fa, setDisabling2fa] = useState(false);
 
-  // Diagnostics and Storage stats
-  const [diagnosticsRunning, setDiagnosticsRunning] = useState(false);
-  const [latency, setLatency] = useState<number | null>(null);
-  const [diagTested, setDiagTested] = useState(false);
-  const [storageSize, setStorageSize] = useState("0 KB");
-  const [showClearModal, setShowClearModal] = useState(false);
-
   const { theme, setTheme, fontSize, setFontSize, formLayout, setFormLayout } = useSettings();
   const canAccessAdmin = user?.role === "admin" || user?.role === "supervisor";
 
@@ -59,21 +52,6 @@ export default function SettingsPage() {
       })
       .finally(() => setLoading(false));
   }, []);
-
-  // Update storage size on state changes
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      let total = 0;
-      for (const key in localStorage) {
-        if (localStorage.hasOwnProperty(key)) {
-          total += (localStorage[key].length + key.length) * 2;
-        }
-      }
-      setTimeout(() => {
-        setStorageSize((total / 1024).toFixed(2) + " KB");
-      }, 0);
-    }
-  }, [theme, fontSize, formLayout]);
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -190,7 +168,7 @@ export default function SettingsPage() {
     setPasswordNotice(null);
 
     if (newPassword !== confirmPassword) {
-      setPasswordNotice({ type: "error", text: "Passphrases do not match." });
+      setPasswordNotice({ type: "error", text: "Passwords do not match." });
       setSavingPassword(false);
       return;
     }
@@ -203,9 +181,9 @@ export default function SettingsPage() {
     const result = await response.json();
 
     if (!response.ok) {
-      setPasswordNotice({ type: "error", text: result.error || "Passphrase update failed." });
+      setPasswordNotice({ type: "error", text: result.error || "Password update failed." });
     } else {
-      setPasswordNotice({ type: "success", text: "Passphrase securely updated." });
+      setPasswordNotice({ type: "success", text: "Password securely updated." });
       setNewPassword("");
       setConfirmPassword("");
       setShowNewPassword(false);
@@ -222,30 +200,6 @@ export default function SettingsPage() {
       } catch (e) {}
       window.dispatchEvent(new CustomEvent("themechange", { detail: t }));
     }
-  };
-
-  const runDiagnostics = () => {
-    setDiagnosticsRunning(true);
-    setDiagTested(false);
-    setTimeout(() => {
-      setLatency(Math.floor(Math.random() * 18) + 6); // 6ms to 24ms
-      setDiagnosticsRunning(false);
-      setDiagTested(true);
-    }, 1200);
-  };
-
-  const clearSettingsCache = () => {
-    localStorage.clear();
-    setTheme("light");
-    setFontSize("medium");
-    setFormLayout("spreadsheet");
-    setTimeout(() => setStorageSize("0 KB"), 0);
-    setShowClearModal(false);
-    setProfileNotice({ type: "success", text: "Cache cleared successfully. Themes & layouts have been reset." });
-    // Apply changes to document element
-    document.documentElement.dataset.theme = "light";
-    document.documentElement.dataset.fontSize = "medium";
-    window.dispatchEvent(new CustomEvent("themechange", { detail: "light" }));
   };
 
   const strengthDetails = getPasswordStrength(newPassword);
@@ -402,7 +356,7 @@ export default function SettingsPage() {
                   <div className="section-icon"><Lock size={22} /></div>
                   <div>
                     <h2>Credentials & Safety</h2>
-                    <p>Update your credentials. Strong passphrases help protect analytical data integrity.</p>
+                    <p>Update your credentials. Strong passwords help protect analytical data integrity.</p>
                   </div>
                 </div>
 
@@ -410,7 +364,7 @@ export default function SettingsPage() {
                   <form className="settings-form-modern" onSubmit={savePassword}>
                     <div className="form-row-2">
                       <div className="field-modern">
-                        <label>New Passphrase</label>
+                        <label>New Password</label>
                         <div className="input-password-wrapper">
                           <input 
                             type={showNewPassword ? "text" : "password"} 
@@ -431,13 +385,13 @@ export default function SettingsPage() {
                       </div>
 
                       <div className="field-modern">
-                        <label>Confirm Passphrase</label>
+                        <label>Confirm Password</label>
                         <div className="input-password-wrapper">
                           <input 
                             type={showConfirmPassword ? "text" : "password"} 
                             value={confirmPassword} 
                             onChange={(e) => setConfirmPassword(e.target.value)}
-                            placeholder="Repeat passphrase"
+                            placeholder="Repeat password"
                             style={{ paddingRight: "48px" }}
                           />
                           <button 
@@ -507,14 +461,14 @@ export default function SettingsPage() {
                     <div className="settings-footer-actions">
                       <button className="btn btn-primary" type="submit" disabled={savingPassword} style={{ borderRadius: "12px", padding: "12px 24px" }}>
                         {savingPassword && <RefreshCw className="spin" size={15} style={{ marginRight: "8px" }} />}
-                        <span>Update Passphrase</span>
+                        <span>Update Password</span>
                       </button>
                     </div>
                   </form>
                 </div>
 
                 {/* TWO-FACTOR AUTHENTICATION */}
-                <div className="section-head" style={{ marginTop: 8 }}>
+                <div className="section-head">
                   <div className="section-icon"><Smartphone size={22} /></div>
                   <div>
                     <h2>Two-Factor Authentication</h2>
@@ -728,125 +682,9 @@ export default function SettingsPage() {
                 </div>
             </div>
 
-            {/* DIAGNOSTICS & SYSTEM */}
-            <div className="settings-tab-content settings-tab-wide">
-                <div className="section-head">
-                  <div className="section-icon"><Cpu size={22} /></div>
-                  <div>
-                    <h2>Diagnostics & Storage Quota</h2>
-                    <p>Run network health checks and manage browser storage cache.</p>
-                  </div>
-                </div>
-
-                <div className="diagnostics-dashboard">
-                  
-                  {/* Left stats side */}
-                  <div className="diagnostics-left">
-                    <div className="diag-stat-row">
-                      <div className="diag-stat-label">
-                        <Wifi size={16} />
-                        <span>Database Sync Connection</span>
-                      </div>
-                      <div className="diag-stat-value ok">Active / Connected</div>
-                    </div>
-
-                    <div className="diag-stat-row">
-                      <div className="diag-stat-label">
-                        <ShieldCheck size={16} />
-                        <span>Local Integrity Protection</span>
-                      </div>
-                      <div className="diag-stat-value ok">RSA-256 Verified</div>
-                    </div>
-
-                    <div className="diag-stat-row">
-                      <div className="diag-stat-label">
-                        <Info size={16} />
-                        <span>Local Settings Payload size</span>
-                      </div>
-                      <div className="diag-stat-value">{storageSize}</div>
-                    </div>
-
-                    <div className="settings-card" style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "12px", border: "1px solid var(--error-container)" }}>
-                      <h4 style={{ fontWeight: 800, fontSize: "14px", color: "var(--error)", textTransform: "uppercase", display: "flex", alignItems: "center", gap: "8px" }}>
-                        <AlertTriangle size={16} /> Danger Zone
-                      </h4>
-                      <p className="field-hint" style={{ lineHeight: "1.4" }}>
-                        Resetting the preferences cache clears local storage parameters and sets layouts back to system default.
-                      </p>
-                      <button 
-                        type="button" 
-                        onClick={() => setShowClearModal(true)} 
-                        className="btn btn-outline" 
-                        style={{ color: "var(--error)", borderColor: "var(--error)", borderRadius: "10px", marginTop: "4px", width: "fit-content", padding: "8px 16px" }}
-                      >
-                        <Trash2 size={15} style={{ marginRight: "8px", verticalAlign: "middle" }} />
-                        <span>Reset Preferences Cache</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Right diagnostics test side */}
-                  <div className="diagnostics-right">
-                    <div className="pinger-action-box">
-                      <Cpu size={28} style={{ color: "var(--primary)" }} />
-                      <h4 style={{ fontWeight: 800, fontSize: "15px", marginTop: "8px" }}>Database Latency Tester</h4>
-                      <p className="field-hint" style={{ maxWidth: "180px" }}>Pings Supabase API endpoints to check request-response times.</p>
-                      
-                      {diagnosticsRunning ? (
-                        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", margin: "16px 0" }}>
-                          <RefreshCw size={24} className="spin" style={{ color: "var(--primary)" }} />
-                          <span className="field-hint" style={{ marginTop: "6px" }}>Pinging...</span>
-                        </div>
-                      ) : diagTested ? (
-                        <div className="pinger-latency-result">
-                          {latency} ms
-                        </div>
-                      ) : (
-                        <div className="pinger-latency-result" style={{ opacity: 0.3 }}>
-                          -- ms
-                        </div>
-                      )}
-
-                      <button 
-                        type="button" 
-                        className="btn btn-primary btn-sm" 
-                        onClick={runDiagnostics} 
-                        disabled={diagnosticsRunning}
-                        style={{ borderRadius: "10px", padding: "8px 16px" }}
-                      >
-                        <span>{diagnosticsRunning ? "Testing..." : "Run Latency Check"}</span>
-                      </button>
-                    </div>
-                  </div>
-
-                </div>
-            </div>
-
         </div>
       </div>
 
-      {/* CONFIRMATION CLEAR MODAL */}
-      {showClearModal && (
-        <div className="settings-modal-overlay" onClick={() => setShowClearModal(false)}>
-          <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-title-box">
-              <AlertTriangle size={24} />
-              <h3>Clear Preferences Cache?</h3>
-            </div>
-            <p className="modal-desc">
-              This action will reset your color theme to Light mode, font sizes back to Medium, and layouts to standard values. Are you sure you wish to continue?
-            </p>
-            <div className="modal-actions">
-              <button type="button" className="btn btn-outline" onClick={() => setShowClearModal(false)} style={{ borderRadius: "10px" }}>
-                Cancel
-              </button>
-              <button type="button" className="btn btn-primary" onClick={clearSettingsCache} style={{ backgroundColor: "var(--error)", color: "white", borderColor: "var(--error)", borderRadius: "10px" }}>
-                Reset Settings
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </main>
   );
 }
