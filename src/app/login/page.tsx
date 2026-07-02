@@ -53,7 +53,10 @@ function LoginForm() {
     }
 
     if (!response.ok) {
-      setMessage(twoFactorRequired ? "Invalid authentication code." : "Invalid username or password.");
+      // Show the server's message (rate limit, archived account) when it has
+      // one; fall back to the generic wording otherwise.
+      const fallback = twoFactorRequired ? "Invalid authentication code." : "Invalid username or password.";
+      setMessage(typeof result.error === "string" && result.error ? result.error : fallback);
       setSubmitting(false);
       return;
     }
