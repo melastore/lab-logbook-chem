@@ -432,7 +432,9 @@ function ChemDecoration({ hash, style }: { hash: number; style?: CSSProperties }
   }
 }
 
-export function UserAvatar({ name = "User", seed = "", size = "md", clickable = true }: UserAvatarProps) {
+// The avatar is decorative by default. Opt in with `clickable` only where a
+// logs pop-over is genuinely wanted — never on the current user's own chip.
+export function UserAvatar({ name = "User", seed = "", size = "md", clickable = false }: UserAvatarProps) {
   const hash = hashString(seed || name);
   const palette = palettes[hash % palettes.length];
   const [isOpen, setIsOpen] = useState(false);
