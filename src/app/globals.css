@@ -3832,27 +3832,43 @@ button:disabled {
     border-top: 1px solid var(--outline-variant);
   }
   
+  /* All six tabs visible at once as a 3×2 grid — the old sideways scroll hid
+     the last tabs with no visible scrollbar to hint they were there. */
   .admin-tabs-modern {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     padding: 0;
     gap: 0;
-    -webkit-overflow-scrolling: touch;
     border-bottom: 1px solid var(--outline-variant);
-    overflow-x: auto;
-    flex-wrap: nowrap;
+    overflow: visible;
   }
-  
-  .admin-tab-btn { 
-    padding: 14px 20px; 
-    font-size: 14px; 
-    gap: 8px; 
-    border-radius: 0;
-    flex: 1 0 auto;
+
+  .admin-tab-btn {
+    flex-direction: column;
+    align-items: center;
     justify-content: center;
+    gap: 5px;
+    padding: 10px 6px 12px;
+    font-size: 11.5px;
+    font-weight: 700;
+    border-radius: 0;
     border-bottom: 3px solid transparent;
     white-space: nowrap;
+    min-width: 0;
   }
-  
+
+  .admin-tab-btn svg {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+  }
+
+  .admin-tab-btn span {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   .admin-tab-btn.active {
     border-bottom: 3px solid var(--primary);
   }
