@@ -9,9 +9,11 @@ import {
   updateUserCredentials,
   createNewUser,
   setUserArchived,
+  logAudit,
   type UserRole,
 } from "@/lib/logbook";
-import { canReview, currentUser } from "@/lib/session";
+import { canReview, currentUser, passwordChangeGate } from "@/lib/session";
+import { canCreateRole, canManageRole } from "@/lib/authz";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,6 +39,8 @@ export async function POST(request: Request) {
   if (!user || !canReview(user)) {
     return NextResponse.json({ error: "Supervisor access required." }, { status: 403 });
   }
+  const gate = passwordChangeGate(user);
+  if (gate) return gate;
 
   const body = await request.json();
   if (body.action === "provisionAll") {
@@ -51,6 +55,7 @@ export async function POST(request: Request) {
       if (provisionedSet.has(gen.username)) { skipped++; continue; }
       try { await provisionUser(gen); created++; } catch { skipped++; }
     }
+    await logAudit({ actor: user.username, actorId: user.id, action: "user.provision_all", detail: { created, skipped } });
     return NextResponse.json({ created, skipped });
   }
 
@@ -63,7 +68,7 @@ export async function POST(request: Request) {
     const role = (["analyst", "supervisor", "admin"].includes(body.role) ? body.role : "analyst") as UserRole;
 
     // Only admins may mint accounts at or above supervisor level.
-    if (role !== "analyst" && user.role !== "admin") {
+    if (!canCreateRole(user.role, role)) {
       return NextResponse.json({ error: "Admin access required to create that role." }, { status: 403 });
     }
     if (!fullName || !username || !email || password.length < 6) {
@@ -74,6 +79,7 @@ export async function POST(request: Request) {
     }
     try {
       await createNewUser({ email, username, fullName, role, position, password });
+      await logAudit({ actor: user.username, actorId: user.id, action: "user.create", target: username, detail: { role } });
       return NextResponse.json({ ok: true });
     } catch (e) {
       return NextResponse.json({ error: String(e instanceof Error ? e.message : e) }, { status: 500 });
@@ -93,7 +99,8 @@ async function canManageTarget(actorRole: UserRole, targetUsername: string) {
   if (actorRole === "admin") return true;
   const profiles = await listProfiles();
   const target = profiles.find((p) => p.username === targetUsername);
-  return !target || target.role === "analyst";
+  // Unknown target: let the action's own "not found" error surface.
+  return !target || canManageRole(actorRole, target.role);
 }
 
 export async function PATCH(request: Request) {
@@ -101,6 +108,8 @@ export async function PATCH(request: Request) {
   if (!user || !canReview(user)) {
     return NextResponse.json({ error: "Supervisor access required." }, { status: 403 });
   }
+  const gate = passwordChangeGate(user);
+  if (gate) return gate;
 
   const body = await request.json();
   const username = typeof body.username === "string" ? body.username.trim() : "";
@@ -117,6 +126,7 @@ export async function PATCH(request: Request) {
     if (!gen) return NextResponse.json({ error: "User not in generated list." }, { status: 404 });
     try {
       await resetUserPassword(username, gen.initialPassword);
+      await logAudit({ actor: user.username, actorId: user.id, action: "user.password_reset", target: username });
       return NextResponse.json({ ok: true });
     } catch (e) {
       return NextResponse.json({ error: String(e) }, { status: 500 });
@@ -129,6 +139,7 @@ export async function PATCH(request: Request) {
     }
     try {
       await setUserArchived(username, body.action === "archive");
+      await logAudit({ actor: user.username, actorId: user.id, action: `user.${body.action}`, target: username });
       return NextResponse.json({ ok: true });
     } catch (e) {
       return NextResponse.json({ error: String(e instanceof Error ? e.message : e) }, { status: 500 });
@@ -148,6 +159,10 @@ export async function PATCH(request: Request) {
     }
     try {
       await updateUserCredentials(username, { newUsername, newPassword, newFullName, newPosition });
+      await logAudit({
+        actor: user.username, actorId: user.id, action: "user.update_credentials", target: username,
+        detail: { renamed: !!newUsername, passwordReset: !!newPassword, nameChanged: !!newFullName },
+      });
       return NextResponse.json({ ok: true });
     } catch (e) {
       return NextResponse.json({ error: String(e) }, { status: 500 });
@@ -162,6 +177,8 @@ export async function DELETE(request: Request) {
   if (!user || !canReview(user)) {
     return NextResponse.json({ error: "Supervisor access required." }, { status: 403 });
   }
+  const gate = passwordChangeGate(user);
+  if (gate) return gate;
 
   const body = await request.json();
   const username = typeof body.username === "string" ? body.username.trim() : "";
@@ -175,6 +192,7 @@ export async function DELETE(request: Request) {
 
   try {
     await deleteUser(username);
+    await logAudit({ actor: user.username, actorId: user.id, action: "user.delete", target: username });
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });

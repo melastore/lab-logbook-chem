@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { logAudit } from "@/lib/logbook";
 import { currentUser } from "@/lib/session";
 import { verifyTotp } from "@/lib/totp";
 import { getTwoFactor, enableTwoFactor } from "@/lib/twofactor";
@@ -22,5 +23,6 @@ export async function POST(request: Request) {
   }
 
   await enableTwoFactor(user.username, rec.secret, user.username);
+  await logAudit({ actor: user.username, actorId: user.id, action: "auth.2fa_enabled" });
   return NextResponse.json({ enabled: true });
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createRecords, createAmendment, listRecords, logAudit, type LogbookInput } from "@/lib/logbook";
-import { canReview, currentUser } from "@/lib/session";
+import { canReview, currentUser, passwordChangeGate } from "@/lib/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,6 +22,8 @@ export async function POST(request: Request) {
   if (!user) {
     return NextResponse.json({ error: "Login required." }, { status: 401 });
   }
+  const gate = passwordChangeGate(user);
+  if (gate) return gate;
 
   const body = await request.json();
   const isBulk = Array.isArray(body);

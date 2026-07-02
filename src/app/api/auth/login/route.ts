@@ -1,8 +1,7 @@
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { loginWithUsername } from "@/lib/logbook";
+import { loginWithUsername, logAudit } from "@/lib/logbook";
 import { rateLimit, rateLimitClear } from "@/lib/rate-limit";
-import { sessionCookieName } from "@/lib/session";
+import { setSessionCookies } from "@/lib/session";
 import { getTwoFactor } from "@/lib/twofactor";
 import { verifyTotp } from "@/lib/totp";
 
@@ -37,13 +36,19 @@ export async function POST(request: Request) {
     const session = await loginWithUsername(username, password);
 
     // Password is valid — enforce the second factor if the account has it on.
-    const twoFactor = await getTwoFactor(username);
+    // Use the profile's canonical username so a differently-cased login still
+    // resolves the account's 2FA record.
+    const twoFactor = await getTwoFactor(session.user.username);
     if (twoFactor?.enabled) {
       if (!twoFactorToken) {
         // Don't issue a cookie yet; the client re-submits with the code.
         return NextResponse.json({ twoFactorRequired: true });
       }
       if (!verifyTotp(twoFactor.secret, twoFactorToken)) {
+        await logAudit({
+          actor: session.user.username, actorId: session.user.id,
+          action: "auth.login.failed", detail: { reason: "bad_2fa_code" },
+        });
         return NextResponse.json(
           { error: "Invalid authentication code.", twoFactorRequired: true },
           { status: 401 }
@@ -52,14 +57,10 @@ export async function POST(request: Request) {
     }
 
     rateLimitClear(limitKey);
-
-    const cookieStore = await cookies();
-    cookieStore.set(sessionCookieName, session.token, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
-      maxAge: session.maxAge,
+    await setSessionCookies(session.token, session.refreshToken);
+    await logAudit({
+      actor: session.user.username, actorId: session.user.id,
+      action: "auth.login", detail: { twoFactor: !!twoFactor?.enabled },
     });
 
     return NextResponse.json({
@@ -69,6 +70,10 @@ export async function POST(request: Request) {
   } catch (e) {
     const message = e instanceof Error ? e.message : "";
     console.error("[login] failed:", message || e);
+    await logAudit({
+      actor: username, action: "auth.login.failed",
+      detail: { reason: message.toLowerCase().includes("archived") ? "archived" : "bad_credentials" },
+    });
     // Archived accounts get a clear message; everything else stays generic.
     if (message.toLowerCase().includes("archived")) {
       return NextResponse.json({ error: message }, { status: 403 });

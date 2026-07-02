@@ -14,7 +14,7 @@ import {
   ArrowLeft, FileOutput, Calendar, User, Hash, Info,
   Plus, Edit2, Trash2, ShieldAlert, Tag, Table as TableIcon, LayoutGrid,
   FileSpreadsheet, Archive, ArchiveRestore, KeyRound, UserCheck,
-  ShieldCheck, AlertTriangle, Pencil, History, TrendingUp, ChevronRight
+  ShieldCheck, AlertTriangle, Pencil, History, TrendingUp, ChevronRight, Printer
 } from "lucide-react";
 import type { AppUser, InstrumentCategory, InstrumentTemplate, LogbookRecord, ProfilePublic } from "@/lib/logbook";
 import { LOG_TYPES } from "@/lib/logbook";
@@ -716,6 +716,9 @@ function RecordsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmin: b
               <button className="btn btn-outline btn-sm btn-icon-gap" onClick={exportXlsx} disabled={filtered.length === 0} title="Export to Excel">
                 <FileSpreadsheet size={16} /> <span>Excel</span>
               </button>
+              <button className="btn btn-outline btn-sm btn-icon-gap" onClick={() => printRecordSheet(filtered, forms, scope === "All" ? "All records" : scope === "Sample" ? "Sample preparation" : "Instrument")} disabled={filtered.length === 0} title="Print / save as PDF">
+                <Printer size={16} /> <span>Print</span>
+              </button>
             </div>
 
             <button className="btn btn-ghost btn-sm btn-icon-only" onClick={loadRecords} title="Refresh records">
@@ -954,6 +957,151 @@ function colMinWidth(field: FormField): number {
   if (field.type === "date") return 110;
   if (field.type === "time") return 90;
   return 130;
+}
+
+function escHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// Opens a print-ready log sheet in a new window and triggers the browser print
+// dialog (which the user can "Save as PDF"). Renders each log-type group as a
+// bordered table matching the paper logbook — instrument header, entries, and a
+// review/approval sign-off block. Self-contained HTML so it ignores the app's
+// screen styling and CSP.
+function printRecordSheet(records: LogbookRecord[], forms: FormDef[], scopeLabel: string) {
+  if (records.length === 0) return;
+
+  const first = records[0];
+  const dates = records.map((r) => r.date).filter(Boolean).sort();
+  const range = dates.length ? (dates[0] === dates[dates.length - 1] ? dates[0] : `${dates[0]} — ${dates[dates.length - 1]}`) : "—";
+  const instrumentNames = new Set(records.map((r) => r.instrumentName).filter(Boolean));
+  const singleInstrument = instrumentNames.size === 1 ? first : null;
+
+  // Group by activity type in form order.
+  const groups = new Map<string, LogbookRecord[]>();
+  for (const rec of records) {
+    const arr = groups.get(rec.activityType);
+    if (arr) arr.push(rec); else groups.set(rec.activityType, [rec]);
+  }
+  const knownOrder = forms.map((f) => f.activityType);
+  const orderedTypes = [...groups.keys()].sort((a, b) =>
+    (knownOrder.indexOf(a) === -1 ? 999 : knownOrder.indexOf(a)) -
+    (knownOrder.indexOf(b) === -1 ? 999 : knownOrder.indexOf(b)));
+
+  const sections = orderedTypes.map((type) => {
+    const form = forms.find((f) => f.activityType === type);
+    const isSample = form?.scope === "sample";
+    const showInstrument = !isSample && !singleInstrument;
+    const fields = (form?.fields || []).filter((f) => f.key !== "instrumentUsed");
+    const title = form?.title || LOG_TYPES.find((t) => t.id === type)?.label || type;
+    const rows = groups.get(type)!;
+
+    const headCells = [
+      "<th>No.</th>",
+      showInstrument ? "<th>Instrument</th>" : "",
+      ...fields.map((f) => `<th>${escHtml(f.label)}</th>`),
+      "<th>Analyst</th>",
+      "<th>Signature</th>",
+    ].join("");
+
+    const bodyRows = rows.map((rec, i) => {
+      const sig = parseAnalystSignature(rec.analystSignature);
+      const sigCell = sig.image
+        ? `<img class="sig" src="${escHtml(sig.image)}" alt="signature" />`
+        : escHtml(sig.typed || "—");
+      const cells = [
+        `<td class="num">${i + 1}</td>`,
+        showInstrument ? `<td>${escHtml(rec.instrumentName || "—")}</td>` : "",
+        ...fields.map((f) => `<td>${escHtml(fieldValue(rec, f) || "—")}</td>`),
+        `<td>${escHtml(rec.analyst || sig.signedBy || "—")}</td>`,
+        `<td class="sig-cell">${sigCell}</td>`,
+      ].join("");
+      return `<tr>${cells}</tr>`;
+    }).join("");
+
+    return `<section class="log-section">
+      <h2>${escHtml(title)} <span class="count">(${rows.length})</span></h2>
+      <table><thead><tr>${headCells}</tr></thead><tbody>${bodyRows}</tbody></table>
+    </section>`;
+  }).join("");
+
+  const instrumentBlock = singleInstrument ? `
+    <div class="instrument-block">
+      <div><span>Instrument</span><strong>${escHtml(singleInstrument.instrumentName || "—")}</strong></div>
+      <div><span>ID</span><strong>${escHtml(singleInstrument.instrumentId || "—")}</strong></div>
+      <div><span>Model</span><strong>${escHtml(singleInstrument.instrumentModel || "—")}</strong></div>
+      <div><span>Serial</span><strong>${escHtml(singleInstrument.serialNumber || "—")}</strong></div>
+      <div><span>Manufacturer</span><strong>${escHtml(singleInstrument.manufacturer || "—")}</strong></div>
+    </div>` : "";
+
+  const html = `<!doctype html><html><head><meta charset="utf-8" />
+  <title>Log Sheet — ${escHtml(range)}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: "Segoe UI", Arial, sans-serif; color: #111; margin: 24px; font-size: 11px; }
+    .sheet-head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #111; padding-bottom: 10px; margin-bottom: 12px; }
+    .sheet-head h1 { font-size: 17px; margin: 0 0 3px; }
+    .sheet-head .lab { font-size: 13px; font-weight: 700; }
+    .sheet-head .muted { color: #555; font-size: 11px; }
+    .sheet-head .right { text-align: right; color: #555; }
+    .instrument-block { display: flex; flex-wrap: wrap; gap: 8px 28px; padding: 8px 0 14px; border-bottom: 1px solid #ccc; margin-bottom: 14px; }
+    .instrument-block span { display: block; font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; color: #777; }
+    .instrument-block strong { font-size: 12px; }
+    .log-section { margin-bottom: 20px; }
+    .log-section h2 { font-size: 12px; background: #f0f0f0; padding: 6px 8px; border: 1px solid #bbb; border-bottom: none; margin: 0; }
+    .log-section h2 .count { color: #777; font-weight: 400; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #bbb; padding: 4px 6px; text-align: left; vertical-align: top; }
+    th { background: #f7f7f7; font-size: 10px; text-transform: uppercase; letter-spacing: 0.02em; }
+    td.num { text-align: center; color: #777; width: 30px; }
+    thead { display: table-header-group; }
+    tr { break-inside: avoid; }
+    img.sig { height: 26px; max-width: 120px; }
+    .sig-cell { min-width: 90px; }
+    .signoff { display: flex; gap: 48px; margin-top: 30px; }
+    .signoff .line { flex: 1; border-top: 1px solid #111; padding-top: 5px; font-size: 10px; color: #555; }
+    .foot { margin-top: 20px; padding-top: 8px; border-top: 1px solid #ccc; color: #888; font-size: 9px; display: flex; justify-content: space-between; }
+    @page { size: A4 landscape; margin: 12mm; }
+  </style></head>
+  <body>
+    <div class="sheet-head">
+      <div>
+        <h1>Instrument Log Sheet</h1>
+        <div class="lab">${escHtml(first.laboratoryName || "Laboratory")}</div>
+        <div class="muted">${escHtml([first.department, first.location].filter(Boolean).join(" · ") || "")}</div>
+      </div>
+      <div class="right">
+        <div><strong>${escHtml(scopeLabel)}</strong></div>
+        <div class="muted">Period: ${escHtml(range)}</div>
+        <div class="muted">${records.length} record${records.length === 1 ? "" : "s"}</div>
+      </div>
+    </div>
+    ${instrumentBlock}
+    ${sections}
+    <div class="signoff">
+      <div class="line">Prepared by (name &amp; signature) / Date</div>
+      <div class="line">Reviewed by (name &amp; signature) / Date</div>
+    </div>
+    <div class="foot">
+      <span>Generated ${escHtml(new Date().toLocaleString())}</span>
+      <span>Records are sealed in a tamper-evident hash chain (ISO/IEC 17025).</span>
+    </div>
+  </body></html>`;
+
+  const win = window.open("", "_blank", "width=1100,height=800");
+  if (!win) {
+    alert("Please allow pop-ups to print the log sheet.");
+    return;
+  }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  // Give images (signatures) a tick to decode before the print dialog opens.
+  win.onload = () => setTimeout(() => win.print(), 250);
 }
 
 function RecordsTable({ records, loading, forms, onAmend, latestActiveIds }: {

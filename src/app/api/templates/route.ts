@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { listTemplates, createTemplate, updateTemplate, deleteTemplate } from "@/lib/logbook";
-import { canReview, currentUser } from "@/lib/session";
+import { canReview, currentUser, passwordChangeGate } from "@/lib/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +21,8 @@ export async function POST(request: Request) {
   if (!user || !canReview(user)) {
     return NextResponse.json({ error: "Supervisor access required." }, { status: 403 });
   }
+  const gate = passwordChangeGate(user);
+  if (gate) return gate;
   try {
     const body = await request.json();
     const template = await createTemplate({
@@ -53,6 +55,8 @@ export async function PATCH(request: Request) {
   if (!user || !canReview(user)) {
     return NextResponse.json({ error: "Supervisor access required." }, { status: 403 });
   }
+  const gate = passwordChangeGate(user);
+  if (gate) return gate;
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id") || "";
   if (!id) return NextResponse.json({ error: "id required." }, { status: 400 });
@@ -89,6 +93,8 @@ export async function DELETE(request: Request) {
   if (!user || !canReview(user)) {
     return NextResponse.json({ error: "Supervisor access required." }, { status: 403 });
   }
+  const gate = passwordChangeGate(user);
+  if (gate) return gate;
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id") || "";
   if (!id) return NextResponse.json({ error: "id required." }, { status: 400 });

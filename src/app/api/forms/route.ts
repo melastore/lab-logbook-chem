@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { listForms, createForm, updateForm, deleteForm } from "@/lib/logbook";
 import type { FieldType, FormField, FormScope } from "@/lib/forms";
-import { canReview, currentUser } from "@/lib/session";
+import { canReview, currentUser, passwordChangeGate } from "@/lib/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,6 +26,8 @@ export async function POST(request: Request) {
   if (!user || !canReview(user)) {
     return NextResponse.json({ error: "Supervisor access required." }, { status: 403 });
   }
+  const gate = passwordChangeGate(user);
+  if (gate) return gate;
   try {
     const body = await request.json();
     const id = slug(body.id) || slug(body.title) || `form-${Date.now()}`;
@@ -53,6 +55,8 @@ export async function PATCH(request: Request) {
   if (!user || !canReview(user)) {
     return NextResponse.json({ error: "Supervisor access required." }, { status: 403 });
   }
+  const gate = passwordChangeGate(user);
+  if (gate) return gate;
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id") || "";
   if (!id) return NextResponse.json({ error: "id required." }, { status: 400 });
@@ -77,6 +81,8 @@ export async function DELETE(request: Request) {
   if (!user || !canReview(user)) {
     return NextResponse.json({ error: "Supervisor access required." }, { status: 403 });
   }
+  const gate = passwordChangeGate(user);
+  if (gate) return gate;
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id") || "";
   if (!id) return NextResponse.json({ error: "id required." }, { status: 400 });

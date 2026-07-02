@@ -207,9 +207,12 @@ type TemplateRow = {
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
 export async function loginWithUsername(username: string, password: string) {
-  // PostgREST rejects `username` as a filter param (PGRST125), so fetch all and filter in JS
+  // PostgREST rejects `username` as a filter param (PGRST125), so fetch all and filter in JS.
+  // Match case-insensitively: the profile page stores usernames lowercased, so a
+  // login typed as "Admin" must still find "admin".
   const profiles = await supabaseRest<ProfileRow[]>("/profiles?select=*");
-  const profile = profiles.find((p) => p.username === username);
+  const wanted = username.toLowerCase();
+  const profile = profiles.find((p) => p.username?.toLowerCase() === wanted);
 
   if (!profile) {
     throw new Error("Username not found.");
@@ -220,7 +223,7 @@ export async function loginWithUsername(username: string, password: string) {
     throw new Error("This account has been archived. Contact an administrator.");
   }
 
-  const email = profile.email || `${username}@lab.local`;
+  const email = profile.email || `${profile.username || wanted}@lab.local`;
   const result = await supabaseAuth<SupabaseAuthResponse>("/token?grant_type=password", {
     method: "POST",
     body: { email, password },
@@ -228,8 +231,25 @@ export async function loginWithUsername(username: string, password: string) {
 
   return {
     token: result.access_token,
+    refreshToken: result.refresh_token,
     maxAge: 60 * 60 * 24 * 30, // 30 days
     user: mapProfile(profile, result.user.user_metadata),
+  };
+}
+
+// Exchange a refresh token for a fresh access token (Supabase rotates both).
+// Used to keep a 30-day session alive past the ~1h access-token expiry.
+export async function refreshSession(refreshToken: string) {
+  const result = await supabaseAuth<SupabaseAuthResponse>("/token?grant_type=refresh_token", {
+    method: "POST",
+    body: { refresh_token: refreshToken },
+  });
+  const profile = await getProfile(result.user.id, result.user.user_metadata);
+  if (!profile) return null;
+  return {
+    token: result.access_token,
+    refreshToken: result.refresh_token,
+    user: profile,
   };
 }
 

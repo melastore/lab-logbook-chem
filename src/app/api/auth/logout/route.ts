@@ -1,9 +1,15 @@
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { sessionCookieName } from "@/lib/session";
+import { logAudit } from "@/lib/logbook";
+import { clearSessionCookies, currentUser } from "@/lib/session";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export async function POST() {
-  const cookieStore = await cookies();
-  cookieStore.delete(sessionCookieName);
+  const user = await currentUser();
+  if (user) {
+    await logAudit({ actor: user.username, actorId: user.id, action: "auth.logout" });
+  }
+  await clearSessionCookies();
   return NextResponse.json({ ok: true });
 }

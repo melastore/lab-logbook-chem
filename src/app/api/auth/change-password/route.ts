@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { changePassword } from "@/lib/logbook";
+import { changePassword, logAudit } from "@/lib/logbook";
 import { currentUser } from "@/lib/session";
 
 export const runtime = "nodejs";
@@ -20,6 +20,7 @@ export async function POST(request: Request) {
 
   try {
     await changePassword(user.id, newPassword);
+    await logAudit({ actor: user.username, actorId: user.id, action: "auth.password_change" });
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ error: "Password change failed." }, { status: 500 });
