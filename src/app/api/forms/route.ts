@@ -11,6 +11,8 @@ const FIELD_TYPES: FieldType[] = ["text", "date", "time", "textarea", "number", 
 // Any signed-in user can read the forms (the data-entry page needs them);
 // only supervisors/admins may change them.
 export async function GET() {
+  const user = await currentUser();
+  if (!user) return NextResponse.json({ forms: [] }, { status: 401 });
   try {
     const forms = await listForms();
     return NextResponse.json({ forms });

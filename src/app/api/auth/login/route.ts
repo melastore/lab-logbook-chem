@@ -1,12 +1,18 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { loginWithUsername } from "@/lib/logbook";
+import { rateLimit, rateLimitClear } from "@/lib/rate-limit";
 import { sessionCookieName } from "@/lib/session";
 import { getTwoFactor } from "@/lib/twofactor";
 import { verifyTotp } from "@/lib/totp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+// Per-account: slows password guessing and, more importantly, makes brute
+// forcing a 6-digit TOTP code infeasible.
+const MAX_ATTEMPTS = 10;
+const WINDOW_MS = 15 * 60 * 1000;
 
 export async function POST(request: Request) {
   const body = await request.json();
@@ -16,6 +22,15 @@ export async function POST(request: Request) {
 
   if (!username || !password) {
     return NextResponse.json({ error: "Username and password are required." }, { status: 400 });
+  }
+
+  const limitKey = `login:${username.toLowerCase()}`;
+  const limit = rateLimit(limitKey, MAX_ATTEMPTS, WINDOW_MS);
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { error: "Too many attempts. Try again later." },
+      { status: 429, headers: { "Retry-After": String(limit.retryAfterSec) } }
+    );
   }
 
   try {
@@ -35,6 +50,8 @@ export async function POST(request: Request) {
         );
       }
     }
+
+    rateLimitClear(limitKey);
 
     const cookieStore = await cookies();
     cookieStore.set(sessionCookieName, session.token, {

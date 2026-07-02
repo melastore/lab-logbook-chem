@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { currentUser } from "@/lib/session";
 import { generateSecret, totpUri } from "@/lib/totp";
-import { setPendingSecret } from "@/lib/twofactor";
+import { isTwoFactorEnabled, setPendingSecret } from "@/lib/twofactor";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,6 +11,15 @@ export const dynamic = "force-dynamic";
 export async function POST() {
   const user = await currentUser();
   if (!user) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+
+  // Starting a new enrollment would overwrite the active record with a
+  // not-yet-enabled one, silently switching 2FA off. Require disable first.
+  if (await isTwoFactorEnabled(user.username)) {
+    return NextResponse.json(
+      { error: "Two-factor authentication is already enabled. Disable it first." },
+      { status: 400 }
+    );
+  }
 
   const secret = generateSecret();
   await setPendingSecret(user.username, secret, user.username);

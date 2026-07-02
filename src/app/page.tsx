@@ -5,7 +5,7 @@ import Link from "next/link";
 import {
   Activity, Settings, LayoutDashboard, LogOut, ArrowRight,
   CheckCircle2, AlertCircle, Microscope,
-  ChevronRight, ChevronDown, Fingerprint, Zap, Droplets, Beaker,
+  ChevronRight, ChevronDown, Zap, Droplets, Beaker,
   RefreshCw, FileOutput, Info, PanelLeftClose, PanelLeft, ScrollText
 } from "lucide-react";
 import { LabLogo } from "@/components/LabLogo";

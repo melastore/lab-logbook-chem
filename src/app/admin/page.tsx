@@ -139,7 +139,7 @@ export default function AdminDashboard() {
               </span>
               <div className="topbar-nav-btns">
                 <ThemeToggle variant="chip" />
-                {isAdmin && (
+                {user.role === "admin" && (
                   <a className="btn btn-outline btn-sm" href="/api/admin/backup" download>
                     <Download size={14} /> Backup
                   </a>

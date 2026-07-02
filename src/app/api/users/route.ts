@@ -40,6 +40,10 @@ export async function POST(request: Request) {
 
   const body = await request.json();
   if (body.action === "provisionAll") {
+    // The generated list includes admin accounts, so this is admin-only.
+    if (user.role !== "admin") {
+      return NextResponse.json({ error: "Admin access required." }, { status: 403 });
+    }
     let created = 0, skipped = 0;
     const provisioned = await listProvisionedUsernames();
     const provisionedSet = new Set(provisioned);
@@ -58,6 +62,10 @@ export async function POST(request: Request) {
     const password = typeof body.password === "string" ? body.password : "";
     const role = (["analyst", "supervisor", "admin"].includes(body.role) ? body.role : "analyst") as UserRole;
 
+    // Only admins may mint accounts at or above supervisor level.
+    if (role !== "analyst" && user.role !== "admin") {
+      return NextResponse.json({ error: "Admin access required to create that role." }, { status: 403 });
+    }
     if (!fullName || !username || !email || password.length < 6) {
       return NextResponse.json(
         { error: "Full name, email, username and a password (6+ chars) are required." },
@@ -79,6 +87,15 @@ function clean(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+// Supervisors may only manage analyst accounts; touching a supervisor or admin
+// account (password resets, renames, archive, delete) requires an admin.
+async function canManageTarget(actorRole: UserRole, targetUsername: string) {
+  if (actorRole === "admin") return true;
+  const profiles = await listProfiles();
+  const target = profiles.find((p) => p.username === targetUsername);
+  return !target || target.role === "analyst";
+}
+
 export async function PATCH(request: Request) {
   const user = await currentUser();
   if (!user || !canReview(user)) {
@@ -88,6 +105,10 @@ export async function PATCH(request: Request) {
   const body = await request.json();
   const username = typeof body.username === "string" ? body.username.trim() : "";
   if (!username) return NextResponse.json({ error: "username required." }, { status: 400 });
+
+  if (!(await canManageTarget(user.role, username))) {
+    return NextResponse.json({ error: "Admin access required to manage this account." }, { status: 403 });
+  }
 
   if (body.action === "resetPassword") {
     const profiles = await listProfiles();
@@ -147,6 +168,9 @@ export async function DELETE(request: Request) {
   if (!username) return NextResponse.json({ error: "username required." }, { status: 400 });
   if (username === user.username) {
     return NextResponse.json({ error: "Cannot delete your own account." }, { status: 400 });
+  }
+  if (!(await canManageTarget(user.role, username))) {
+    return NextResponse.json({ error: "Admin access required to manage this account." }, { status: 403 });
   }
 
   try {

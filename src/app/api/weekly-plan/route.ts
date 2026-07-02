@@ -23,8 +23,8 @@ export async function GET(request: Request) {
   try {
     const plans = await getWeeklyPlans(targetUser);
     return NextResponse.json({ plans });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
 }
 
@@ -47,8 +47,8 @@ export async function POST(request: Request) {
 
     await saveWeeklyPlan(body, user.username);
     return NextResponse.json({ success: true });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
 }
 
@@ -71,7 +71,7 @@ export async function DELETE(request: Request) {
   try {
     await deleteWeeklyPlan(targetUser, weekStartDate);
     return NextResponse.json({ success: true });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
 }

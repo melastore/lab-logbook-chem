@@ -7,10 +7,18 @@ import {
   User, Lock, Eye, EyeOff, ArrowRight, Shield, RefreshCw, AlertTriangle, ShieldCheck
 } from "lucide-react";
 
+// Only same-origin paths — anything else ("https://…", "//host") is a redirect
+// out of the app and gets dropped.
+function safeRedirect(value: string | null) {
+  return value && value.startsWith("/") && !value.startsWith("//") && !value.startsWith("/\\")
+    ? value
+    : "/";
+}
+
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirectTo = searchParams.get("redirect") || "/";
+  const redirectTo = safeRedirect(searchParams.get("redirect"));
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -88,7 +96,7 @@ function LoginForm() {
         <div className="auth-content">
           <div className="auth-card-minimal">
             <div className="auth-card-header">
-              <div style={{ display: "center", justifyContent: "center", marginBottom: "16px" }}>
+              <div style={{ display: "flex", justifyContent: "center", marginBottom: "16px" }}>
                 <LabLogo size={60} />
               </div>
               <p className="auth-eyebrow">Chemical Metrology System</p>

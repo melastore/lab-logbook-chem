@@ -197,7 +197,7 @@ export default function SettingsPage() {
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem("theme", t);
-      } catch (e) {}
+      } catch {}
       window.dispatchEvent(new CustomEvent("themechange", { detail: t }));
     }
   };

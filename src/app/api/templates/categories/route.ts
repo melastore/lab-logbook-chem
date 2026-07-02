@@ -6,6 +6,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const user = await currentUser();
+  if (!user) return NextResponse.json({ categories: [] }, { status: 401 });
   try {
     const categories = await listCategories();
     return NextResponse.json({ categories });

@@ -4,10 +4,18 @@ import { FormEvent, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
+// Only same-origin paths — anything else ("https://…", "//host") is a redirect
+// out of the app and gets dropped.
+function safeRedirect(value: string | null) {
+  return value && value.startsWith("/") && !value.startsWith("//") && !value.startsWith("/\\")
+    ? value
+    : "/";
+}
+
 function ChangePasswordForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirectTo = searchParams.get("redirect") || "/";
+  const redirectTo = safeRedirect(searchParams.get("redirect"));
 
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");

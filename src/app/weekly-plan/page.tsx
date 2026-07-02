@@ -42,7 +42,9 @@ export default function WeeklyPlanPage() {
   const [weekStartDate, setWeekStartDate] = useState<string>(getMonday());
   const [tasks, setTasks] = useState<WeeklyTask[]>([]);
   const [allPlans, setAllPlans] = useState<WeeklyPlan[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Loading is derived: the week is loading until its data has arrived.
+  const [loadedWeek, setLoadedWeek] = useState<string>("");
+  const loading = !user || loadedWeek !== `${user.username}:${weekStartDate}`;
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<string>("");
   const [showHistory, setShowHistory] = useState(false);
@@ -59,8 +61,7 @@ export default function WeeklyPlanPage() {
 
   useEffect(() => {
     if (!user) return;
-    setLoading(true);
-    fetch(`/api/weekly-plan?username=${user.username}`)
+    fetch(`/api/weekly-plan?username=${encodeURIComponent(user.username)}`)
       .then((r) => r.json())
       .then((d) => {
         const plans = (d.plans as WeeklyPlan[]) || [];
@@ -78,8 +79,9 @@ export default function WeeklyPlanPage() {
           : [newTask(weekStartDate, 0)];
         setTasks(rows);
         setSavedAt(current?.updatedAt || "");
-        setLoading(false);
-      });
+        setLoadedWeek(`${user.username}:${weekStartDate}`);
+      })
+      .catch(() => setLoadedWeek(`${user.username}:${weekStartDate}`));
   }, [user, weekStartDate]);
 
   const addTask = () => setTasks((t) => [...t, newTask(weekStartDate, t.length)]);

@@ -6,6 +6,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const user = await currentUser();
+  if (!user) return NextResponse.json({ templates: [] }, { status: 401 });
   try {
     const templates = await listTemplates();
     return NextResponse.json({ templates });

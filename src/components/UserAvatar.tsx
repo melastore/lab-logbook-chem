@@ -22,10 +22,6 @@ const palettes = [
   ["#1e6b3c", "#a9dfbf", "#0b3d1f"],
 ];
 
-type ChemSym = "atom" | "hex" | "flask" | "molecule" | "beaker" | "instrument";
-
-const symbols: ChemSym[] = ["atom", "hex", "flask", "molecule", "beaker", "instrument"];
-
 function ChemDecoration({ hash, style }: { hash: number; style?: CSSProperties }) {
   const base = { 
     className: "avatar-deco", 

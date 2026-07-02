@@ -666,6 +666,9 @@ export async function listProvisionedUsernames(): Promise<string[]> {
 }
 
 export async function provisionUser(gen: GeneratedUser): Promise<void> {
+  if (!gen.initialPassword || gen.initialPassword.length < 8) {
+    throw new Error("LAB_INITIAL_PASSWORD must be set (8+ characters) before provisioning accounts.");
+  }
   let userId: string;
 
   try {
@@ -703,6 +706,9 @@ export async function provisionUser(gen: GeneratedUser): Promise<void> {
 }
 
 export async function resetUserPassword(username: string, newPassword: string): Promise<void> {
+  if (!newPassword || newPassword.length < 8) {
+    throw new Error("Reset password must be at least 8 characters. Check LAB_INITIAL_PASSWORD.");
+  }
   const profiles = await supabaseRest<ProfileRow[]>("/profiles?select=*");
   const profile = profiles.find((p) => p.username === username);
   if (!profile) throw new Error("User not found.");
