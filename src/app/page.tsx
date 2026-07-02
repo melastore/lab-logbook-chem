@@ -877,14 +877,25 @@ function FormCards({
 
   return (
     <div className="form-cards-container">
-      {rows.map((row, i) => (
-        <div key={i} className={`form-entry-card settings-card ${disabled ? "card-disabled" : ""} shadow-sm`}>
+      {rows.map((row, i) => {
+        const filled = fields.filter((f) => (row[f.key] || "").trim()).length;
+        const requiredLeft = fields.filter((f) => f.required && !(row[f.key] || "").trim()).length;
+        const pct = fields.length ? Math.round((filled / fields.length) * 100) : 0;
+        return (
+        <div key={i} className={`form-entry-card ${disabled ? "card-disabled" : ""}`}>
           <div className="form-entry-card-header">
             <div className="form-entry-card-title-group">
-              <span className="form-entry-card-num">Entry #{i + 1}</span>
-              <h4 className="form-entry-card-title">Analytical Record</h4>
+              <span className="form-entry-card-num">{rows.length > 1 ? `Entry ${i + 1} of ${rows.length}` : "Entry"}</span>
+              <span className="entry-progress-text">{filled} of {fields.length} fields filled</span>
             </div>
-            <span className="user-role-badge card-status-badge">Active Draft</span>
+            {requiredLeft === 0 ? (
+              <span className="entry-chip entry-chip-ready"><CheckCircle2 size={14} /> Ready to submit</span>
+            ) : (
+              <span className="entry-chip">{requiredLeft} required field{requiredLeft > 1 ? "s" : ""} left</span>
+            )}
+          </div>
+          <div className="entry-progress-track">
+            <div className={`entry-progress-fill ${requiredLeft === 0 ? "done" : ""}`} style={{ width: `${pct}%` }} />
           </div>
           <div className="form-entry-card-grid">
             {fields.map((f) => (
@@ -926,7 +937,8 @@ function FormCards({
             ))}
           </div>
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
