@@ -298,24 +298,31 @@ export default function WeeklyPlanPage() {
     <main className="wp-page">
       <header className="wp-topbar">
         <div className="wp-topbar-left">
-          <Link href="/" className="btn btn-outline btn-sm"><ArrowLeft size={16} /> Back</Link>
-          <h1 className="wp-title">Weekly Plan &amp; Report</h1>
+          <Link href="/" className="btn btn-outline btn-sm wp-back-btn" title="Back to Entry">
+            <ArrowLeft size={16} /> <span>Back</span>
+          </Link>
+          <div className="wp-title-group">
+            <h1 className="wp-title">Weekly Plan &amp; Report</h1>
+            <span className="wp-title-sub">{weekRange(weekStartDate)}</span>
+          </div>
         </div>
         <div className="wp-topbar-right">
-          <button className="btn btn-outline btn-sm" onClick={() => setShowHistory(true)} disabled={loading}>
-            <History size={16} /> History{savedWeeks.length > 0 ? ` (${savedWeeks.length})` : ""}
-          </button>
           <label className="wp-week-picker">
             <span>Week of</span>
             <input type="date" className="input-modern" value={weekStartDate}
               onChange={(e) => setWeekStartDate(e.target.value)} />
           </label>
-          <button className="btn btn-outline btn-sm" onClick={exportXlsx} disabled={loading || tasks.length === 0} title="Export this week to Excel">
-            <FileSpreadsheet size={16} /> Export
-          </button>
-          <button className="btn btn-primary btn-sm" onClick={savePlan} disabled={saving || loading}>
-            <Save size={16} /> {saving ? "Saving…" : "Save Report"}
-          </button>
+          <div className="wp-topbar-actions">
+            <button className="btn btn-outline btn-sm" onClick={() => setShowHistory(true)} disabled={loading}>
+              <History size={16} /> <span>History{savedWeeks.length > 0 ? ` (${savedWeeks.length})` : ""}</span>
+            </button>
+            <button className="btn btn-outline btn-sm" onClick={exportXlsx} disabled={loading || tasks.length === 0} title="Export this week to Excel">
+              <FileSpreadsheet size={16} /> <span>Export</span>
+            </button>
+            <button className="btn btn-primary btn-sm" onClick={savePlan} disabled={saving || loading}>
+              <Save size={16} /> <span>{saving ? "Saving…" : "Save Report"}</span>
+            </button>
+          </div>
         </div>
       </header>
 

@@ -7943,9 +7943,20 @@ button:disabled {
   z-index: 20;
 }
 .wp-topbar-left, .wp-topbar-right { display: flex; align-items: center; gap: 14px; }
-.wp-title { font-size: 19px; font-weight: 800; letter-spacing: -0.02em; }
-.wp-week-picker { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--muted); }
-.wp-week-picker .input-modern { width: 160px; }
+.wp-title-group { display: flex; flex-direction: column; min-width: 0; }
+.wp-title { font-size: 19px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.2; }
+.wp-title-sub { font-size: 12px; color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; }
+.wp-topbar-actions { display: flex; align-items: center; gap: 10px; }
+.wp-week-picker {
+  display: inline-flex; align-items: center; gap: 10px;
+  font-size: 13px; font-weight: 600; color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--outline-variant);
+  border-radius: 10px;
+  padding: 4px 5px 4px 12px;
+}
+.wp-week-picker span { white-space: nowrap; }
+.wp-week-picker .input-modern { width: 150px; border: none; background: var(--surface-1); padding: 6px 8px; }
 
 .wp-body { flex: 1; padding: 24px; }
 .wp-loading { text-align: center; padding: 60px; color: var(--muted); }
@@ -9073,5 +9084,121 @@ button:disabled {
   .wp-admin-ach .wp-progress {
     flex: 1;
     width: auto !important;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Weekly Plan & Report — mobile layout
+   Top bar stacks into back+title / week picker / action row; the summary and
+   report tables scroll edge-to-edge inside their own containers.
+   ───────────────────────────────────────────────────────────────────────── */
+@media (max-width: 860px) {
+  .wp-topbar {
+    padding: 10px 16px 12px;
+    gap: 10px;
+  }
+
+  .wp-topbar-left,
+  .wp-topbar-right {
+    width: 100%;
+  }
+
+  .wp-topbar-left {
+    gap: 10px;
+  }
+
+  /* Icon-only back button — the title says where you are */
+  .wp-back-btn span {
+    display: none;
+  }
+  .wp-back-btn {
+    padding: 0;
+    width: 36px;
+    height: 36px;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .wp-title {
+    font-size: 17px;
+  }
+
+  .wp-topbar-right {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .wp-week-picker {
+    justify-content: space-between;
+  }
+  .wp-week-picker .input-modern {
+    flex: 1;
+    max-width: 220px;
+    min-width: 0;
+  }
+
+  /* History / Export / Save share one row; Save gets the most room */
+  .wp-topbar-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1.3fr;
+    gap: 8px;
+  }
+  .wp-topbar-actions .btn {
+    width: 100%;
+    justify-content: center;
+    white-space: nowrap;
+  }
+
+  .wp-body {
+    padding: 12px;
+  }
+  .wp-sheet {
+    gap: 12px;
+  }
+
+  /* Amharic summary block: keep the Excel shape, scroll sideways */
+  .wp-excel-summary-container {
+    margin: 0 -12px 0;
+    padding: 0 12px;
+  }
+  .wp-excel-summary {
+    min-width: 640px;
+    font-size: 12px;
+  }
+  .wp-excel-summary td {
+    padding: 6px 8px;
+  }
+
+  /* fx bar: tighter chrome so the formula gets the space */
+  .wp-fx-namebox {
+    min-width: 44px;
+    padding: 0 8px;
+    font-size: 12px;
+  }
+  .wp-fx-input {
+    font-size: 13px;
+  }
+
+  /* Report table: bleed to the screen edges for maximum width */
+  .wp-table-wrap {
+    margin: 0 -12px;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+  }
+
+  .spreadsheet-footer {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .spreadsheet-footer .spreadsheet-tip {
+    font-size: 11px;
+  }
+
+  /* History drawer becomes a full-width sheet */
+  .wp-history-panel {
+    width: 100%;
+    border-left: none;
   }
 }
