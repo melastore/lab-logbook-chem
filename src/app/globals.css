@@ -989,8 +989,10 @@ button:disabled {
 
 /* Responsive Overrides */
 @media (max-width: 768px) {
+  /* 16px so full-bleed sections (margin: 0 -16px) line up exactly — a 12px
+     frame with -16px bleeds used to cause a 4px sideways scroll. */
   .app-frame {
-    padding: 12px;
+    padding: 16px;
     padding-bottom: 80px;
   }
   
@@ -8899,5 +8901,161 @@ button:disabled {
   }
   .settings-stack .layout-options-modern {
     grid-template-columns: 1fr;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Admin panel — mobile polish
+   Bottom-sheet modals, stacked editor layouts, compact tables and charts.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Shared padded section inside the big editor modals (instrument + form
+   builder). Was a hardcoded 32px that wasted half a phone screen. */
+.modal-pad {
+  padding: 32px;
+  display: grid;
+  gap: 28px;
+}
+
+/* The designer's field table can't compress below this without the inputs
+   becoming unusable — let it scroll sideways inside its own container. */
+.table-scroll-designer {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.field-editor-table {
+  min-width: 560px;
+}
+
+@media (max-width: 768px) {
+  .modal-pad {
+    padding: 18px 16px;
+    gap: 20px;
+  }
+
+  /* Form builder: the vertical preset rail becomes a horizontal strip above
+     the field table instead of eating 60px of a narrow screen. */
+  .field-designer-layout-v2 {
+    grid-template-columns: 1fr;
+  }
+  .field-presets-v2 {
+    flex-direction: row;
+    align-items: center;
+    padding: 10px 12px;
+    gap: 10px;
+    border-right: none;
+    border-bottom: 1px solid var(--outline-variant);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .field-presets-v2 .sidebar-label {
+    writing-mode: horizontal-tb;
+    transform: none;
+    margin-bottom: 0;
+    flex-shrink: 0;
+  }
+  .preset-grid-v2 {
+    flex-direction: row;
+  }
+  .field-editor-main {
+    padding: 14px 12px;
+  }
+}
+
+@media (max-width: 640px) {
+  /* Modals slide up as full-width bottom sheets — much easier to use with a
+     thumb than a floating box shrunk to a 300px column. */
+  .modal-overlay {
+    padding: 0;
+    align-items: flex-end;
+  }
+  .modal {
+    max-width: 100% !important;
+    max-height: 94dvh !important;
+    border-radius: 20px 20px 0 0;
+  }
+  .modal-header {
+    padding: 14px 16px;
+  }
+  .modal-title {
+    font-size: 15px;
+  }
+  .modal-body {
+    padding: 16px;
+  }
+  .modal-footer {
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  }
+
+  /* Topbar: keep the heading to one tidy line-pair */
+  .brand-text h1 {
+    font-size: 17px;
+  }
+  .eyebrow {
+    font-size: 11px;
+  }
+
+  /* Insights: two stat tiles per row, smaller numbers, tighter charts */
+  .metrics-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .metric-card {
+    padding: 14px;
+  }
+  .metric-value {
+    font-size: 24px;
+  }
+  .insights-grid {
+    gap: 12px;
+  }
+  .insights-skeleton-grid {
+    grid-template-columns: 1fr;
+  }
+  .chart-card {
+    padding: 16px 12px;
+  }
+
+  /* Data tables: denser cells so more fits before scrolling kicks in */
+  .data-table th,
+  .data-table td {
+    padding: 8px 10px;
+    font-size: 13px;
+  }
+
+  /* Records filters: one control per row, date range stays side by side */
+  .filter-shelf-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  /* Weekly reports: header controls stack full-width */
+  .wp-admin-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .wp-admin-head > div {
+    width: 100%;
+  }
+  .wp-week-picker {
+    flex: 1;
+  }
+  .wp-week-picker select {
+    width: 100%;
+    min-width: 0 !important;
+  }
+  .wp-admin-row {
+    flex-wrap: wrap;
+    gap: 8px 10px;
+  }
+  .wp-admin-ach {
+    width: 100%;
+    justify-content: space-between;
+    padding-left: 26px;
+  }
+  .wp-admin-ach .wp-progress {
+    flex: 1;
+    width: auto !important;
   }
 }

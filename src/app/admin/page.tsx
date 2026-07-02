@@ -1588,7 +1588,7 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
 
             <div className="modal-body" style={{ flex: 1, overflowY: 'auto' }}>
               {instrTab === "basic" ? (
-                <div style={{ padding: 32, display: 'grid', gap: 28 }}>
+                <div className="modal-pad">
 
                   {/* Identity & system settings — these are not part of the editable
                       General Information document; they identify the instrument and
@@ -1642,7 +1642,7 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
 
                 </div>
               ) : (
-                <div style={{ padding: 32, display: 'grid', gap: 28 }}>
+                <div className="modal-pad">
 
                   {/* Form-driven General Information fields. The structure (which
                       fields, labels, types, order) is owned by the assigned info
@@ -2478,7 +2478,7 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
 
             <div className="modal-body" style={{ flex: 1, overflowY: 'auto', padding: 0 }}>
               {editTab === "settings" ? (
-                <div style={{ padding: 32 }}>
+                <div className="modal-pad">
                   <div className="modal-form-grid">
                     <div className="field">
                       <label className="field-label">Form Title <span className="req">*</span></label>
