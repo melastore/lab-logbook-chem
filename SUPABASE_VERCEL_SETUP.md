@@ -5,14 +5,12 @@ This guide deploys the laboratory logbook app with:
 - Vercel for Next.js hosting
 - Supabase Auth for login
 - Supabase Postgres for logbook records
-- Telegram Bot API for supervisor notifications
 
 ## 1. Requirements
 
 - GitHub account
 - Vercel account
 - Supabase account
-- Telegram account for the supervisor/boss
 - Node.js 22 locally
 
 Check local Node:
@@ -47,69 +45,33 @@ Keep the database password somewhere safe.
 1. Open the Supabase project.
 2. Go to **SQL Editor**.
 3. Click **New query**.
-4. Open this local file:
+4. Run these two files, in order, pasting each into a new query:
 
 ```text
 supabase/schema.sql
+supabase/integrity.sql
 ```
 
-5. Copy the full SQL.
-6. Paste it into Supabase SQL Editor.
-7. Click **Run**.
-
-This creates:
+`schema.sql` creates:
 
 - `public.profiles`
 - `public.logbook_records`
+- `public.app_config`, `public.instrument_categories`, `public.instrument_templates`, `public.form_definitions`
 - role constraints
 - update timestamp trigger
 - Row Level Security enabled
 
-## 4. Create Users in Supabase Auth
+`integrity.sql` is what makes the logbook trustworthy, so do not skip it:
 
-For a 10-person lab, create users manually.
+- blocks `UPDATE` and `DELETE` on `logbook_records`
+- adds the per-row SHA-256 hash chain and the `verify_logbook_chain` function
+- adds the append-only `audit_log` table
 
-1. In Supabase, go to **Authentication**.
-2. Open **Users**.
-3. Click **Add user**.
-4. Enter the user's email and password.
-5. Confirm the user if Supabase asks.
-6. Copy the user's UUID.
+Row Level Security is enabled with no policies. That is deliberate: every read
+and write goes through the server using the service-role key, so nothing is
+reachable from a browser holding only the anon key.
 
-Create users for:
-
-- Analysts
-- Supervisor/boss
-- Optional admin
-
-## 5. Add User Profiles and Roles
-
-After creating Auth users, insert matching rows into `public.profiles`.
-
-Go to **SQL Editor** and run:
-
-```sql
-insert into public.profiles (id, email, full_name, role)
-values
-  ('PASTE_ANALYST_USER_UUID', 'analyst1@example.com', 'Analyst One', 'analyst'),
-  ('PASTE_BOSS_USER_UUID', 'boss@example.com', 'Boss Name', 'supervisor');
-```
-
-Allowed roles:
-
-```text
-analyst
-supervisor
-admin
-```
-
-Use:
-
-- `analyst` for people who submit instrument records
-- `supervisor` for the boss who reviews and approves
-- `admin` for full internal management access
-
-## 6. Get Supabase Environment Variables
+## 4. Get Supabase Environment Variables
 
 In Supabase:
 
@@ -134,59 +96,31 @@ Important:
 - Never expose `SUPABASE_SERVICE_ROLE_KEY` in frontend/browser code.
 - Never commit `.env.local`.
 
-## 7. Create Telegram Bot
+## 5. Generate the Application Encryption Key
 
-1. Open Telegram.
-2. Search for `@BotFather`.
-3. Send:
-
-```text
-/newbot
-```
-
-4. Follow the prompts.
-5. Copy the bot token.
-
-Set:
+This key encrypts secrets the app stores in the database — currently two-factor
+authentication seeds.
 
 ```bash
-TELEGRAM_BOT_TOKEN=123456789:your_bot_token
-```
-
-## 8. Get Supervisor Telegram Chat ID
-
-For one supervisor:
-
-1. Ask the supervisor to open your bot.
-2. Ask them to send any message to the bot.
-3. In a browser, open:
-
-```text
-https://api.telegram.org/botYOUR_BOT_TOKEN/getUpdates
-```
-
-4. Find:
-
-```json
-"chat":{"id":123456789}
+openssl rand -base64 32
 ```
 
 Set:
 
 ```bash
-TELEGRAM_CHAT_ID=123456789
+APP_ENCRYPTION_KEY=the_generated_value
 ```
 
-For a Telegram group:
+Use a different key for local and production. Treat it like a database
+password:
 
-1. Add the bot to the group.
-2. Send a message in the group.
-3. Open `getUpdates`.
-4. Use the group `chat.id`.
+- Back it up somewhere safe.
+- **Losing or changing it makes existing two-factor seeds unreadable**, and every
+  enrolled user must re-enrol.
+- Without it the app still runs and existing two-factor logins still work, but
+  new enrollments fail.
 
-Group chat IDs are often negative numbers.
-
-## 9. Local Environment File
+## 6. Local Environment File
 
 In the project folder:
 
@@ -202,10 +136,12 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 SUPABASE_URL=https://your-project-ref.supabase.co
 SUPABASE_ANON_KEY=your_anon_or_publishable_key
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_or_secret_key
+APP_ENCRYPTION_KEY=output_of_openssl_rand_base64_32
 LAB_INITIAL_PASSWORD=replace_with_a_strong_temporary_password
-TELEGRAM_BOT_TOKEN=your_bot_token
-TELEGRAM_CHAT_ID=your_chat_id
 ```
+
+`LAB_INITIAL_PASSWORD` must be at least 10 characters or provisioning refuses
+to run.
 
 Run locally:
 
@@ -220,15 +156,51 @@ Open:
 http://localhost:3000
 ```
 
-Test:
+The app should load and send you to `/login`. Create the accounts next.
 
-1. Go to `/login`.
-2. Sign in as an analyst.
-3. Submit one logbook record.
-4. Confirm Telegram receives a notification.
-5. Sign in as supervisor.
-6. Open `/admin`.
-7. Approve or reject the record.
+## 7. Create the First Admin Accounts
+
+Do not create users by hand in Supabase Auth — the app provisions them, so the
+Auth user and its `profiles` row are always created together.
+
+With the app running, open:
+
+```text
+http://localhost:3000/setup
+```
+
+Click through it once. It creates the admin accounts listed in
+`src/lib/generated-users.ts`, each with `LAB_INITIAL_PASSWORD` and a forced
+password change on first login. Signing in as `admin01` sends you straight to
+that change — it asks for the temporary password as well as the new one, and
+the new password must be 10+ characters and cannot reuse the temporary one.
+
+The page then closes itself: as soon as one admin profile exists, `/setup`
+refuses to run again, so it is safe to leave reachable.
+
+## 8. Create Everyone Else
+
+Sign in as an admin and use **Admin dashboard → Users**.
+
+Roles:
+
+- `analyst` — submits instrument records, and can only see their own
+- `supervisor` — sees every record, amends them, manages analyst accounts
+- `admin` — everything, including creating supervisors/admins and exporting backups
+
+A supervisor cannot create or manage supervisor/admin accounts; that is
+admin-only, so a supervisor cannot promote themselves.
+
+## 9. Check It End to End
+
+Before deploying, confirm the whole flow works locally:
+
+1. Sign in as `admin01`.
+2. Add an instrument under **Admin → Instruments**.
+3. Sign in as an analyst, submit one logbook record and sign it.
+4. Confirm the analyst's own logs show that record — and only their own.
+5. Sign back in as the admin, open `/admin` and confirm the record is listed.
+6. Run the integrity check and confirm the chain verifies.
 
 ## 10. Push Project to GitHub
 
@@ -274,9 +246,8 @@ NEXT_PUBLIC_APP_URL=https://your-vercel-domain.vercel.app
 SUPABASE_URL=https://your-project-ref.supabase.co
 SUPABASE_ANON_KEY=your_anon_or_publishable_key
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_or_secret_key
+APP_ENCRYPTION_KEY=a_different_key_from_your_local_one
 LAB_INITIAL_PASSWORD=replace_with_a_strong_temporary_password
-TELEGRAM_BOT_TOKEN=your_bot_token
-TELEGRAM_CHAT_ID=your_chat_id
 ```
 
 Apply them to:
@@ -302,20 +273,20 @@ NEXT_PUBLIC_APP_URL=https://your-real-vercel-url.vercel.app
 
 5. Redeploy.
 
-This makes Telegram messages link to the hosted dashboard.
-
 ## 13. Supabase Security Checklist
 
 Confirm:
 
 - RLS is enabled on `profiles`.
 - RLS is enabled on `logbook_records`.
+- `integrity.sql` has been run, so `logbook_records` rejects `UPDATE`/`DELETE`.
 - `SUPABASE_SERVICE_ROLE_KEY` is only in Vercel environment variables.
 - `.env.local` is not pushed to GitHub.
 - Only trusted people have Vercel project access.
 - Only trusted admins have Supabase project access.
 - Analyst users have role `analyst`.
 - Boss/supervisor has role `supervisor` or `admin`.
+- Every account has changed the shared initial password.
 
 ## 14. Vercel Security Checklist
 
@@ -323,8 +294,15 @@ Confirm:
 
 - Environment variables are set in Vercel.
 - `SUPABASE_SERVICE_ROLE_KEY` is not exposed with `NEXT_PUBLIC_`.
+- `APP_ENCRYPTION_KEY` is set, backed up, and different from the local one.
 - Production deployment uses Node 22 from `package.json`.
 - GitHub repository is private if the project is internal.
+- The deployment is served over HTTPS — session cookies are `secure` in
+  production and will not be sent over plain HTTP.
+
+Note on scaling: rate limiting is held in each instance's memory. Running
+several instances multiplies the effective limit. Keep it to one instance, or
+move the limiter to a shared store first.
 
 ## 15. Common Problems
 
@@ -341,14 +319,41 @@ insert into public.profiles (id, email, full_name, role)
 values ('AUTH_USER_UUID', 'user@example.com', 'User Name', 'analyst');
 ```
 
-### Analyst submits but Telegram is not sent
+### Setting up two-factor fails
 
-Check:
+Cause:
 
-- `TELEGRAM_BOT_TOKEN`
-- `TELEGRAM_CHAT_ID`
-- The supervisor has sent at least one message to the bot
-- The bot is still active
+- `APP_ENCRYPTION_KEY` is missing, or is not the base64 of exactly 32 bytes.
+
+Fix:
+
+Generate one with `openssl rand -base64 32`, set it in the environment and
+redeploy. Accounts already enrolled keep working without it; only new
+enrollments need it.
+
+### Two-factor codes stopped being accepted for everyone
+
+Cause:
+
+- `APP_ENCRYPTION_KEY` was changed or lost, so the stored seeds cannot be
+  decrypted. The server log shows a "could not read the seed" line per account.
+
+Fix:
+
+Restore the original key. If it is gone, an admin must disable two-factor for
+the affected accounts (delete their `totp:<username>` rows in `app_config`) and
+have them enrol again.
+
+### An analyst cannot see another analyst's records
+
+This is intended. Analysts are served only their own entries; supervisors and
+admins see everything.
+
+### Login says too many attempts
+
+Sign-in is rate limited per account and per source address. Wait for the window
+to pass — 15 minutes — or restart the instance, since the counters are held in
+memory.
 
 ### Admin dashboard says login required
 
@@ -390,4 +395,3 @@ The app no longer uses local JSON storage. Records should be in Supabase. Confir
 - Supabase API keys: `https://supabase.com/docs/guides/getting-started/api-keys`
 - Supabase REST API: `https://supabase.com/docs/guides/api`
 - Vercel environment variables: `https://vercel.com/docs/environment-variables`
-- Telegram Bot API `sendMessage`: `https://core.telegram.org/bots/api#sendmessage`

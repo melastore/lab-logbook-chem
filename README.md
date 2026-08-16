@@ -83,6 +83,51 @@ npm run build    # production build
 npm test         # run tests
 ```
 
+### 5. Create the first admin
+
+Open `/setup` and run it once. It provisions the admin accounts listed in
+`src/lib/generated-users.ts` using `LAB_INITIAL_PASSWORD`, and then closes
+itself — once an admin profile exists the endpoint refuses to run again, so it
+is safe to leave reachable. Everyone else is created from the admin dashboard.
+
+Each account must change the shared initial password at first login before it
+can do anything else.
+
+## Deployment
+
+The app runs anywhere Next.js does; [SUPABASE_VERCEL_SETUP.md](./SUPABASE_VERCEL_SETUP.md)
+walks through Supabase + Vercel step by step.
+
+Set the same variables as the table above in the host's environment — all of
+them, including `APP_ENCRYPTION_KEY`. Two are worth calling out:
+
+- **`APP_ENCRYPTION_KEY` is required.** Generate a separate one per environment
+  and store it with the same care as a database credential. The app starts and
+  signs users in without it, and accounts already enrolled in two-factor keep
+  working, but new enrollments fail until it is set. **Losing or rotating this
+  key makes existing two-factor seeds unreadable**, and every enrolled user has
+  to re-enrol — so back it up, and never regenerate it casually.
+- **`LAB_INITIAL_PASSWORD` must be at least 10 characters**, or provisioning
+  refuses to run.
+
+Two operational limits to know about:
+
+- **Rate limiting is in-process** (`src/lib/rate-limit.ts`). On a single
+  instance it is accurate; across several instances or on scale-to-zero
+  serverless each one keeps its own counters, so the effective limit multiplies.
+  Move it to a shared store before running more than one instance.
+- **Sessions are cookie-based** with a 1-hour access token and a rolling 12-hour
+  idle window, so users re-authenticate at least daily.
+
+## Operations
+
+| Task | How |
+|---|---|
+| Verify record integrity | Admin dashboard → integrity check, or `GET /api/logbook/verify` (supervisor+) |
+| Export a backup | Admin dashboard → backup (admin only). Credential values are redacted and cannot be restored from the file |
+| Review the audit trail | Admin dashboard → audit log (supervisor+); covers sign-in, user management, amendments and backup exports |
+| Correct a record | Amend it from the dashboard — the original stays locked and the correction is chained to it |
+
 ## Security & privacy
 
 - **No secrets in the repository.** All credentials live in `.env.local` (git-ignored); the committed `.env.example` holds placeholders only.
