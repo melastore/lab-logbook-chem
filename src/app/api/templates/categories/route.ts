@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { errorResponse } from "@/lib/errors";
 import { listCategories, createCategory, updateCategory, deleteCategory } from "@/lib/logbook";
 import { canReview, currentUser, passwordChangeGate } from "@/lib/session";
 
@@ -30,7 +31,7 @@ export async function POST(request: Request) {
     const category = await createCategory({ name, displayOrder: Number(body.displayOrder) || 0 });
     return NextResponse.json({ category }, { status: 201 });
   } catch (e) {
-    return NextResponse.json({ error: String(e instanceof Error ? e.message : e) }, { status: 500 });
+    return errorResponse("templates/categories", e, 500);
   }
 }
 
@@ -53,7 +54,7 @@ export async function PATCH(request: Request) {
     if (!category) return NextResponse.json({ error: "Not found." }, { status: 404 });
     return NextResponse.json({ category });
   } catch (e) {
-    return NextResponse.json({ error: String(e instanceof Error ? e.message : e) }, { status: 500 });
+    return errorResponse("templates/categories", e, 500);
   }
 }
 
@@ -71,7 +72,7 @@ export async function DELETE(request: Request) {
     await deleteCategory(id);
     return NextResponse.json({ ok: true });
   } catch (e) {
-    return NextResponse.json({ error: String(e instanceof Error ? e.message : e) }, { status: 400 });
+    return errorResponse("templates/categories", e, 400);
   }
 }
 

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { errorResponse } from "@/lib/errors";
 import { listForms, createForm, updateForm, deleteForm } from "@/lib/logbook";
 import type { FieldType, FormField, FormScope } from "@/lib/forms";
 import { canReview, currentUser, passwordChangeGate } from "@/lib/session";
@@ -46,7 +47,7 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ form }, { status: 201 });
   } catch (e) {
-    return NextResponse.json({ error: String(e instanceof Error ? e.message : e) }, { status: 500 });
+    return errorResponse("forms", e, 500);
   }
 }
 
@@ -72,7 +73,7 @@ export async function PATCH(request: Request) {
     if (!form) return NextResponse.json({ error: "Not found." }, { status: 404 });
     return NextResponse.json({ form });
   } catch (e) {
-    return NextResponse.json({ error: String(e instanceof Error ? e.message : e) }, { status: 500 });
+    return errorResponse("forms", e, 500);
   }
 }
 
@@ -90,7 +91,7 @@ export async function DELETE(request: Request) {
     await deleteForm(id);
     return NextResponse.json({ ok: true });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    return errorResponse("forms", e, 500);
   }
 }
 

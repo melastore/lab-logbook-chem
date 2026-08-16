@@ -2301,6 +2301,14 @@ button:disabled {
   color: var(--muted-2);
 }
 
+/* Signatures are drawn as dark ink on a transparent canvas, so on a dark
+   surface they all but disappear. Invert them there — the variable is defined
+   once per theme rather than repeated inline at each call site. */
+.sig-image-small,
+.sig-cell-img {
+  filter: var(--sig-ink-filter, none);
+}
+
 .sig-image-small {
   max-height: 40px;
   object-fit: contain;
@@ -2663,6 +2671,46 @@ button:disabled {
   color: var(--on-surface);
   font-size: 17px;
   font-weight: 900;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+/* Dialog sizes. These used to be inline style props on every modal; naming them
+   keeps the set small and stops new dialogs inventing their own widths. */
+.modal-w-sm  { max-width: 420px;  width: 100%; }
+.modal-w-md  { max-width: 480px;  width: 100%; }
+.modal-w-lg  { max-width: 520px;  width: 100%; }
+.modal-w-xl  { max-width: 560px;  width: 100%; }
+.modal-w-2xl { max-width: 1100px; width: 100%; }
+.modal-w-3xl { max-width: 1240px; width: 100%; }
+
+/* Tall dialogs. `.modal` already caps the height and stacks its children, so
+   this only needs to let the body take the leftover space and scroll in it. */
+.modal-tall > .modal-body {
+  flex: 1;
+}
+
+.modal-tall-xl {
+  max-height: 94vh;
+}
+
+/* Password inputs that carry a show/hide button need room for it. */
+.input-with-toggle {
+  padding-right: 48px;
+}
+
+/* Brand mark. The wrapper centres it; the image keeps its own aspect ratio. */
+.lab-logo-container {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lab-logo-img {
+  display: block;
+  object-fit: contain;
 }
 
 .modal-form-grid {
@@ -2983,6 +3031,14 @@ button:disabled {
 .setup-running {
   padding: 30px 0;
   text-align: center;
+}
+
+/* Used on the lucide RefreshCw icon wherever something is loading or saving.
+   It was referenced in a dozen places but never defined, so every one of those
+   indicators sat perfectly still. The reduced-motion block above stops it. */
+.spin {
+  animation: spin 0.9s linear infinite;
+  transform-origin: center;
 }
 
 .setup-spinner {
@@ -3490,6 +3546,9 @@ button:disabled {
    ========================================================================== */
 [data-theme="dark"] {
   color-scheme: dark;
+
+  /* Dark ink on a light page reads fine; on a dark page it needs inverting. */
+  --sig-ink-filter: invert(1) hue-rotate(180deg);
 
   --primary: #82d5c8;
   --primary-hover: #9ef2e3;
@@ -4298,7 +4357,7 @@ button:disabled {
 .records-table tr[data-status="Pending"] { background: rgba(181, 71, 8, 0.04); }
 .records-table tr[data-status="Rejected"] { background: rgba(180, 35, 24, 0.04); }
 .sig-cell-img {
-  height: 34px;
+  height: 24px;
   max-width: 120px;
   object-fit: contain;
   border-radius: 4px;
@@ -7400,6 +7459,64 @@ button:disabled {
   background: linear-gradient(135deg, #2cc9b6, #8fc0f5);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+}
+
+/* Sign-in page pieces that used to be inline style props. */
+.auth-visual-lede {
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 15px;
+  line-height: 1.6;
+  max-width: 360px;
+  margin-top: 14px;
+}
+
+.auth-card-logo {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.auth-label-icon {
+  vertical-align: -2px;
+  margin-right: 6px;
+}
+
+.auth-hint {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+
+.auth-notice {
+  margin-top: 8px;
+}
+
+.auth-submit-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.auth-back-link {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  margin-top: 4px;
+}
+
+.auth-back-link:hover {
+  color: var(--on-surface);
+}
+
+.auth-loading-icon {
+  color: var(--primary);
+}
+
+.auth-loading-text {
+  font-weight: 600;
 }
 
 .auth-visual-features {

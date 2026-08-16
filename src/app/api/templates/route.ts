@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { errorResponse } from "@/lib/errors";
 import { listTemplates, createTemplate, updateTemplate, deleteTemplate } from "@/lib/logbook";
 import { canReview, currentUser, passwordChangeGate } from "@/lib/session";
 
@@ -46,7 +47,7 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ template }, { status: 201 });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    return errorResponse("templates", e, 500);
   }
 }
 
@@ -84,7 +85,7 @@ export async function PATCH(request: Request) {
     if (!template) return NextResponse.json({ error: "Not found." }, { status: 404 });
     return NextResponse.json({ template });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    return errorResponse("templates", e, 500);
   }
 }
 
@@ -102,7 +103,7 @@ export async function DELETE(request: Request) {
     await deleteTemplate(id);
     return NextResponse.json({ ok: true });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    return errorResponse("templates", e, 500);
   }
 }
 

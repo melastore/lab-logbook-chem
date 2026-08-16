@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { errorResponse } from "@/lib/errors";
 import { verifyLogbookChain, logAudit } from "@/lib/logbook";
 import { canReview, currentUser } from "@/lib/session";
 
@@ -18,6 +19,6 @@ export async function GET() {
     });
     return NextResponse.json(result);
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    return errorResponse("logbook/verify", e);
   }
 }

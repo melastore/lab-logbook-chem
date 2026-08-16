@@ -86,7 +86,7 @@ function LoginForm() {
 
         <div className="auth-visual-main">
           <h2 className="auth-visual-title">Analytical Instruments Logbook</h2>
-          <p style={{ color: "rgba(255,255,255,0.82)", fontSize: 15, lineHeight: 1.6, maxWidth: 360, marginTop: 14 }}>
+          <p className="auth-visual-lede">
             Secure digital log sheets for the Chemical Metrology Laboratory.
           </p>
         </div>
@@ -99,7 +99,7 @@ function LoginForm() {
         <div className="auth-content">
           <div className="auth-card-minimal">
             <div className="auth-card-header">
-              <div style={{ display: "flex", justifyContent: "center", marginBottom: "16px" }}>
+              <div className="auth-card-logo">
                 <LabLogo size={60} />
               </div>
               <p className="auth-eyebrow">Chemical Metrology System</p>
@@ -154,7 +154,7 @@ function LoginForm() {
               ) : (
                 <div className="auth-field-group">
                   <label className="auth-field-label" htmlFor="twoFactorToken">
-                    <ShieldCheck size={15} style={{ verticalAlign: "-2px", marginRight: 6 }} />
+                    <ShieldCheck size={15} className="auth-label-icon" aria-hidden="true" />
                     Authentication code
                   </label>
                   <div className="input-field">
@@ -172,28 +172,27 @@ function LoginForm() {
                       required
                     />
                   </div>
-                  <p className="auth-hint" style={{ fontSize: 13, color: "var(--muted)", marginTop: 6 }}>
+                  <p className="auth-hint">
                     Open your authenticator app and enter the current code for this account.
                   </p>
                 </div>
               )}
 
               {message && (
-                <div className="notice notice-error notice-inline" style={{ marginTop: "8px" }}>
-                  <AlertTriangle size={16} />
+                <div className="notice notice-error notice-inline auth-notice" role="alert">
+                  <AlertTriangle size={16} aria-hidden="true" />
                   <span>{message}</span>
                 </div>
               )}
 
               <button
-                className="btn-auth-primary"
+                className="btn-auth-primary auth-submit-btn"
                 type="submit"
                 disabled={submitting}
-                style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "10px" }}
               >
                 {submitting ? (
                   <>
-                    <RefreshCw className="spin" size={16} />
+                    <RefreshCw className="spin" size={16} aria-hidden="true" />
                     <span>Authenticating...</span>
                   </>
                 ) : (
@@ -208,7 +207,6 @@ function LoginForm() {
                 <button
                   type="button"
                   className="auth-back-link"
-                  style={{ background: "none", border: "none", color: "var(--muted)", fontSize: 13, cursor: "pointer", marginTop: 4 }}
                   onClick={() => { setTwoFactorRequired(false); setTwoFactorToken(""); setMessage(""); }}
                 >
                   ← Use a different account
@@ -227,9 +225,9 @@ function LoginForm() {
 export default function LoginPage() {
   return (
     <Suspense fallback={
-      <div className="settings-loading-wrap">
-        <RefreshCw className="spin" size={36} style={{ color: "var(--primary)" }} />
-        <p style={{ fontWeight: 600 }}>Loading Portal...</p>
+      <div className="settings-loading-wrap" role="status" aria-live="polite">
+        <RefreshCw className="spin auth-loading-icon" size={36} aria-hidden="true" />
+        <p className="auth-loading-text">Loading Portal…</p>
       </div>
     }>
       <LoginForm />

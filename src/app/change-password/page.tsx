@@ -3,6 +3,7 @@
 import { FormEvent, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { MIN_PASSWORD_LENGTH } from "@/lib/password";
 
 // Only same-origin paths — anything else ("https://…", "//host") is a redirect
 // out of the app and gets dropped.
@@ -17,6 +18,7 @@ function ChangePasswordForm() {
   const searchParams = useSearchParams();
   const redirectTo = safeRedirect(searchParams.get("redirect"));
 
+  const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [message, setMessage] = useState("");
@@ -26,9 +28,15 @@ function ChangePasswordForm() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (newPassword.length < 8) {
+    if (!currentPassword) {
       setMessageType("error");
-      setMessage("Password must be at least 8 characters.");
+      setMessage("Enter the temporary password you just signed in with.");
+      return;
+    }
+
+    if (newPassword.length < MIN_PASSWORD_LENGTH) {
+      setMessageType("error");
+      setMessage(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
       return;
     }
 
@@ -44,12 +52,18 @@ function ChangePasswordForm() {
     const response = await fetch("/api/auth/change-password", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ newPassword }),
+      body: JSON.stringify({ currentPassword, newPassword }),
     });
 
+    const result = await response.json().catch(() => ({}));
+
     if (!response.ok) {
+      // The server explains exactly what was wrong (too short, reuses the
+      // initial password, wrong current password) — don't bury that.
       setMessageType("error");
-      setMessage("Failed to change password. Please try again.");
+      setMessage(typeof result.error === "string" && result.error
+        ? result.error
+        : "Could not change your password. Please try again.");
       setSubmitting(false);
       return;
     }
@@ -87,12 +101,25 @@ function ChangePasswordForm() {
 
           <form className="auth-form-modern" onSubmit={handleSubmit}>
             <div className="input-group">
+              <label htmlFor="currentPassword">Temporary password</label>
+              <input
+                id="currentPassword"
+                type="password"
+                autoComplete="current-password"
+                placeholder="The password you signed in with"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                required
+              />
+            </div>
+
+            <div className="input-group">
               <label htmlFor="newPassword">New password</label>
               <input
                 id="newPassword"
                 type="password"
                 autoComplete="new-password"
-                placeholder="Min. 8 characters"
+                placeholder={`Min. ${MIN_PASSWORD_LENGTH} characters`}
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 required

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { loginWithUsername, logAudit } from "@/lib/logbook";
 import { rateLimit, rateLimitClear } from "@/lib/rate-limit";
+import { clientIp } from "@/lib/request";
 import { setSessionCookies } from "@/lib/session";
 import { getTwoFactor } from "@/lib/twofactor";
 import { verifyTotp } from "@/lib/totp";
@@ -13,14 +14,27 @@ export const dynamic = "force-dynamic";
 const MAX_ATTEMPTS = 10;
 const WINDOW_MS = 15 * 60 * 1000;
 
+// Per-source, on top of the per-account limit. Without it, one host can spray a
+// handful of guesses across every username in the lab and never be throttled.
+const MAX_ATTEMPTS_PER_IP = 30;
+
 export async function POST(request: Request) {
-  const body = await request.json();
+  const body = await request.json().catch(() => ({}));
   const username = clean(body.username);
   const password = clean(body.password);
   const twoFactorToken = clean(body.twoFactorToken);
 
   if (!username || !password) {
     return NextResponse.json({ error: "Username and password are required." }, { status: 400 });
+  }
+
+  const ipKey = `login-ip:${clientIp(request)}`;
+  const ipLimit = rateLimit(ipKey, MAX_ATTEMPTS_PER_IP, WINDOW_MS);
+  if (!ipLimit.allowed) {
+    return NextResponse.json(
+      { error: "Too many attempts. Try again later." },
+      { status: 429, headers: { "Retry-After": String(ipLimit.retryAfterSec) } }
+    );
   }
 
   const limitKey = `login:${username.toLowerCase()}`;

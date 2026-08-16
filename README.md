@@ -14,10 +14,10 @@ Analysts select an instrument, fill in a structured log entry, and sign it. Each
 - **No-code Form Builder** — every analyst-filled field is configurable from the admin UI; nothing is hardcoded.
 - **Tamper-evident records** — append-only `logbook_records` table with a per-row SHA-256 hash chained to the previous row, verifiable on demand.
 - **Drawn signatures** — captured fresh per submission and bound into the record hash.
-- **Role-based access** — analyst, supervisor, and admin roles; archived users are blocked from signing in.
+- **Role-based access** — analyst, supervisor, and admin roles; analysts see only their own entries, and archived users are blocked from signing in.
 - **Admin dashboard** — searchable/filterable records, filter-aware CSV and Excel export, user management, and integrity verification.
+- **Two-factor authentication** — optional TOTP per account, with the seed encrypted at rest.
 - **Light/dark themes** and adjustable interface font size.
-- **Optional Telegram notifications** to a supervisor on each submission.
 
 ## Tech stack
 
@@ -51,9 +51,9 @@ cp .env.example .env.local
 | `SUPABASE_URL` | Your Supabase project URL |
 | `SUPABASE_ANON_KEY` | Supabase anon key (client auth) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service-role key (server-side data access) — **keep secret** |
-| `LAB_INITIAL_PASSWORD` | Initial password for provisioned accounts (users must change it on first login) |
+| `APP_ENCRYPTION_KEY` | Base64 of 32 random bytes (`openssl rand -base64 32`), used to encrypt two-factor seeds at rest — **keep secret** |
+| `LAB_INITIAL_PASSWORD` | Initial password for provisioned accounts, 10+ characters (users must change it on first login) |
 | `NEXT_PUBLIC_APP_URL` | Base URL of the app |
-| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | Optional submission notifications |
 
 `.env.local` is git-ignored and must never be committed.
 
@@ -65,6 +65,15 @@ In the Supabase SQL editor, run in order:
 2. `supabase/integrity.sql` — makes `logbook_records` append-only and tamper-evident, and adds the append-only audit log.
 
 (The remaining files in `supabase/` are incremental migrations; apply any that your project needs.)
+
+If the install predates encrypted two-factor seeds, re-encrypt the existing ones once:
+
+```bash
+node --env-file=.env.local scripts/encrypt-totp-secrets.mjs --dry-run   # preview
+node --env-file=.env.local scripts/encrypt-totp-secrets.mjs            # apply
+```
+
+New enrollments are encrypted on write and plaintext rows keep working, so this is cleanup rather than a blocker.
 
 ### 4. Run
 
@@ -78,7 +87,14 @@ npm test         # run tests
 
 - **No secrets in the repository.** All credentials live in `.env.local` (git-ignored); the committed `.env.example` holds placeholders only.
 - **Append-only, hash-chained records.** The database blocks `UPDATE`/`DELETE` on logbook records; integrity can be re-verified at any time.
-- **Disabled accounts cannot authenticate.** Archived users are rejected at login.
+- **Records are scoped server-side.** An analyst is served only their own entries — including the signature images bound to them. Supervisors and admins see the whole book.
+- **Two-factor seeds are encrypted at rest** (AES-256-GCM) and are redacted from admin backup exports, so a backup file cannot be used to bypass anyone's second factor.
+- **Password changes require the current password**, so an unattended session cannot be used to take an account over. Passwords are 10+ characters, and cannot reuse the shared initial password or contain the username.
+- **Disabled accounts cannot authenticate.** Archived users are rejected at login, and an archived profile invalidates any live session on its next request.
+- **Sign-in is rate limited** per account and per source address; two-factor code checks are limited too.
+- **Sessions time out.** The access cookie lasts an hour and the refresh cookie a rolling 12 hours of inactivity; signing out revokes the refresh token at Supabase rather than only dropping the cookie.
+- **Hardened responses.** A per-request nonce CSP, `frame-ancestors 'none'`, HSTS, `Referrer-Policy: no-referrer`, and `no-store` on every API response. The app is marked `noindex`.
+- **Errors don't leak internals.** Database and infrastructure failures are logged server-side and returned as a generic message.
 - **Least exposure.** Internal lab document templates and working notes are excluded from version control.
 
 ## License

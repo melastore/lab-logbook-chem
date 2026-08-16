@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { errorResponse } from "@/lib/errors";
 import { currentUser, passwordChangeGate } from "@/lib/session";
 import { weeklyPlanTarget } from "@/lib/authz";
 import { getWeeklyPlans, saveWeeklyPlan, deleteWeeklyPlan, type WeeklyPlan } from "@/lib/weekly-plan";
@@ -18,7 +19,7 @@ export async function GET(request: Request) {
     const plans = await getWeeklyPlans(resolved.target);
     return NextResponse.json({ plans });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    return errorResponse("weekly-plan", error, 500);
   }
 }
 
@@ -42,7 +43,7 @@ export async function POST(request: Request) {
     await saveWeeklyPlan(body, user.username);
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    return errorResponse("weekly-plan", error, 500);
   }
 }
 
@@ -66,6 +67,6 @@ export async function DELETE(request: Request) {
     await deleteWeeklyPlan(targetUser, weekStartDate);
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    return errorResponse("weekly-plan", error, 500);
   }
 }

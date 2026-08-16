@@ -23,6 +23,7 @@ import {
   type FormDef, type FormField, type FieldType, type FormScope 
 } from "@/lib/forms";
 import { UserAvatar } from "@/components/UserAvatar";
+import { ModalShell } from "@/components/ModalShell";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { LabLogo } from "@/components/LabLogo";
 import { parseAnalystSignature, signatureSummary, type AnalystSignaturePayload } from "@/lib/signature";
@@ -1247,7 +1248,11 @@ function LogTypeTable({ activityType, records, form, onAmend, latestActiveIds }:
                   })}
                   <td className="doc-cell">
                     {signature.image ? (
-                      <img src={signature.image} alt="Signature" className="sig-cell-img" style={{ height: 24, filter: "var(--theme-sig-filter)" }} />
+                      // Signatures are inline data: URLs held in the record, not
+                      // files on disk — there is nothing for next/image to fetch
+                      // or optimise.
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={signature.image} alt="Analyst signature" className="sig-cell-img" />
                     ) : (
                       <span style={{ color: "var(--muted)", fontSize: 11 }}>{signature.typed || "—"}</span>
                     )}
@@ -1325,46 +1330,44 @@ function AmendModal({ record, form, onCancel, onSubmit }: {
   }
 
   return (
-    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onCancel()}>
-      <div className="modal shadow-3" style={{ maxWidth: 560, width: "100%", maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
-        <div className="modal-header">
-          <p className="modal-title" style={{ fontWeight: 800, display: "flex", alignItems: "center", gap: 8 }}>
-            <Pencil size={16} /> Amend record
-          </p>
-          <button className="btn btn-ghost btn-sm" type="button" onClick={onCancel}>✕</button>
-        </div>
-        <div className="modal-body" style={{ flex: 1, overflowY: "auto", display: "grid", gap: 12 }}>
-          <p style={{ fontSize: 13, color: "var(--muted)", margin: 0 }}>
-            The original record stays locked. This saves a linked correction stamped with your name, the time, and the reason below.
-          </p>
-          {fields.map((f) => (
-            <div className="field-modern" key={f.key}>
-              <label>{f.label}</label>
-              {f.type === "textarea" ? (
-                <textarea value={values[f.key] ?? ""} rows={2} onChange={(e) => setValues((p) => ({ ...p, [f.key]: e.target.value }))} />
-              ) : (
-                <input
-                  type={f.type === "date" ? "date" : f.type === "time" ? "time" : "text"}
-                  value={values[f.key] ?? ""}
-                  onChange={(e) => setValues((p) => ({ ...p, [f.key]: e.target.value }))}
-                />
-              )}
-            </div>
-          ))}
-          <div className="field-modern">
-            <label>Reason for amendment <span className="req">*</span></label>
-            <textarea value={reason} rows={2} placeholder="e.g. corrected transposed measured value" onChange={(e) => setReason(e.target.value)} />
-          </div>
-          {error && <div className="notice notice-warning">{error}</div>}
-        </div>
-        <div className="modal-footer" style={{ justifyContent: "flex-end", gap: 10 }}>
-          <button className="btn btn-outline" type="button" onClick={onCancel} disabled={saving}>Cancel</button>
-          <button className="btn btn-primary btn-icon-gap" type="button" onClick={save} disabled={saving}>
-            {saving ? <><RefreshCw size={16} className="spin" /> Saving…</> : <><CheckCircle2 size={16} /> Save correction</>}
-          </button>
-        </div>
+    <ModalShell open onClose={onCancel} className="modal shadow-3 modal-w-xl modal-tall" labelledBy="amend-record-title">
+      <div className="modal-header">
+        <h2 className="modal-title" id="amend-record-title">
+          <Pencil size={16} aria-hidden="true" /> Amend record
+        </h2>
+        <button className="btn btn-ghost btn-sm" type="button" onClick={onCancel} aria-label="Close">✕</button>
       </div>
-    </div>
+      <div className="modal-body" style={{ display: "grid", gap: 12 }}>
+        <p style={{ fontSize: 13, color: "var(--muted)", margin: 0 }}>
+          The original record stays locked. This saves a linked correction stamped with your name, the time, and the reason below.
+        </p>
+        {fields.map((f) => (
+          <div className="field-modern" key={f.key}>
+            <label>{f.label}</label>
+            {f.type === "textarea" ? (
+              <textarea value={values[f.key] ?? ""} rows={2} onChange={(e) => setValues((p) => ({ ...p, [f.key]: e.target.value }))} />
+            ) : (
+              <input
+                type={f.type === "date" ? "date" : f.type === "time" ? "time" : "text"}
+                value={values[f.key] ?? ""}
+                onChange={(e) => setValues((p) => ({ ...p, [f.key]: e.target.value }))}
+              />
+            )}
+          </div>
+        ))}
+        <div className="field-modern">
+          <label>Reason for amendment <span className="req">*</span></label>
+          <textarea value={reason} rows={2} placeholder="e.g. corrected transposed measured value" onChange={(e) => setReason(e.target.value)} />
+        </div>
+        {error && <div className="notice notice-warning">{error}</div>}
+      </div>
+      <div className="modal-footer" style={{ justifyContent: "flex-end", gap: 10 }}>
+        <button className="btn btn-outline" type="button" onClick={onCancel} disabled={saving}>Cancel</button>
+        <button className="btn btn-primary btn-icon-gap" type="button" onClick={save} disabled={saving}>
+          {saving ? <><RefreshCw size={16} className="spin" /> Saving…</> : <><CheckCircle2 size={16} /> Save correction</>}
+        </button>
+      </div>
+    </ModalShell>
   );
 }
 
@@ -1718,225 +1721,221 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
       )}
 
       {modal && (
-        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setModal(null)}>
-          <div className="modal shadow-3" style={{ maxWidth: 1100, width: "100%", height: 'auto', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
-            <div className="modal-header">
-              <p className="modal-title" style={{ fontWeight: 800 }}>{modal === "add" ? "Create New Instrument" : `Edit Instrument: ${form.instrumentName}`}</p>
-              <button className="btn btn-ghost btn-sm" type="button" onClick={() => setModal(null)}>✕</button>
-            </div>
+        <ModalShell open onClose={() => setModal(null)} className="modal shadow-3 modal-w-2xl modal-tall" labelledBy="instrument-modal-title">
+          <div className="modal-header">
+            <h2 className="modal-title" id="instrument-modal-title">{modal === "add" ? "Create New Instrument" : `Edit Instrument: ${form.instrumentName}`}</h2>
+            <button className="btn btn-ghost btn-sm" type="button" onClick={() => setModal(null)} aria-label="Close">✕</button>
+          </div>
 
-            <div className="edit-mode-tabs">
-              <button className={`edit-mode-tab ${instrTab === "basic" ? "active" : ""}`} onClick={() => setInstrTab("basic")}>
-                <Settings size={16} /> <span>1. Basic Specifications</span>
-              </button>
-              <button className={`edit-mode-tab ${instrTab === "content" ? "active" : ""}`} onClick={() => setInstrTab("content")}>
-                <FileText size={16} /> <span>2. General Info Content</span>
-              </button>
-            </div>
+          <div className="edit-mode-tabs">
+            <button className={`edit-mode-tab ${instrTab === "basic" ? "active" : ""}`} onClick={() => setInstrTab("basic")}>
+              <Settings size={16} /> <span>1. Basic Specifications</span>
+            </button>
+            <button className={`edit-mode-tab ${instrTab === "content" ? "active" : ""}`} onClick={() => setInstrTab("content")}>
+              <FileText size={16} /> <span>2. General Info Content</span>
+            </button>
+          </div>
 
-            <div className="modal-body" style={{ flex: 1, overflowY: 'auto' }}>
-              {instrTab === "basic" ? (
-                <div className="modal-pad">
+          <div className="modal-body" style={{ flex: 1, overflowY: 'auto' }}>
+            {instrTab === "basic" ? (
+              <div className="modal-pad">
 
-                  {/* Identity & system settings — these are not part of the editable
-                      General Information document; they identify the instrument and
-                      control how it behaves in the app. */}
-                  <div>
-                    <h4 className="info-section-head"><Settings size={14} /> Identity &amp; Settings</h4>
-                    <div className="modal-form-grid">
-                      <div className="field">
-                        <label className="field-label">Category <span className="req">*</span></label>
-                        <select value={form.categoryId} onChange={(e) => updateValue("categoryId", e.target.value)}>
-                          {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
-                      </div>
-                      <div className="field">
-                        <label className="field-label">Instrument Name <span className="req">*</span></label>
-                        <input value={form.instrumentName} onChange={(e) => updateValue("instrumentName", e.target.value)} placeholder="e.g. ICP-MS" />
-                      </div>
-                      <div className="field">
-                        <label className="field-label">Instrument ID</label>
-                        <input value={form.instrumentId} onChange={(e) => updateValue("instrumentId", e.target.value)} placeholder="e.g. ICP-MS-001" />
-                      </div>
-                      <div className="field">
-                        <label className="field-label">Primary Method Used</label>
-                        <input value={form.methodUsed} onChange={(e) => updateValue("methodUsed", e.target.value)} placeholder="Default method for new records" />
-                      </div>
-                      <div className="field">
-                        <label className="field-label">Display Order</label>
-                        <input type="number" value={form.displayOrder} onChange={(e) => updateValue("displayOrder", Number(e.target.value))} />
-                      </div>
+                {/* Identity & system settings — these are not part of the editable
+                    General Information document; they identify the instrument and
+                    control how it behaves in the app. */}
+                <div>
+                  <h4 className="info-section-head"><Settings size={14} /> Identity &amp; Settings</h4>
+                  <div className="modal-form-grid">
+                    <div className="field">
+                      <label className="field-label">Category <span className="req">*</span></label>
+                      <select value={form.categoryId} onChange={(e) => updateValue("categoryId", e.target.value)}>
+                        {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                    </div>
+                    <div className="field">
+                      <label className="field-label">Instrument Name <span className="req">*</span></label>
+                      <input value={form.instrumentName} onChange={(e) => updateValue("instrumentName", e.target.value)} placeholder="e.g. ICP-MS" />
+                    </div>
+                    <div className="field">
+                      <label className="field-label">Instrument ID</label>
+                      <input value={form.instrumentId} onChange={(e) => updateValue("instrumentId", e.target.value)} placeholder="e.g. ICP-MS-001" />
+                    </div>
+                    <div className="field">
+                      <label className="field-label">Primary Method Used</label>
+                      <input value={form.methodUsed} onChange={(e) => updateValue("methodUsed", e.target.value)} placeholder="Default method for new records" />
+                    </div>
+                    <div className="field">
+                      <label className="field-label">Display Order</label>
+                      <input type="number" value={form.displayOrder} onChange={(e) => updateValue("displayOrder", Number(e.target.value))} />
                     </div>
                   </div>
-
-                  {/* Which General Information form drives this instrument's layout. */}
-                  <div>
-                    <h4 className="info-section-head"><FileText size={14} /> General Information Form</h4>
-                    <div className="modal-form-grid">
-                      <div className="field" style={{ gridColumn: '1 / -1' }}>
-                        <label className="field-label">Form Layout</label>
-                        <select value={form.infoFormId || (defaultInfoForm?.id ?? "")} onChange={(e) => updateValue("infoFormId", e.target.value)}>
-                          {instrumentForms.map((f) => (
-                            <option key={f.id} value={f.id}>{f.title}{f.id === "instrument" ? " (System Default)" : ""}</option>
-                          ))}
-                        </select>
-                        <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
-                          Choose which form defines the General Information fields. To add, remove, or reorder
-                          those fields, open <strong>Form Builder → General Info</strong> — no coding required.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
                 </div>
-              ) : (
-                <div className="modal-pad">
 
-                  {/* Form-driven General Information fields. The structure (which
-                      fields, labels, types, order) is owned by the assigned info
-                      form and edited in Form Builder → General Info. Here the admin
-                      only fills in the values. */}
-                  <div>
-                    <div className="info-section-head">
-                      <FileText size={14} /> General Information
-                    </div>
-
-                    {infoFields.length === 0 ? (
-                      <div style={{ padding: '24px 16px', textAlign: 'center', background: 'var(--surface-2)', border: '1px dashed var(--outline-variant)', borderRadius: 8, color: 'var(--muted)', fontSize: 13 }}>
-                        No fields in this form yet.
-                      </div>
-                    ) : (
-                      <div className="modal-form-grid">
-                        {infoFields.map((f) => (
-                          <div
-                            key={f.key}
-                            className="field"
-                            style={{ margin: 0, gridColumn: (f.full || f.type === "textarea") ? '1 / -1' : undefined }}
-                          >
-                            <label className="field-label">
-                              {f.label}{f.required ? <span className="req"> *</span> : null}
-                            </label>
-                            {renderFieldInput(f)}
-                          </div>
+                {/* Which General Information form drives this instrument's layout. */}
+                <div>
+                  <h4 className="info-section-head"><FileText size={14} /> General Information Form</h4>
+                  <div className="modal-form-grid">
+                    <div className="field" style={{ gridColumn: '1 / -1' }}>
+                      <label className="field-label">Form Layout</label>
+                      <select value={form.infoFormId || (defaultInfoForm?.id ?? "")} onChange={(e) => updateValue("infoFormId", e.target.value)}>
+                        {instrumentForms.map((f) => (
+                          <option key={f.id} value={f.id}>{f.title}{f.id === "instrument" ? " (System Default)" : ""}</option>
                         ))}
-                      </div>
-                    )}
+                      </select>
+                      <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                        Choose which form defines the General Information fields. To add, remove, or reorder
+                        those fields, open <strong>Form Builder → General Info</strong> — no coding required.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            ) : (
+              <div className="modal-pad">
+
+                {/* Form-driven General Information fields. The structure (which
+                    fields, labels, types, order) is owned by the assigned info
+                    form and edited in Form Builder → General Info. Here the admin
+                    only fills in the values. */}
+                <div>
+                  <div className="info-section-head">
+                    <FileText size={14} /> General Information
                   </div>
 
-                  {/* Additional custom fields */}
-                  <div className="field-group-panel">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 16 }}>
-                      <div>
-                        <h4 style={{ fontSize: 12, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 4 }}>
-                          Additional Fields
-                        </h4>
-                        <p style={{ fontSize: 12, color: 'var(--muted)' }}>
-                          Extra attributes for this instrument. These appear on the General Information tab.
-                        </p>
-                      </div>
-                      <button type="button" className="btn btn-outline btn-sm btn-icon-gap" onClick={addCustomField}>
-                        <Plus size={14} /> <span>Add Field</span>
-                      </button>
+                  {infoFields.length === 0 ? (
+                    <div style={{ padding: '24px 16px', textAlign: 'center', background: 'var(--surface-2)', border: '1px dashed var(--outline-variant)', borderRadius: 8, color: 'var(--muted)', fontSize: 13 }}>
+                      No fields in this form yet.
                     </div>
-
-                    <div style={{ display: 'grid', gap: 12 }}>
-                      {customFields.length === 0 && (
-                        <div style={{ padding: '24px 16px', textAlign: 'center', background: 'var(--surface-2)', border: '1px dashed var(--outline-variant)', borderRadius: 8, color: 'var(--muted)', fontSize: 13 }}>
-                          No additional fields added yet.
-                        </div>
-                      )}
-                      {customFields.map((f, i) => (
-                        <div key={f.id} style={{ display: 'flex', gap: 8, alignItems: 'center', background: 'var(--surface-1)', padding: 8, borderRadius: 8, border: '1px solid var(--outline-variant)' }}>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                            <button className="btn btn-ghost btn-sm btn-icon-only" type="button" disabled={i === 0} onClick={() => moveCustomField(i, -1)} title="Move up" style={{ height: 18, width: 20 }}>
-                              <ChevronDown size={12} style={{ transform: "rotate(180deg)" }} />
-                            </button>
-                            <button className="btn btn-ghost btn-sm btn-icon-only" type="button" disabled={i === customFields.length - 1} onClick={() => moveCustomField(i, 1)} title="Move down" style={{ height: 18, width: 20 }}>
-                              <ChevronDown size={12} />
-                            </button>
-                          </div>
-                          <div className="field" style={{ flex: 1, margin: 0 }}>
-                            <input value={f.label} onChange={(e) => updateCustomField(i, "label", e.target.value)} placeholder="Field Label (e.g. Laser Type)" />
-                          </div>
-                          <div className="field" style={{ flex: 2, margin: 0 }}>
-                            <input value={f.value} onChange={(e) => updateCustomField(i, "value", e.target.value)} placeholder="Value" />
-                          </div>
-                          <button type="button" className="btn btn-danger btn-sm btn-icon-only" onClick={() => removeCustomField(i)} title="Remove field">
-                            <Trash2 size={14} />
-                          </button>
+                  ) : (
+                    <div className="modal-form-grid">
+                      {infoFields.map((f) => (
+                        <div
+                          key={f.key}
+                          className="field"
+                          style={{ margin: 0, gridColumn: (f.full || f.type === "textarea") ? '1 / -1' : undefined }}
+                        >
+                          <label className="field-label">
+                            {f.label}{f.required ? <span className="req"> *</span> : null}
+                          </label>
+                          {renderFieldInput(f)}
                         </div>
                       ))}
                     </div>
+                  )}
+                </div>
+
+                {/* Additional custom fields */}
+                <div className="field-group-panel">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 16 }}>
+                    <div>
+                      <h4 style={{ fontSize: 12, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 4 }}>
+                        Additional Fields
+                      </h4>
+                      <p style={{ fontSize: 12, color: 'var(--muted)' }}>
+                        Extra attributes for this instrument. These appear on the General Information tab.
+                      </p>
+                    </div>
+                    <button type="button" className="btn btn-outline btn-sm btn-icon-gap" onClick={addCustomField}>
+                      <Plus size={14} /> <span>Add Field</span>
+                    </button>
                   </div>
 
+                  <div style={{ display: 'grid', gap: 12 }}>
+                    {customFields.length === 0 && (
+                      <div style={{ padding: '24px 16px', textAlign: 'center', background: 'var(--surface-2)', border: '1px dashed var(--outline-variant)', borderRadius: 8, color: 'var(--muted)', fontSize: 13 }}>
+                        No additional fields added yet.
+                      </div>
+                    )}
+                    {customFields.map((f, i) => (
+                      <div key={f.id} style={{ display: 'flex', gap: 8, alignItems: 'center', background: 'var(--surface-1)', padding: 8, borderRadius: 8, border: '1px solid var(--outline-variant)' }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                          <button className="btn btn-ghost btn-sm btn-icon-only" type="button" disabled={i === 0} onClick={() => moveCustomField(i, -1)} title="Move up" style={{ height: 18, width: 20 }}>
+                            <ChevronDown size={12} style={{ transform: "rotate(180deg)" }} />
+                          </button>
+                          <button className="btn btn-ghost btn-sm btn-icon-only" type="button" disabled={i === customFields.length - 1} onClick={() => moveCustomField(i, 1)} title="Move down" style={{ height: 18, width: 20 }}>
+                            <ChevronDown size={12} />
+                          </button>
+                        </div>
+                        <div className="field" style={{ flex: 1, margin: 0 }}>
+                          <input value={f.label} onChange={(e) => updateCustomField(i, "label", e.target.value)} placeholder="Field Label (e.g. Laser Type)" />
+                        </div>
+                        <div className="field" style={{ flex: 2, margin: 0 }}>
+                          <input value={f.value} onChange={(e) => updateCustomField(i, "value", e.target.value)} placeholder="Value" />
+                        </div>
+                        <button type="button" className="btn btn-danger btn-sm btn-icon-only" onClick={() => removeCustomField(i)} title="Remove field">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              )}
-            </div>
-            <div className="modal-footer" style={{ justifyContent: 'flex-end', gap: 10 }}>
-              <button className="btn btn-outline" type="button" onClick={() => setModal(null)}>Cancel</button>
-              <button className="btn btn-primary btn-icon-gap" type="button" disabled={saving || !form.instrumentName || !form.categoryId} onClick={saveTemplate}>
-                {saving ? "Saving…" : <><CheckCircle2 size={16} /> <span>{instrTab === "basic" ? "Save Basic Specifications" : "Save General Info"}</span></>}
-              </button>
-            </div>
+
+              </div>
+            )}
           </div>
-        </div>
+          <div className="modal-footer" style={{ justifyContent: 'flex-end', gap: 10 }}>
+            <button className="btn btn-outline" type="button" onClick={() => setModal(null)}>Cancel</button>
+            <button className="btn btn-primary btn-icon-gap" type="button" disabled={saving || !form.instrumentName || !form.categoryId} onClick={saveTemplate}>
+              {saving ? "Saving…" : <><CheckCircle2 size={16} /> <span>{instrTab === "basic" ? "Save Basic Specifications" : "Save General Info"}</span></>}
+            </button>
+          </div>
+        </ModalShell>
       )}
 
       {catModal && (
-        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setCatModal(false)}>
-          <div className="modal shadow-3" style={{ maxWidth: 520, width: "100%" }}>
-            <div className="modal-header">
-              <p className="modal-title" style={{ fontWeight: 800 }}>Manage Categories</p>
-              <button className="btn btn-ghost btn-sm" type="button" onClick={() => setCatModal(false)}>✕</button>
-            </div>
-            <div className="modal-body" style={{ display: "grid", gap: 12 }}>
-              {categories.length === 0 && (
-                <p style={{ fontSize: 13, color: "var(--muted)" }}>No categories yet. Add the first one below.</p>
-              )}
-              {categories.map((c, i) => {
-                const count = templates.filter((t) => t.categoryId === c.id).length;
-                const changed = (catNames[c.id] ?? c.name).trim() !== c.name;
-                return (
-                  <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div style={{ display: "flex", flexDirection: "column" }}>
-                      <button className="btn btn-ghost btn-sm btn-icon-only" type="button" disabled={i === 0 || catBusy} onClick={() => moveCategory(i, -1)} title="Move up" style={{ height: 18 }}>
-                        <ChevronDown size={12} style={{ transform: "rotate(180deg)" }} />
-                      </button>
-                      <button className="btn btn-ghost btn-sm btn-icon-only" type="button" disabled={i === categories.length - 1 || catBusy} onClick={() => moveCategory(i, 1)} title="Move down" style={{ height: 18 }}>
-                        <ChevronDown size={12} />
-                      </button>
-                    </div>
-                    <input
-                      value={catNames[c.id] ?? c.name}
-                      onChange={(e) => setCatNames((p) => ({ ...p, [c.id]: e.target.value }))}
-                      style={{ flex: 1 }}
-                    />
-                    <span className="toolbar-count" title="Instruments in this category">{count}</span>
-                    <button className="btn btn-outline btn-sm" type="button" disabled={!changed || catBusy} onClick={() => renameCategory(c.id)}>Save</button>
-                    <button className="btn btn-danger btn-sm btn-icon-only" type="button" disabled={catBusy} onClick={() => removeCategory(c.id)} title={count > 0 ? "In use — move instruments first" : "Delete category"}>
-                      <Trash2 size={14} />
+        <ModalShell open onClose={() => setCatModal(false)} className="modal shadow-3 modal-w-lg" labelledBy="categories-modal-title">
+          <div className="modal-header">
+            <h2 className="modal-title" id="categories-modal-title">Manage Categories</h2>
+            <button className="btn btn-ghost btn-sm" type="button" onClick={() => setCatModal(false)} aria-label="Close">✕</button>
+          </div>
+          <div className="modal-body" style={{ display: "grid", gap: 12 }}>
+            {categories.length === 0 && (
+              <p style={{ fontSize: 13, color: "var(--muted)" }}>No categories yet. Add the first one below.</p>
+            )}
+            {categories.map((c, i) => {
+              const count = templates.filter((t) => t.categoryId === c.id).length;
+              const changed = (catNames[c.id] ?? c.name).trim() !== c.name;
+              return (
+                <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ display: "flex", flexDirection: "column" }}>
+                    <button className="btn btn-ghost btn-sm btn-icon-only" type="button" disabled={i === 0 || catBusy} onClick={() => moveCategory(i, -1)} title="Move up" style={{ height: 18 }}>
+                      <ChevronDown size={12} style={{ transform: "rotate(180deg)" }} />
+                    </button>
+                    <button className="btn btn-ghost btn-sm btn-icon-only" type="button" disabled={i === categories.length - 1 || catBusy} onClick={() => moveCategory(i, 1)} title="Move down" style={{ height: 18 }}>
+                      <ChevronDown size={12} />
                     </button>
                   </div>
-                );
-              })}
-              <div style={{ display: "flex", gap: 8, marginTop: 8, paddingTop: 12, borderTop: "1px solid var(--outline-variant)" }}>
-                <input
-                  value={newCatName}
-                  onChange={(e) => setNewCatName(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") addCategory(); }}
-                  placeholder="New category name…"
-                  style={{ flex: 1 }}
-                />
-                <button className="btn btn-primary btn-sm btn-icon-gap" type="button" disabled={!newCatName.trim() || catBusy} onClick={addCategory}>
-                  <Plus size={14} /> <span>Add</span>
-                </button>
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-outline" type="button" onClick={() => setCatModal(false)}>Done</button>
+                  <input
+                    value={catNames[c.id] ?? c.name}
+                    onChange={(e) => setCatNames((p) => ({ ...p, [c.id]: e.target.value }))}
+                    style={{ flex: 1 }}
+                  />
+                  <span className="toolbar-count" title="Instruments in this category">{count}</span>
+                  <button className="btn btn-outline btn-sm" type="button" disabled={!changed || catBusy} onClick={() => renameCategory(c.id)}>Save</button>
+                  <button className="btn btn-danger btn-sm btn-icon-only" type="button" disabled={catBusy} onClick={() => removeCategory(c.id)} title={count > 0 ? "In use — move instruments first" : "Delete category"}>
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              );
+            })}
+            <div style={{ display: "flex", gap: 8, marginTop: 8, paddingTop: 12, borderTop: "1px solid var(--outline-variant)" }}>
+              <input
+                value={newCatName}
+                onChange={(e) => setNewCatName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") addCategory(); }}
+                placeholder="New category name…"
+                style={{ flex: 1 }}
+              />
+              <button className="btn btn-primary btn-sm btn-icon-gap" type="button" disabled={!newCatName.trim() || catBusy} onClick={addCategory}>
+                <Plus size={14} /> <span>Add</span>
+              </button>
             </div>
           </div>
-        </div>
+          <div className="modal-footer">
+            <button className="btn btn-outline" type="button" onClick={() => setCatModal(false)}>Done</button>
+          </div>
+        </ModalShell>
       )}
     </div>
   );
@@ -2198,103 +2197,99 @@ function UsersTab({ user, isAdmin }: { user: AppUser | null; isAdmin: boolean })
       )}
 
       {editTarget && (
-        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setEditTarget(null)}>
-          <div className="modal shadow-3" style={{ maxWidth: 420 }}>
-            <div className="modal-header">
-              <p className="modal-title" style={{ fontWeight: 800 }}>Edit User: {editTarget.username}</p>
-              <button className="btn btn-ghost btn-sm" type="button" onClick={() => setEditTarget(null)}>✕</button>
-            </div>
-            <div className="modal-body" style={{ display: "grid", gap: 16 }}>
-              <div style={{ padding: "14px", background: "var(--surface-2)", borderRadius: 12, border: "1px solid var(--outline-variant)", fontSize: 14 }}>
-                <p style={{ color: "var(--muted)", fontSize: 11, fontWeight: 800, textTransform: "uppercase", marginBottom: 6 }}>Account Email</p>
-                <p className="mono" style={{ fontSize: 12 }}>{editTarget.email}</p>
-              </div>
-              <div className="field">
-                <label className="field-label">Full Name</label>
-                <input value={editFullName} onChange={(e) => setEditFullName(e.target.value)} placeholder="e.g. Jane Doe" />
-              </div>
-              <div className="field">
-                <label className="field-label">Username</label>
-                <input value={editUsername} onChange={(e) => setEditUsername(e.target.value)} placeholder="New login username" />
-              </div>
-              <div className="field">
-                <label className="field-label">Position</label>
-                <input value={editPosition} onChange={(e) => setEditPosition(e.target.value)} placeholder="e.g. Senior Analyst" />
-              </div>
-              <div className="field">
-                <label className="field-label">New Password <span style={{ color: "var(--muted)", fontWeight: 400, textTransform: "none" }}>(Optional)</span></label>
-                <div style={{ position: "relative" }}>
-                  <input type={showEditPw ? "text" : "password"} value={editPassword} onChange={(e) => setEditPassword(e.target.value)} placeholder="Reset user's password..." style={{ paddingRight: 72 }} />
-                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowEditPw((p) => !p)} style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", fontSize: 12 }}>{showEditPw ? "Hide" : "Show"}</button>
-                </div>
-              </div>
-              <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>
-                Analysts will be required to change their password on next login if it is reset here.
-              </p>
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-outline" type="button" onClick={() => setEditTarget(null)}>Cancel</button>
-              <button className="btn btn-primary" type="button" disabled={editSaving} onClick={saveEdit}>
-                {editSaving ? "Saving…" : "Apply Changes"}
-              </button>
-            </div>
+        <ModalShell open onClose={() => setEditTarget(null)} className="modal shadow-3 modal-w-sm" labelledBy="edit-user-title">
+          <div className="modal-header">
+            <h2 className="modal-title" id="edit-user-title">Edit User: {editTarget.username}</h2>
+            <button className="btn btn-ghost btn-sm" type="button" onClick={() => setEditTarget(null)} aria-label="Close">✕</button>
           </div>
-        </div>
+          <div className="modal-body" style={{ display: "grid", gap: 16 }}>
+            <div style={{ padding: "14px", background: "var(--surface-2)", borderRadius: 12, border: "1px solid var(--outline-variant)", fontSize: 14 }}>
+              <p style={{ color: "var(--muted)", fontSize: 11, fontWeight: 800, textTransform: "uppercase", marginBottom: 6 }}>Account Email</p>
+              <p className="mono" style={{ fontSize: 12 }}>{editTarget.email}</p>
+            </div>
+            <div className="field">
+              <label className="field-label">Full Name</label>
+              <input value={editFullName} onChange={(e) => setEditFullName(e.target.value)} placeholder="e.g. Jane Doe" />
+            </div>
+            <div className="field">
+              <label className="field-label">Username</label>
+              <input value={editUsername} onChange={(e) => setEditUsername(e.target.value)} placeholder="New login username" />
+            </div>
+            <div className="field">
+              <label className="field-label">Position</label>
+              <input value={editPosition} onChange={(e) => setEditPosition(e.target.value)} placeholder="e.g. Senior Analyst" />
+            </div>
+            <div className="field">
+              <label className="field-label">New Password <span style={{ color: "var(--muted)", fontWeight: 400, textTransform: "none" }}>(Optional)</span></label>
+              <div style={{ position: "relative" }}>
+                <input type={showEditPw ? "text" : "password"} value={editPassword} onChange={(e) => setEditPassword(e.target.value)} placeholder="Reset user's password..." style={{ paddingRight: 72 }} />
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowEditPw((p) => !p)} style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", fontSize: 12 }}>{showEditPw ? "Hide" : "Show"}</button>
+              </div>
+            </div>
+            <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>
+              Analysts will be required to change their password on next login if it is reset here.
+            </p>
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-outline" type="button" onClick={() => setEditTarget(null)}>Cancel</button>
+            <button className="btn btn-primary" type="button" disabled={editSaving} onClick={saveEdit}>
+              {editSaving ? "Saving…" : "Apply Changes"}
+            </button>
+          </div>
+        </ModalShell>
       )}
 
       {createOpen && (
-        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setCreateOpen(false)}>
-          <div className="modal shadow-3" style={{ maxWidth: 480 }}>
-            <div className="modal-header">
-              <p className="modal-title" style={{ fontWeight: 800 }}>Create New Account</p>
-              <button className="btn btn-ghost btn-sm" type="button" onClick={() => setCreateOpen(false)}>✕</button>
-            </div>
-            <div className="modal-body" style={{ display: "grid", gap: 16 }}>
-              <div className="field">
-                <label className="field-label">Full Name <span className="req">*</span></label>
-                <input value={createForm.fullName} onChange={(e) => setCreateForm((p) => ({ ...p, fullName: e.target.value }))} placeholder="e.g. Jane Doe" />
-              </div>
-              <div className="field">
-                <label className="field-label">Email <span className="req">*</span></label>
-                <input type="email" value={createForm.email} onChange={(e) => setCreateForm((p) => ({ ...p, email: e.target.value }))} placeholder="e.g. jane@lab.local" />
-              </div>
-              <div className="field">
-                <label className="field-label">Username <span className="req">*</span></label>
-                <input value={createForm.username} onChange={(e) => setCreateForm((p) => ({ ...p, username: e.target.value }))} placeholder="Login username" />
-              </div>
-              <div className="field">
-                <label className="field-label">Position</label>
-                <input value={createForm.position} onChange={(e) => setCreateForm((p) => ({ ...p, position: e.target.value }))} placeholder="e.g. Senior Analyst" />
-              </div>
-              <div className="field">
-                <label className="field-label">Temporary Password <span className="req">*</span></label>
-                <input type="text" value={createForm.password} onChange={(e) => setCreateForm((p) => ({ ...p, password: e.target.value }))} placeholder="Min. 6 characters" />
-              </div>
-              <div className="field">
-                <label className="field-label">Role <span className="req">*</span></label>
-                <select value={createForm.role} onChange={(e) => setCreateForm((p) => ({ ...p, role: e.target.value as ProfilePublic["role"] }))}>
-                  <option value="analyst">Analyst</option>
-                  <option value="supervisor">Supervisor</option>
-                  <option value="admin">Admin</option>
-                </select>
-              </div>
-              <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>
-                The user must change this temporary password on first login.
-              </p>
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-outline" type="button" onClick={() => setCreateOpen(false)}>Cancel</button>
-              <button
-                className="btn btn-primary btn-icon-gap"
-                type="button"
-                disabled={createSaving || !createForm.fullName || !createForm.email || !createForm.username || createForm.password.length < 6}
-                onClick={createUser}
-              >
-                {createSaving ? "Creating…" : <><Plus size={16} /> <span>Create Account</span></>}
-              </button>
-            </div>
+        <ModalShell open onClose={() => setCreateOpen(false)} className="modal shadow-3 modal-w-md" labelledBy="create-user-title">
+          <div className="modal-header">
+            <h2 className="modal-title" id="create-user-title">Create New Account</h2>
+            <button className="btn btn-ghost btn-sm" type="button" onClick={() => setCreateOpen(false)} aria-label="Close">✕</button>
           </div>
-        </div>
+          <div className="modal-body" style={{ display: "grid", gap: 16 }}>
+            <div className="field">
+              <label className="field-label">Full Name <span className="req">*</span></label>
+              <input value={createForm.fullName} onChange={(e) => setCreateForm((p) => ({ ...p, fullName: e.target.value }))} placeholder="e.g. Jane Doe" />
+            </div>
+            <div className="field">
+              <label className="field-label">Email <span className="req">*</span></label>
+              <input type="email" value={createForm.email} onChange={(e) => setCreateForm((p) => ({ ...p, email: e.target.value }))} placeholder="e.g. jane@lab.local" />
+            </div>
+            <div className="field">
+              <label className="field-label">Username <span className="req">*</span></label>
+              <input value={createForm.username} onChange={(e) => setCreateForm((p) => ({ ...p, username: e.target.value }))} placeholder="Login username" />
+            </div>
+            <div className="field">
+              <label className="field-label">Position</label>
+              <input value={createForm.position} onChange={(e) => setCreateForm((p) => ({ ...p, position: e.target.value }))} placeholder="e.g. Senior Analyst" />
+            </div>
+            <div className="field">
+              <label className="field-label">Temporary Password <span className="req">*</span></label>
+              <input type="text" value={createForm.password} onChange={(e) => setCreateForm((p) => ({ ...p, password: e.target.value }))} placeholder="Min. 6 characters" />
+            </div>
+            <div className="field">
+              <label className="field-label">Role <span className="req">*</span></label>
+              <select value={createForm.role} onChange={(e) => setCreateForm((p) => ({ ...p, role: e.target.value as ProfilePublic["role"] }))}>
+                <option value="analyst">Analyst</option>
+                <option value="supervisor">Supervisor</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+            <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>
+              The user must change this temporary password on first login.
+            </p>
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-outline" type="button" onClick={() => setCreateOpen(false)}>Cancel</button>
+            <button
+              className="btn btn-primary btn-icon-gap"
+              type="button"
+              disabled={createSaving || !createForm.fullName || !createForm.email || !createForm.username || createForm.password.length < 6}
+              onClick={createUser}
+            >
+              {createSaving ? "Creating…" : <><Plus size={16} /> <span>Create Account</span></>}
+            </button>
+          </div>
+        </ModalShell>
       )}
     </div>
   );
@@ -2582,7 +2577,7 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
               {scopedForms.length === 0 && (
                 <tr><td colSpan={5} className="empty-state">No forms in this group yet. Use “New Form” to add one.</td></tr>
               )}
-              {scopedForms.map(({ f, i }, rowIdx) => (
+              {scopedForms.map(({ f, i }) => (
                 <tr key={f.id} className={f.id === "instrument" ? "row-highlight" : ""}>
                   <td className="mono" style={{ color: "var(--muted)" }}>{i + 1}</td>
                   <td style={{ fontWeight: 800, color: 'var(--primary)' }}>
@@ -2608,186 +2603,184 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
       )}
 
       {draft && (
-        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setDraft(null)}>
-          <div className="modal shadow-3" style={{ maxWidth: 1240, width: "100%", height: 'auto', maxHeight: '94vh', display: 'flex', flexDirection: 'column' }}>
-            <div className="modal-header">
-              <p className="modal-title" style={{ fontWeight: 800 }}>{draft.isNew ? "Create New Form" : `Edit Form: ${draft.title || draft.id}`}</p>
-              <button className="btn btn-ghost btn-sm" type="button" onClick={() => setDraft(null)}>✕</button>
-            </div>
-            
-            <div className="edit-mode-tabs">
-              <button className={`edit-mode-tab ${editTab === "settings" ? "active" : ""}`} onClick={() => setEditTab("settings")}>
-                <Settings size={16} /> <span>1. Settings</span>
-              </button>
-              <button className={`edit-mode-tab ${editTab === "fields" ? "active" : ""}`} onClick={() => setEditTab("fields")}>
-                <TableIcon size={16} /> <span>2. Field Designer & Preview</span>
-              </button>
-            </div>
+        <ModalShell open onClose={() => setDraft(null)} className="modal shadow-3 modal-w-3xl modal-tall modal-tall-xl" labelledBy="form-builder-title">
+          <div className="modal-header">
+            <h2 className="modal-title" id="form-builder-title">{draft.isNew ? "Create New Form" : `Edit Form: ${draft.title || draft.id}`}</h2>
+            <button className="btn btn-ghost btn-sm" type="button" onClick={() => setDraft(null)} aria-label="Close">✕</button>
+          </div>
+          
+          <div className="edit-mode-tabs">
+            <button className={`edit-mode-tab ${editTab === "settings" ? "active" : ""}`} onClick={() => setEditTab("settings")}>
+              <Settings size={16} /> <span>1. Settings</span>
+            </button>
+            <button className={`edit-mode-tab ${editTab === "fields" ? "active" : ""}`} onClick={() => setEditTab("fields")}>
+              <TableIcon size={16} /> <span>2. Field Designer & Preview</span>
+            </button>
+          </div>
 
-            <div className="modal-body" style={{ flex: 1, overflowY: 'auto', padding: 0 }}>
-              {editTab === "settings" ? (
-                <div className="modal-pad">
-                  <div className="modal-form-grid">
-                    <div className="field">
-                      <label className="field-label">Form Title <span className="req">*</span></label>
-                      <input value={draft.title} onChange={(e) => setDraft((p) => p && ({ ...p, title: e.target.value }))} placeholder="e.g. Daily Operation Record" />
-                    </div>
-                    <div className="field">
-                      <label className="field-label">Log Type Code <span className="req">*</span></label>
-                      <input value={draft.activityType} onChange={(e) => setDraft((p) => p && ({ ...p, activityType: e.target.value.toUpperCase() }))} placeholder="e.g. OP" style={{ textTransform: "uppercase" }} />
-                    </div>
-                    <div className="field">
-                      <label className="field-label">Scope</label>
-                      <select value={draft.scope} onChange={(e) => setDraft((p) => p && ({ ...p, scope: e.target.value as FormScope }))}>
-                        <option value="analytical">Analytical instrument</option>
-                        <option value="sample">Sample preparation</option>
-                        <option value="instrument">Instrument metadata</option>
-                      </select>
-                    </div>
-                    <div className="field">
-                      <label className="field-label">Display Order</label>
-                      <input type="number" value={draft.displayOrder} onChange={(e) => setDraft((p) => p && ({ ...p, displayOrder: Number(e.target.value) || 0 }))} />
-                    </div>
+          <div className="modal-body" style={{ flex: 1, overflowY: 'auto', padding: 0 }}>
+            {editTab === "settings" ? (
+              <div className="modal-pad">
+                <div className="modal-form-grid">
+                  <div className="field">
+                    <label className="field-label">Form Title <span className="req">*</span></label>
+                    <input value={draft.title} onChange={(e) => setDraft((p) => p && ({ ...p, title: e.target.value }))} placeholder="e.g. Daily Operation Record" />
                   </div>
-                  {draft.id === "instrument" && (
-                    <div className="notice notice-info" style={{ marginTop: 24 }}>
-                      <Info size={18} />
-                      <span>This is the <strong>Global System Form</strong> for General Information. Changes here will affect all instruments that use the default layout.</span>
-                    </div>
-                  )}
+                  <div className="field">
+                    <label className="field-label">Log Type Code <span className="req">*</span></label>
+                    <input value={draft.activityType} onChange={(e) => setDraft((p) => p && ({ ...p, activityType: e.target.value.toUpperCase() }))} placeholder="e.g. OP" style={{ textTransform: "uppercase" }} />
+                  </div>
+                  <div className="field">
+                    <label className="field-label">Scope</label>
+                    <select value={draft.scope} onChange={(e) => setDraft((p) => p && ({ ...p, scope: e.target.value as FormScope }))}>
+                      <option value="analytical">Analytical instrument</option>
+                      <option value="sample">Sample preparation</option>
+                      <option value="instrument">Instrument metadata</option>
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label className="field-label">Display Order</label>
+                    <input type="number" value={draft.displayOrder} onChange={(e) => setDraft((p) => p && ({ ...p, displayOrder: Number(e.target.value) || 0 }))} />
+                  </div>
                 </div>
-              ) : (
-                <div className="designer-preview-layout">
-                  <div className="designer-panel">
-                    <div className="field-designer-layout-v2">
-                      <div className="field-presets-v2">
-                        <p className="sidebar-label">Presets</p>
-                        <div className="preset-grid-v2">
-                          {PRESET_FIELDS.map((preset) => (
-                            <button key={preset.key} type="button" className="btn-preset-v2" onClick={() => addPresetField(preset)} title={`Add ${preset.label} field`}>
-                              <preset.icon size={16} />
-                            </button>
-                          ))}
-                        </div>
+                {draft.id === "instrument" && (
+                  <div className="notice notice-info" style={{ marginTop: 24 }}>
+                    <Info size={18} />
+                    <span>This is the <strong>Global System Form</strong> for General Information. Changes here will affect all instruments that use the default layout.</span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="designer-preview-layout">
+                <div className="designer-panel">
+                  <div className="field-designer-layout-v2">
+                    <div className="field-presets-v2">
+                      <p className="sidebar-label">Presets</p>
+                      <div className="preset-grid-v2">
+                        {PRESET_FIELDS.map((preset) => (
+                          <button key={preset.key} type="button" className="btn-preset-v2" onClick={() => addPresetField(preset)} title={`Add ${preset.label} field`}>
+                            <preset.icon size={16} />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="field-editor-main">
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                        <h3 style={{ fontSize: 13, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)' }}>Field Designer</h3>
+                        <button className="btn btn-primary btn-sm btn-icon-gap" type="button" onClick={addField}><Plus size={14} /> <span>Custom Field</span></button>
                       </div>
 
-                      <div className="field-editor-main">
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                          <h3 style={{ fontSize: 13, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)' }}>Field Designer</h3>
-                          <button className="btn btn-primary btn-sm btn-icon-gap" type="button" onClick={addField}><Plus size={14} /> <span>Custom Field</span></button>
-                        </div>
-
-                        <div className="table-scroll-designer">
-                          <table className="field-editor-table">
-                            <thead>
+                      <div className="table-scroll-designer">
+                        <table className="field-editor-table">
+                          <thead>
+                            <tr>
+                              <th style={{ width: 40 }}></th>
+                              <th>Label</th>
+                              <th>Key</th>
+                              <th style={{ width: 120 }}>Type</th>
+                              <th style={{ width: 60, textAlign: 'center' }}>Full</th>
+                              <th style={{ width: 60, textAlign: 'center' }}>Req</th>
+                              <th style={{ width: 40 }}></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {draft.fields.length === 0 && (
                               <tr>
-                                <th style={{ width: 40 }}></th>
-                                <th>Label</th>
-                                <th>Key</th>
-                                <th style={{ width: 120 }}>Type</th>
-                                <th style={{ width: 60, textAlign: 'center' }}>Full</th>
-                                <th style={{ width: 60, textAlign: 'center' }}>Req</th>
-                                <th style={{ width: 40 }}></th>
+                                <td colSpan={7} style={{ padding: 40, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+                                  Use presets or “Custom Field” to build structure.
+                                </td>
                               </tr>
-                            </thead>
-                            <tbody>
-                              {draft.fields.length === 0 && (
-                                <tr>
-                                  <td colSpan={7} style={{ padding: 40, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
-                                    Use presets or “Custom Field” to build structure.
-                                  </td>
-                                </tr>
-                              )}
-                              {draft.fields.map((f, i) => (
-                                <tr key={i}>
-                                  <td className="field-reorder-btns">
-                                    <button type="button" disabled={i === 0} onClick={() => moveField(i, -1)}><ChevronDown size={14} style={{ transform: 'rotate(180deg)' }} /></button>
-                                    <button type="button" disabled={i === draft.fields.length - 1} onClick={() => moveField(i, 1)}><ChevronDown size={14} /></button>
-                                  </td>
-                                  <td><input className="table-input" value={f.label} onChange={(e) => updateField(i, { label: e.target.value })} placeholder="Label" /></td>
-                                  <td><input className="table-input mono" value={f.key} onChange={(e) => updateField(i, { key: e.target.value })} placeholder="key" style={{ fontSize: 12 }} /></td>
-                                  <td>
-                                    <select className="table-select" value={f.type} onChange={(e) => updateField(i, { type: e.target.value as FieldType })}>
-                                      {FIELD_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                                    </select>
-                                  </td>
-                                  <td style={{ textAlign: 'center' }}>
-                                    <input type="checkbox" checked={f.full === true} onChange={(e) => updateField(i, { full: e.target.checked })} />
-                                  </td>
-                                  <td style={{ textAlign: 'center' }}>
-                                    <input type="checkbox" checked={f.required === true} onChange={(e) => updateField(i, { required: e.target.checked })} />
-                                  </td>
-                                  <td>
-                                    <button className="btn-table-danger" type="button" onClick={() => removeField(i)} title="Remove field"><Trash2 size={14} /></button>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="preview-panel">
-                    <div className="preview-header">
-                      <LayoutGrid size={16} /> <span>Live Preview</span>
-                    </div>
-                    <div className="preview-content">
-                      <div className="preview-form-card">
-                        <div className="preview-form-header">
-                          <p className="preview-eyebrow">{draft.activityType || "TYPE"}</p>
-                          <h4 className="preview-title">{draft.title || "Form Title"}</h4>
-                        </div>
-                        <div className="preview-grid">
-                          {draft.fields.length === 0 ? (
-                            <p className="preview-empty">Add fields to see the layout here...</p>
-                          ) : (
-                            draft.fields.map((f, idx) => (
-                              <div key={idx} className={`preview-field ${f.full ? "full" : ""}`}>
-                                <label className="preview-label">{f.label || "(No Label)"} {f.required && "*"}</label>
-                                <div className="preview-input-stub">
-                                  {f.type === "textarea" ? "Area text..." : f.type === "select" ? "Select..." : f.placeholder || "—"}
-                                </div>
-                              </div>
-                            ))
-                          )}
-                        </div>
+                            )}
+                            {draft.fields.map((f, i) => (
+                              <tr key={i}>
+                                <td className="field-reorder-btns">
+                                  <button type="button" disabled={i === 0} onClick={() => moveField(i, -1)}><ChevronDown size={14} style={{ transform: 'rotate(180deg)' }} /></button>
+                                  <button type="button" disabled={i === draft.fields.length - 1} onClick={() => moveField(i, 1)}><ChevronDown size={14} /></button>
+                                </td>
+                                <td><input className="table-input" value={f.label} onChange={(e) => updateField(i, { label: e.target.value })} placeholder="Label" /></td>
+                                <td><input className="table-input mono" value={f.key} onChange={(e) => updateField(i, { key: e.target.value })} placeholder="key" style={{ fontSize: 12 }} /></td>
+                                <td>
+                                  <select className="table-select" value={f.type} onChange={(e) => updateField(i, { type: e.target.value as FieldType })}>
+                                    {FIELD_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                                  </select>
+                                </td>
+                                <td style={{ textAlign: 'center' }}>
+                                  <input type="checkbox" checked={f.full === true} onChange={(e) => updateField(i, { full: e.target.checked })} />
+                                </td>
+                                <td style={{ textAlign: 'center' }}>
+                                  <input type="checkbox" checked={f.required === true} onChange={(e) => updateField(i, { required: e.target.checked })} />
+                                </td>
+                                <td>
+                                  <button className="btn-table-danger" type="button" onClick={() => removeField(i)} title="Remove field"><Trash2 size={14} /></button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
                     </div>
                   </div>
                 </div>
+
+                <div className="preview-panel">
+                  <div className="preview-header">
+                    <LayoutGrid size={16} /> <span>Live Preview</span>
+                  </div>
+                  <div className="preview-content">
+                    <div className="preview-form-card">
+                      <div className="preview-form-header">
+                        <p className="preview-eyebrow">{draft.activityType || "TYPE"}</p>
+                        <h4 className="preview-title">{draft.title || "Form Title"}</h4>
+                      </div>
+                      <div className="preview-grid">
+                        {draft.fields.length === 0 ? (
+                          <p className="preview-empty">Add fields to see the layout here...</p>
+                        ) : (
+                          draft.fields.map((f, idx) => (
+                            <div key={idx} className={`preview-field ${f.full ? "full" : ""}`}>
+                              <label className="preview-label">{f.label || "(No Label)"} {f.required && "*"}</label>
+                              <div className="preview-input-stub">
+                                {f.type === "textarea" ? "Area text..." : f.type === "select" ? "Select..." : f.placeholder || "—"}
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="modal-footer" style={{ justifyContent: "space-between" }}>
+            <div>
+              {editTab === "fields" && (
+                <button className="btn btn-ghost btn-sm btn-icon-gap" onClick={() => setEditTab("settings")}>
+                  <ArrowLeft size={16} /> <span>Back to Settings</span>
+                </button>
+              )}
+              {editTab === "settings" && !draft.isNew && (
+                <button className="btn btn-danger btn-sm btn-icon-gap" type="button" disabled={deleting === draft.id || draft.id === "instrument"} onClick={() => removeForm(draft.id)}>
+                  <Trash2 size={16} /> <span>Delete Form</span>
+                </button>
               )}
             </div>
-
-            <div className="modal-footer" style={{ justifyContent: "space-between" }}>
-              <div>
-                {editTab === "fields" && (
-                  <button className="btn btn-ghost btn-sm btn-icon-gap" onClick={() => setEditTab("settings")}>
-                    <ArrowLeft size={16} /> <span>Back to Settings</span>
-                  </button>
-                )}
-                {editTab === "settings" && !draft.isNew && (
-                  <button className="btn btn-danger btn-sm btn-icon-gap" type="button" disabled={deleting === draft.id || draft.id === "instrument"} onClick={() => removeForm(draft.id)}>
-                    <Trash2 size={16} /> <span>Delete Form</span>
-                  </button>
-                )}
-              </div>
-              <div style={{ display: "flex", gap: 10 }}>
-                <button className="btn btn-outline btn-sm" type="button" onClick={() => setDraft(null)}>Cancel</button>
-                {editTab === "settings" ? (
-                  <button className="btn btn-primary btn-sm btn-icon-gap" type="button" onClick={() => setEditTab("fields")} disabled={!draft.title.trim() || !draft.activityType.trim()}>
-                    <span>Next: Design Fields</span> <ChevronDown size={16} style={{ transform: 'rotate(-90deg)' }} />
-                  </button>
-                ) : (
-                  <button className="btn btn-primary btn-sm btn-icon-gap" type="button" disabled={saving} onClick={saveDraft}>
-                    {saving ? "Saving…" : draft.isNew ? <><Plus size={16} /> <span>Create Form</span></> : <><CheckCircle2 size={16} /> <span>Save Changes</span></>}
-                  </button>
-                )}
-              </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button className="btn btn-outline btn-sm" type="button" onClick={() => setDraft(null)}>Cancel</button>
+              {editTab === "settings" ? (
+                <button className="btn btn-primary btn-sm btn-icon-gap" type="button" onClick={() => setEditTab("fields")} disabled={!draft.title.trim() || !draft.activityType.trim()}>
+                  <span>Next: Design Fields</span> <ChevronDown size={16} style={{ transform: 'rotate(-90deg)' }} />
+                </button>
+              ) : (
+                <button className="btn btn-primary btn-sm btn-icon-gap" type="button" disabled={saving} onClick={saveDraft}>
+                  {saving ? "Saving…" : draft.isNew ? <><Plus size={16} /> <span>Create Form</span></> : <><CheckCircle2 size={16} /> <span>Save Changes</span></>}
+                </button>
+              )}
             </div>
           </div>
-        </div>
+        </ModalShell>
       )}
     </div>
   );
@@ -2820,7 +2813,9 @@ function SignatureReview({ signature }: { signature: AnalystSignaturePayload | n
   if (!signature?.image) return <div style={{ fontSize: 12, color: 'var(--muted)' }}>No digital signature captured</div>;
   return (
     <div className="sig-review-wrap">
-      <img src={signature.image} alt="Analyst Signature" className="sig-image-small" style={{ filter: 'var(--theme-sig-filter)' }} />
+      {/* Data: URL from the record — see the note on the table cell above. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={signature.image} alt="Analyst signature" className="sig-image-small" />
     </div>
   );
 }

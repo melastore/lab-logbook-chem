@@ -2,8 +2,8 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { RefreshCw, XCircle, Info, ShieldCheck, ChevronDown, Calendar } from "lucide-react";
-import { parseAnalystSignature } from "@/lib/signature";
 import type { LogbookRecord } from "@/lib/logbook";
+import { ModalShell } from "./ModalShell";
 
 // Records from /api/logbook map to LogbookRecord; status is attached server-side
 // and recordDate is an occasional alias for the record date.
@@ -31,47 +31,15 @@ export function UserLogsModal({ name, open, onClose, headerAvatar }: UserLogsMod
       setLoadingLogs(true);
       setErrorLogs(null);
       try {
-        const [rLogbook, rMe] = await Promise.all([
-          fetch("/api/logbook"),
-          fetch("/api/auth/me"),
-        ]);
+        // Scoping happens server-side: this asks for one analyst's entries and
+        // the API decides whether the caller may have them. Nothing is filtered
+        // here any more — narrowing in the browser meant every analyst's
+        // records, signature images included, were sent to every client first.
+        const response = await fetch(`/api/logbook?username=${encodeURIComponent(name)}`);
+        if (!response.ok) throw new Error("Failed to load records.");
+        const data = await response.json();
 
-        if (!rLogbook.ok) throw new Error("Failed to load records.");
-        const data = await rLogbook.json();
-        const meData = rMe.ok ? await rMe.json() : { user: null };
-        const loggedInUser = meData.user;
-
-        const filtered = (data.records || []).filter((rec: LogRecord) => {
-          const sig = parseAnalystSignature(rec.analystSignature || "");
-
-          // 1. Match by UUID of the submitter
-          if (loggedInUser && rec.submittedBy === loggedInUser.id) return true;
-
-          // 2. Match by username (case-insensitive)
-          const targetUsername = name.toLowerCase().trim();
-          if (rec.submittedBy?.toLowerCase().trim() === targetUsername) return true;
-          if (sig.username?.toLowerCase().trim() === targetUsername) return true;
-
-          // 3. Match by full name or analyst text (case-insensitive)
-          const targetFullName = loggedInUser?.fullName?.toLowerCase().trim() || "";
-          const recAnalyst = rec.analyst?.toLowerCase().trim() || "";
-
-          if (recAnalyst === targetUsername) return true;
-          if (targetFullName && recAnalyst === targetFullName) return true;
-          if (targetFullName && sig.signedBy?.toLowerCase().trim() === targetFullName) return true;
-
-          // 4. Heuristic fallback for spacing/spelling (e.g. "John Doe" vs "johndoe")
-          const cleanTargetUsername = targetUsername.replace(/[^a-z0-9]/g, "");
-          const cleanTargetFullName = targetFullName.replace(/[^a-z0-9]/g, "");
-          const cleanRecAnalyst = recAnalyst.replace(/[^a-z0-9]/g, "");
-
-          if (cleanRecAnalyst && cleanRecAnalyst === cleanTargetUsername) return true;
-          if (cleanTargetFullName && cleanRecAnalyst && cleanRecAnalyst === cleanTargetFullName) return true;
-
-          return false;
-        });
-
-        if (!cancelled) setUserLogs(filtered);
+        if (!cancelled) setUserLogs(data.records || []);
       } catch (err) {
         if (!cancelled) setErrorLogs(err instanceof Error ? err.message : "Failed to load logs.");
       } finally {
@@ -84,99 +52,103 @@ export function UserLogsModal({ name, open, onClose, headerAvatar }: UserLogsMod
     };
   }, [open, name]);
 
-  if (!open) return null;
-
   return (
-    <div className="avatar-logs-modal-overlay" onClick={onClose}>
-      <div className="avatar-logs-modal" onClick={(e) => e.stopPropagation()}>
-        <header className="avatar-logs-modal-header">
-          <div className="avatar-logs-header-left">
-            {headerAvatar}
-            <div>
-              <h3>{name}&apos;s Audit Entries</h3>
-              <p>Logbook records submitted by this analyst</p>
-            </div>
+    <ModalShell
+      open={open}
+      onClose={onClose}
+      overlayClassName="avatar-logs-modal-overlay"
+      className="avatar-logs-modal"
+      labelledBy="user-logs-title"
+    >
+      <header className="avatar-logs-modal-header">
+        <div className="avatar-logs-header-left">
+          {headerAvatar}
+          <div>
+            <h3 id="user-logs-title">{name}&apos;s Audit Entries</h3>
+            <p>Logbook records submitted by this analyst</p>
           </div>
-          <button className="avatar-logs-close-btn" onClick={onClose}>&times;</button>
-        </header>
-
-        <div className="avatar-logs-modal-body">
-          {loadingLogs ? (
-            <div className="avatar-logs-loading">
-              <RefreshCw className="spin" size={24} />
-              <p>Retrieving logbook history...</p>
-            </div>
-          ) : errorLogs ? (
-            <div className="avatar-logs-error">
-              <XCircle size={24} style={{ color: "var(--error)" }} />
-              <p>{errorLogs}</p>
-            </div>
-          ) : userLogs.length === 0 ? (
-            <div className="avatar-logs-empty">
-              <Info size={24} />
-              <p>No log records registered for this analyst.</p>
-              <p className="field-hint">Compliance Note: Submitted log entries are secured under cryptographic chains.</p>
-            </div>
-          ) : (
-            <div className="avatar-logs-list">
-              {userLogs.map((log, index) => {
-                const expanded = expandedRowId === log.id;
-                const details = buildRecordDetails(log);
-                const status = log.status || "Approved";
-                const recordDate = log.date || log.recordDate || "No date";
-
-                return (
-                  <div key={log.id} className={`avatar-log-card ${expanded ? "expanded" : ""}`}>
-                    <button
-                      type="button"
-                      className="avatar-log-card-summary"
-                      onClick={() => setExpandedRowId(expanded ? null : log.id)}
-                      aria-expanded={expanded}
-                    >
-                      <span className="avatar-log-index">{index + 1}</span>
-                      <span className="avatar-log-summary-main">
-                        <span className="avatar-log-summary-top">
-                          <span className="log-instrument-badge">{log.instrumentName || "Instrument"}</span>
-                          <span className="avatar-log-activity">{log.activityType || "—"}</span>
-                        </span>
-                        <span className="avatar-log-summary-sub">
-                          <Calendar size={12} /> {recordDate}
-                          {log.instrumentId ? ` · ID ${log.instrumentId}` : ""}
-                        </span>
-                      </span>
-                      <span className={`log-status-badge ${status.toLowerCase()}`}>{status}</span>
-                      <ChevronDown size={18} className={`avatar-log-chevron ${expanded ? "rotated" : ""}`} />
-                    </button>
-
-                    {expanded && (
-                      <div className="avatar-log-details-expanded">
-                        <div className="avatar-log-detail-grid">
-                          {details.map((d) => (
-                            <div
-                              key={d.label}
-                              className={`avatar-log-detail-item ${d.full ? "full-width" : ""}`}
-                            >
-                              <span className="detail-label">{d.label}</span>
-                              <span className={`detail-value ${d.mono ? "mono" : ""}`}>{d.value}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
         </div>
+        <button type="button" className="avatar-logs-close-btn" onClick={onClose} aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </header>
 
-        <footer className="avatar-logs-modal-footer">
-          <p className="integrity-badge">
-            <ShieldCheck size={14} /> ISO/IEC 17025 Compliant Chain State
-          </p>
-        </footer>
+      <div className="avatar-logs-modal-body">
+        {loadingLogs ? (
+          <div className="avatar-logs-loading" role="status" aria-live="polite">
+            <RefreshCw className="spin" size={24} aria-hidden="true" />
+            <p>Retrieving logbook history...</p>
+          </div>
+        ) : errorLogs ? (
+          <div className="avatar-logs-error" role="alert">
+            <XCircle size={24} style={{ color: "var(--error)" }} />
+            <p>{errorLogs}</p>
+          </div>
+        ) : userLogs.length === 0 ? (
+          <div className="avatar-logs-empty">
+            <Info size={24} />
+            <p>No log records registered for this analyst.</p>
+            <p className="field-hint">Compliance Note: Submitted log entries are secured under cryptographic chains.</p>
+          </div>
+        ) : (
+          <div className="avatar-logs-list">
+            {userLogs.map((log, index) => {
+              const expanded = expandedRowId === log.id;
+              const details = buildRecordDetails(log);
+              const status = log.status || "Approved";
+              const recordDate = log.date || log.recordDate || "No date";
+
+              return (
+                <div key={log.id} className={`avatar-log-card ${expanded ? "expanded" : ""}`}>
+                  <button
+                    type="button"
+                    className="avatar-log-card-summary"
+                    onClick={() => setExpandedRowId(expanded ? null : log.id)}
+                    aria-expanded={expanded}
+                  >
+                    <span className="avatar-log-index">{index + 1}</span>
+                    <span className="avatar-log-summary-main">
+                      <span className="avatar-log-summary-top">
+                        <span className="log-instrument-badge">{log.instrumentName || "Instrument"}</span>
+                        <span className="avatar-log-activity">{log.activityType || "—"}</span>
+                      </span>
+                      <span className="avatar-log-summary-sub">
+                        <Calendar size={12} /> {recordDate}
+                        {log.instrumentId ? ` · ID ${log.instrumentId}` : ""}
+                      </span>
+                    </span>
+                    <span className={`log-status-badge ${status.toLowerCase()}`}>{status}</span>
+                    <ChevronDown size={18} className={`avatar-log-chevron ${expanded ? "rotated" : ""}`} />
+                  </button>
+
+                  {expanded && (
+                    <div className="avatar-log-details-expanded">
+                      <div className="avatar-log-detail-grid">
+                        {details.map((d) => (
+                          <div
+                            key={d.label}
+                            className={`avatar-log-detail-item ${d.full ? "full-width" : ""}`}
+                          >
+                            <span className="detail-label">{d.label}</span>
+                            <span className={`detail-value ${d.mono ? "mono" : ""}`}>{d.value}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
-    </div>
+
+      <footer className="avatar-logs-modal-footer">
+        <p className="integrity-badge">
+          <ShieldCheck size={14} /> ISO/IEC 17025 Compliant Chain State
+        </p>
+      </footer>
+  </ModalShell>
   );
 }
 

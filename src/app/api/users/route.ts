@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { errorResponse } from "@/lib/errors";
 import {
   GENERATED_USERS,
   listProfiles,
@@ -14,6 +15,7 @@ import {
 } from "@/lib/logbook";
 import { canReview, currentUser, passwordChangeGate } from "@/lib/session";
 import { canCreateRole, canManageRole } from "@/lib/authz";
+import { passwordProblem } from "@/lib/password";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,7 +32,8 @@ export async function GET() {
     ]);
     return NextResponse.json({ profiles, provisionedUsernames });
   } catch (e) {
-    return NextResponse.json({ profiles: [], provisionedUsernames: [], error: String(e) });
+    console.error("[users] list failed:", e);
+    return NextResponse.json({ profiles: [], provisionedUsernames: [], error: "Could not load users." });
   }
 }
 
@@ -71,18 +74,22 @@ export async function POST(request: Request) {
     if (!canCreateRole(user.role, role)) {
       return NextResponse.json({ error: "Admin access required to create that role." }, { status: 403 });
     }
-    if (!fullName || !username || !email || password.length < 6) {
+    if (!fullName || !username || !email) {
       return NextResponse.json(
-        { error: "Full name, email, username and a password (6+ chars) are required." },
+        { error: "Full name, email and username are required." },
         { status: 400 }
       );
     }
+    // Same floor as a self-service change — an admin-set password shouldn't be
+    // allowed to be weaker than one the user picks.
+    const problem = passwordProblem(password, { username });
+    if (problem) return NextResponse.json({ error: problem }, { status: 400 });
     try {
       await createNewUser({ email, username, fullName, role, position, password });
       await logAudit({ actor: user.username, actorId: user.id, action: "user.create", target: username, detail: { role } });
       return NextResponse.json({ ok: true });
     } catch (e) {
-      return NextResponse.json({ error: String(e instanceof Error ? e.message : e) }, { status: 500 });
+      return errorResponse("users", e, 500);
     }
   }
 
@@ -129,7 +136,7 @@ export async function PATCH(request: Request) {
       await logAudit({ actor: user.username, actorId: user.id, action: "user.password_reset", target: username });
       return NextResponse.json({ ok: true });
     } catch (e) {
-      return NextResponse.json({ error: String(e) }, { status: 500 });
+      return errorResponse("users", e, 500);
     }
   }
 
@@ -142,7 +149,7 @@ export async function PATCH(request: Request) {
       await logAudit({ actor: user.username, actorId: user.id, action: `user.${body.action}`, target: username });
       return NextResponse.json({ ok: true });
     } catch (e) {
-      return NextResponse.json({ error: String(e instanceof Error ? e.message : e) }, { status: 500 });
+      return errorResponse("users", e, 500);
     }
   }
 
@@ -151,6 +158,10 @@ export async function PATCH(request: Request) {
       ? body.newUsername.trim() : undefined;
     const newPassword = typeof body.newPassword === "string" && body.newPassword.trim()
       ? body.newPassword.trim() : undefined;
+    if (newPassword) {
+      const problem = passwordProblem(newPassword, { username });
+      if (problem) return NextResponse.json({ error: problem }, { status: 400 });
+    }
     const newFullName = typeof body.newFullName === "string" && body.newFullName.trim()
       ? body.newFullName.trim() : undefined;
     const newPosition = typeof body.newPosition === "string" ? body.newPosition.trim() : undefined;
@@ -165,7 +176,7 @@ export async function PATCH(request: Request) {
       });
       return NextResponse.json({ ok: true });
     } catch (e) {
-      return NextResponse.json({ error: String(e) }, { status: 500 });
+      return errorResponse("users", e, 500);
     }
   }
 
@@ -195,6 +206,6 @@ export async function DELETE(request: Request) {
     await logAudit({ actor: user.username, actorId: user.id, action: "user.delete", target: username });
     return NextResponse.json({ ok: true });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    return errorResponse("users", e, 500);
   }
 }

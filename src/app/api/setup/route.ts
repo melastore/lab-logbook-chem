@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { GENERATED_USERS, provisionUser, listProvisionedUsernames } from "@/lib/logbook";
+import { clientIp } from "@/lib/request";
+import { rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,11 +15,23 @@ export async function GET() {
     ).length;
     return NextResponse.json({ ready: adminsDone > 0, adminCount: adminsDone });
   } catch (e) {
-    return NextResponse.json({ ready: false, error: String(e) });
+    // Unauthenticated endpoint: log the cause, tell the caller nothing.
+    console.error("[setup] readiness check failed:", e);
+    return NextResponse.json({ ready: false, error: "Setup status is unavailable." });
   }
 }
 
-export async function POST() {
+export async function POST(request: Request) {
+  // Public endpoint. It self-closes once an admin exists, but throttle it so it
+  // cannot be hammered before that happens.
+  const limit = rateLimit(`setup:${clientIp(request)}`, 5, 60 * 60 * 1000);
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { error: "Too many attempts. Try again later." },
+      { status: 429, headers: { "Retry-After": String(limit.retryAfterSec) } }
+    );
+  }
+
   const admins = GENERATED_USERS.filter((u) => u.role === "admin");
   let created = 0;
   let skipped = 0;
@@ -49,7 +63,8 @@ export async function POST() {
       await provisionUser(gen);
       created++;
     } catch (e) {
-      errors.push(`${gen.username}: ${String(e)}`);
+      console.error(`[setup] could not provision ${gen.username}:`, e);
+      errors.push(`${gen.username}: provisioning failed`);
       skipped++;
     }
   }

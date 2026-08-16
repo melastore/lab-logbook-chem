@@ -12,6 +12,7 @@ import {
 import type { AppUser } from "@/lib/logbook";
 import { UserAvatar } from "@/components/UserAvatar";
 import { useSettings } from "@/lib/settings-context";
+import { MIN_PASSWORD_LENGTH } from "@/lib/password";
 
 type Notice = { type: "success" | "error"; text: string } | null;
 
@@ -29,6 +30,8 @@ export default function SettingsPage() {
   const [user, setUser] = useState<AppUser | null>(null);
   const [avatarSeed, setAvatarSeed] = useState("");
   const [savedSeed, setSavedSeed] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showNewPassword, setShowNewPassword] = useState(false);
@@ -179,8 +182,12 @@ export default function SettingsPage() {
     event.preventDefault();
     setPasswordNotice(null);
 
-    if (newPassword.length < 8) {
-      setPasswordNotice({ type: "error", text: "Your new password needs at least 8 characters." });
+    if (!currentPassword) {
+      setPasswordNotice({ type: "error", text: "Enter your current password to confirm the change." });
+      return;
+    }
+    if (newPassword.length < MIN_PASSWORD_LENGTH) {
+      setPasswordNotice({ type: "error", text: `Your new password needs at least ${MIN_PASSWORD_LENGTH} characters.` });
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -192,7 +199,7 @@ export default function SettingsPage() {
     const response = await fetch("/api/auth/change-password", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ newPassword }),
+      body: JSON.stringify({ currentPassword, newPassword }),
     });
     const result = await response.json().catch(() => ({}));
 
@@ -200,10 +207,12 @@ export default function SettingsPage() {
       setPasswordNotice({ type: "error", text: result.error || "Could not update your password. Try again." });
     } else {
       setPasswordNotice({ type: "success", text: "Password updated. Use it the next time you sign in." });
+      setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
       setShowNewPassword(false);
       setShowConfirmPassword(false);
+      setShowCurrentPassword(false);
     }
     setSavingPassword(false);
   }
@@ -223,7 +232,7 @@ export default function SettingsPage() {
   function getPasswordStrength(pwd: string) {
     if (!pwd) return { score: 0, criteria: { length: false, uppercase: false, lowercase: false, number: false, special: false } };
     const criteria = {
-      length: pwd.length >= 8,
+      length: pwd.length >= MIN_PASSWORD_LENGTH,
       uppercase: /[A-Z]/.test(pwd),
       lowercase: /[a-z]/.test(pwd),
       number: /[0-9]/.test(pwd),
@@ -247,7 +256,7 @@ export default function SettingsPage() {
   };
 
   const criteriaList = [
-    { key: "length" as const, label: "8+ characters" },
+    { key: "length" as const, label: `${MIN_PASSWORD_LENGTH}+ characters` },
     { key: "uppercase" as const, label: "Uppercase letter" },
     { key: "lowercase" as const, label: "Lowercase letter" },
     { key: "number" as const, label: "Number" },
@@ -371,12 +380,37 @@ export default function SettingsPage() {
               <div className="set-head-icon"><Lock size={20} /></div>
               <div>
                 <h2>Password</h2>
-                <p>Use at least 8 characters — a mix of letters, numbers and symbols is strongest.</p>
+                <p>Use at least {MIN_PASSWORD_LENGTH} characters — a mix of letters, numbers and symbols is strongest.</p>
               </div>
             </header>
 
             <form onSubmit={savePassword}>
               <div className="set-body">
+                <div className="field-modern">
+                  <label htmlFor="currentPassword">Current password</label>
+                  <div className="input-password-wrapper">
+                    <input
+                      id="currentPassword"
+                      type={showCurrentPassword ? "text" : "password"}
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      placeholder="Confirm it's you"
+                      autoComplete="current-password"
+                      className="input-with-toggle"
+                    />
+                    <button
+                      type="button"
+                      className="password-toggle-btn"
+                      onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                      aria-label={showCurrentPassword ? "Hide password" : "Show password"}
+                      title={showCurrentPassword ? "Hide password" : "Show password"}
+                    >
+                      {showCurrentPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                  <p className="field-hint">Required so nobody can change your password from a session you left open.</p>
+                </div>
+
                 <div className="form-row-2">
                   <div className="field-modern">
                     <label>New password</label>
@@ -385,9 +419,9 @@ export default function SettingsPage() {
                         type={showNewPassword ? "text" : "password"}
                         value={newPassword}
                         onChange={(e) => setNewPassword(e.target.value)}
-                        placeholder="At least 8 characters"
+                        placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
                         autoComplete="new-password"
-                        style={{ paddingRight: "48px" }}
+                        className="input-with-toggle"
                       />
                       <button
                         type="button"
@@ -409,7 +443,7 @@ export default function SettingsPage() {
                         onChange={(e) => setConfirmPassword(e.target.value)}
                         placeholder="Type it again"
                         autoComplete="new-password"
-                        style={{ paddingRight: "48px" }}
+                        className="input-with-toggle"
                       />
                       <button
                         type="button"
@@ -456,7 +490,7 @@ export default function SettingsPage() {
 
               <footer className="set-foot">
                 <span className="set-foot-hint">You&apos;ll use the new password from your next sign-in.</span>
-                <button className="btn btn-primary" type="submit" disabled={savingPassword || !newPassword || !confirmPassword}>
+                <button className="btn btn-primary" type="submit" disabled={savingPassword || !currentPassword || !newPassword || !confirmPassword}>
                   {savingPassword && <RefreshCw className="spin" size={15} style={{ marginRight: 8 }} />}
                   <span>{savingPassword ? "Updating…" : "Update password"}</span>
                 </button>

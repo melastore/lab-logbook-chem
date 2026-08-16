@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { errorResponse } from "@/lib/errors";
 import { listAuditLog } from "@/lib/logbook";
 import { canReview, currentUser } from "@/lib/session";
 
@@ -14,6 +15,6 @@ export async function GET() {
     const entries = await listAuditLog();
     return NextResponse.json({ entries });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    return errorResponse("audit", e, 500);
   }
 }

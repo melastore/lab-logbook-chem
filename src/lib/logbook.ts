@@ -1,5 +1,7 @@
 import { GENERATED_USER_ACCOUNTS, type GeneratedUserAccount } from "./generated-users";
 import { ALL_FORMS, type FormDef, type FormField, type FormScope } from "./forms";
+import { PublicError } from "./errors";
+import { MIN_PASSWORD_LENGTH } from "./password";
 
 export const LOG_TYPES = [
   { id: "OP", label: "Daily Operation", desc: "Routine instrument use and sample runs" },
@@ -206,13 +208,40 @@ type TemplateRow = {
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
-export async function loginWithUsername(username: string, password: string) {
-  // PostgREST rejects `username` as a filter param (PGRST125), so fetch all and filter in JS.
-  // Match case-insensitively: the profile page stores usernames lowercased, so a
-  // login typed as "Admin" must still find "admin".
-  const profiles = await supabaseRest<ProfileRow[]>("/profiles?select=*");
+// Look up one profile by username without pulling the whole table across the
+// wire. Matching is case-insensitive: the profile page lowercases usernames, so
+// a login typed as "Admin" must still find "admin".
+//
+// `ilike` is a LIKE pattern, so `_` and `%` in the input are wildcards — and `_`
+// is legal in a username. The result is therefore always re-checked in JS for an
+// exact match, and the query is only ever a way to avoid reading every row.
+// Some PostgREST versions also reject the filter (PGRST125), so a full scan
+// stays as the fallback rather than failing the lookup.
+async function findProfileByUsername(username: string): Promise<ProfileRow | null> {
   const wanted = username.toLowerCase();
-  const profile = profiles.find((p) => p.username?.toLowerCase() === wanted);
+  const matches = (row: ProfileRow | undefined) =>
+    row?.username?.toLowerCase() === wanted ? row : null;
+
+  if (/^[a-zA-Z0-9.-]+$/.test(username)) {
+    try {
+      const rows = await supabaseRest<ProfileRow[]>(
+        `/profiles?username=ilike.${encodeURIComponent(username)}&select=*&limit=2`
+      );
+      const exact = matches(rows.find((r) => r.username?.toLowerCase() === wanted));
+      if (exact) return exact;
+      // An empty result is conclusive: no wildcards were possible in this input.
+      if (rows.length === 0) return null;
+    } catch {
+      // fall through to the full scan below
+    }
+  }
+
+  const profiles = await supabaseRest<ProfileRow[]>("/profiles?select=*");
+  return matches(profiles.find((p) => p.username?.toLowerCase() === wanted));
+}
+
+export async function loginWithUsername(username: string, password: string) {
+  const profile = await findProfileByUsername(username);
 
   if (!profile) {
     throw new Error("Username not found.");
@@ -223,7 +252,7 @@ export async function loginWithUsername(username: string, password: string) {
     throw new Error("This account has been archived. Contact an administrator.");
   }
 
-  const email = profile.email || `${profile.username || wanted}@lab.local`;
+  const email = profile.email || `${profile.username || username.toLowerCase()}@lab.local`;
   const result = await supabaseAuth<SupabaseAuthResponse>("/token?grant_type=password", {
     method: "POST",
     body: { email, password },
@@ -253,20 +282,31 @@ export async function refreshSession(refreshToken: string) {
   };
 }
 
-export async function loginWithPassword(email: string, password: string) {
-  const result = await supabaseAuth<SupabaseAuthResponse>("/token?grant_type=password", {
-    method: "POST",
-    body: { email, password },
-  });
+// Sign out server-side so the refresh token bound to this session stops working
+// at Supabase, not just in the browser. Best-effort: a failure here must never
+// stop us from clearing the cookies.
+export async function revokeSession(accessToken: string): Promise<void> {
+  try {
+    await supabaseAuth<unknown>("/logout?scope=local", { method: "POST", token: accessToken });
+  } catch {
+    // already expired or unreachable — the cookies still get dropped
+  }
+}
 
-  const profile = await getProfile(result.user.id, result.user.user_metadata);
-  if (!profile) throw new Error("This user does not have an application profile.");
-
-  return { 
-    token: result.access_token, 
-    maxAge: 60 * 60 * 24 * 30, // 30 days
-    user: profile 
-  };
+// Confirm a password belongs to this account without touching the live session.
+// Used to re-authenticate before a password change.
+export async function verifyPassword(email: string, password: string): Promise<boolean> {
+  try {
+    const result = await supabaseAuth<SupabaseAuthResponse>("/token?grant_type=password", {
+      method: "POST",
+      body: { email, password },
+    });
+    // Don't leave the throwaway session usable.
+    if (result.access_token) await revokeSession(result.access_token);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function getCurrentUser(accessToken: string): Promise<AppUser | null> {
@@ -327,9 +367,36 @@ export async function updateCurrentUserProfile(
 
 // ─── Logbook Records ──────────────────────────────────────────────────────────
 
-export async function listRecords(_user: AppUser) {
-  void _user;
-  const rows = await supabaseRest<LogbookRow[]>("/logbook_records?select=*&order=created_at.desc");
+// Analysts see only what they submitted. Everyone's entries carry a drawn
+// signature image and name, so handing the full table to every signed-in user
+// and filtering in the browser would leak all of it — the scope has to be
+// applied here, in the query.
+//
+// `username` narrows further: managers may point it at anyone, an analyst only
+// at themselves, and asking for someone else returns nothing rather than an
+// error the caller could use to probe who exists.
+export async function listRecords(user: AppUser, username?: string) {
+  const isManager = user.role === "supervisor" || user.role === "admin";
+
+  let submitterId: string | null = null;
+
+  if (username) {
+    if (!isManager) {
+      if (username.toLowerCase() !== user.username.toLowerCase()) return [];
+      submitterId = user.id;
+    } else {
+      const profile = await findProfileByUsername(username);
+      if (!profile) return [];
+      submitterId = profile.id;
+    }
+  } else if (!isManager) {
+    submitterId = user.id;
+  }
+
+  const scoped = submitterId ? `&submitted_by=eq.${encodeURIComponent(submitterId)}` : "";
+  const rows = await supabaseRest<LogbookRow[]>(
+    `/logbook_records?select=*&order=created_at.desc${scoped}`
+  );
   return rows.map(mapRecord);
 }
 
@@ -686,8 +753,10 @@ export async function listProvisionedUsernames(): Promise<string[]> {
 }
 
 export async function provisionUser(gen: GeneratedUser): Promise<void> {
-  if (!gen.initialPassword || gen.initialPassword.length < 8) {
-    throw new Error("LAB_INITIAL_PASSWORD must be set (8+ characters) before provisioning accounts.");
+  if (!gen.initialPassword || gen.initialPassword.length < MIN_PASSWORD_LENGTH) {
+    throw new PublicError(
+      `LAB_INITIAL_PASSWORD must be set (${MIN_PASSWORD_LENGTH}+ characters) before provisioning accounts.`
+    );
   }
   let userId: string;
 
@@ -726,12 +795,13 @@ export async function provisionUser(gen: GeneratedUser): Promise<void> {
 }
 
 export async function resetUserPassword(username: string, newPassword: string): Promise<void> {
-  if (!newPassword || newPassword.length < 8) {
-    throw new Error("Reset password must be at least 8 characters. Check LAB_INITIAL_PASSWORD.");
+  if (!newPassword || newPassword.length < MIN_PASSWORD_LENGTH) {
+    throw new PublicError(
+      `Reset password must be at least ${MIN_PASSWORD_LENGTH} characters. Check LAB_INITIAL_PASSWORD.`
+    );
   }
-  const profiles = await supabaseRest<ProfileRow[]>("/profiles?select=*");
-  const profile = profiles.find((p) => p.username === username);
-  if (!profile) throw new Error("User not found.");
+  const profile = await findProfileByUsername(username);
+  if (!profile) throw new PublicError("User not found.", 404);
 
   await supabaseAdminPut<unknown>(`/admin/users/${encodeURIComponent(profile.id)}`, {
     password: newPassword,
@@ -818,9 +888,8 @@ export async function createNewUser(input: {
 }
 
 export async function setUserArchived(username: string, archived: boolean): Promise<void> {
-  const rows = await supabaseRest<ProfileRow[]>("/profiles?select=*");
-  const profile = rows.find((p) => p.username === username);
-  if (!profile) throw new Error(`User "${username}" not found.`);
+  const profile = await findProfileByUsername(username);
+  if (!profile) throw new PublicError(`User "${username}" not found.`, 404);
   await supabaseRest<unknown>(`/profiles?id=eq.${encodeURIComponent(profile.id)}`, {
     method: "PATCH",
     body: { archived },
@@ -828,9 +897,8 @@ export async function setUserArchived(username: string, archived: boolean): Prom
 }
 
 export async function deleteUser(username: string): Promise<void> {
-  const rows = await supabaseRest<ProfileRow[]>("/profiles?select=*");
-  const profile = rows.find((p) => p.username === username);
-  if (!profile) throw new Error(`User "${username}" not found.`);
+  const profile = await findProfileByUsername(username);
+  if (!profile) throw new PublicError(`User "${username}" not found.`, 404);
   await supabaseAdminDelete(`/admin/users/${encodeURIComponent(profile.id)}`);
 }
 
@@ -838,9 +906,8 @@ export async function updateUserCredentials(
   username: string,
   opts: { newUsername?: string; newPassword?: string; newFullName?: string; newPosition?: string }
 ): Promise<void> {
-  const rows = await supabaseRest<ProfileRow[]>("/profiles?select=*");
-  const profile = rows.find((p) => p.username === username);
-  if (!profile) throw new Error(`User "${username}" not found.`);
+  const profile = await findProfileByUsername(username);
+  if (!profile) throw new PublicError(`User "${username}" not found.`, 404);
   if (opts.newPassword) {
     await supabaseAdminPut<unknown>(`/admin/users/${encodeURIComponent(profile.id)}`, {
       password: opts.newPassword,
@@ -860,41 +927,6 @@ export async function updateUserCredentials(
     await supabaseRest<unknown>(`/profiles?id=eq.${encodeURIComponent(profile.id)}`, {
       method: "PATCH",
       body: profilePatch,
-    });
-  }
-}
-
-// ─── App Config ───────────────────────────────────────────────────────────────
-
-export type TelegramConfig = { botToken: string; chatId: string };
-
-export async function getTelegramConfig(): Promise<TelegramConfig> {
-  try {
-    const rows = await supabaseRest<{ key: string; value: string }[]>(
-      "/app_config?key=in.(telegram_bot_token,telegram_chat_id)&select=key,value"
-    );
-    const map = Object.fromEntries(rows.map((r) => [r.key, r.value]));
-    return {
-      botToken: map.telegram_bot_token || "",
-      chatId: map.telegram_chat_id || "",
-    };
-  } catch {
-    return { botToken: "", chatId: "" };
-  }
-}
-
-export async function setTelegramConfig(
-  config: Partial<TelegramConfig>,
-  updatedBy: string
-): Promise<void> {
-  const entries: [string, string][] = [];
-  if (config.botToken !== undefined) entries.push(["telegram_bot_token", config.botToken]);
-  if (config.chatId !== undefined) entries.push(["telegram_chat_id", config.chatId]);
-  for (const [key, value] of entries) {
-    await supabaseRest<unknown>("/app_config?on_conflict=key", {
-      method: "POST",
-      prefer: "return=minimal,resolution=merge-duplicates",
-      body: { key, value, updated_by: updatedBy, updated_at: new Date().toISOString() },
     });
   }
 }

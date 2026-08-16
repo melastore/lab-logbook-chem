@@ -1,9 +1,9 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { getCurrentUser, refreshSession, type AppUser } from "./logbook";
+import { getCurrentUser, refreshSession, revokeSession, type AppUser } from "./logbook";
+import { sessionCookieName, sessionRefreshCookieName } from "./session-cookie-names";
 
-export const sessionCookieName = "lab_logbook_session";
-export const sessionRefreshCookieName = "lab_logbook_refresh";
+export { sessionCookieName, sessionRefreshCookieName };
 
 const cookieBase = {
   httpOnly: true as const,
@@ -11,20 +11,32 @@ const cookieBase = {
   secure: process.env.NODE_ENV === "production",
   path: "/",
 };
-const sessionMaxAge = 60 * 60 * 24 * 30; // 30 days
+
+// The access token is a Supabase JWT that expires in ~1h on its own; the cookie
+// is given the same life so a stale one is never presented.
+const accessMaxAge = 60 * 60;
+
+// Idle timeout. The refresh cookie is rewritten on every silent refresh, so an
+// active user stays signed in indefinitely while an abandoned session — a
+// browser left open on a shared lab workstation — dies after this long.
+const idleMaxAge = 60 * 60 * 12;
 
 // Write both session cookies with a consistent policy. Used by the login route
 // and by the silent refresh below.
 export async function setSessionCookies(token: string, refreshToken: string) {
   const cookieStore = await cookies();
-  cookieStore.set(sessionCookieName, token, { ...cookieBase, maxAge: sessionMaxAge });
+  cookieStore.set(sessionCookieName, token, { ...cookieBase, maxAge: accessMaxAge });
   if (refreshToken) {
-    cookieStore.set(sessionRefreshCookieName, refreshToken, { ...cookieBase, maxAge: sessionMaxAge });
+    cookieStore.set(sessionRefreshCookieName, refreshToken, { ...cookieBase, maxAge: idleMaxAge });
   }
 }
 
+// Drop the cookies and tell Supabase to invalidate the refresh token, so a copy
+// captured earlier can't be exchanged for a new session after sign-out.
 export async function clearSessionCookies() {
   const cookieStore = await cookies();
+  const token = cookieStore.get(sessionCookieName)?.value || "";
+  if (token) await revokeSession(token);
   cookieStore.delete(sessionCookieName);
   cookieStore.delete(sessionRefreshCookieName);
 }
@@ -38,8 +50,8 @@ export async function currentUser(): Promise<AppUser | null> {
     if (user) return user;
   }
 
-  // Access token is missing or expired (Supabase JWTs last ~1h). Fall back to
-  // the refresh token so a 30-day session survives past that window.
+  // Access token is missing or expired. Fall back to the refresh token, which
+  // also slides the idle window forward.
   const refreshToken = cookieStore.get(sessionRefreshCookieName)?.value || "";
   if (!refreshToken) return null;
 
