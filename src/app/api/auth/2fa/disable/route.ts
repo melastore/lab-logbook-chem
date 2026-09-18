@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { logAudit } from "@/lib/logbook";
+import { errorResponse } from "@/lib/errors";
 import { currentUser } from "@/lib/session";
 import { verifyTotp } from "@/lib/totp";
 import { getTwoFactor, disableTwoFactor } from "@/lib/twofactor";
@@ -29,19 +30,23 @@ export async function POST(request: Request) {
   }
 
   const { token } = await request.json().catch(() => ({ token: "" }));
-  const rec = await getTwoFactor(user.username);
-  if (!rec?.enabled) return NextResponse.json({ enabled: false });
+  try {
+    const rec = await getTwoFactor(user.username);
+    if (!rec?.enabled) return NextResponse.json({ enabled: false });
 
-  if (!verifyTotp(rec.secret, String(token || ""))) {
-    await logAudit({
-      actor: user.username, actorId: user.id,
-      action: "auth.2fa_disable.failed", detail: { reason: "bad_code" },
-    });
-    return NextResponse.json({ error: "Enter a valid code to disable 2FA." }, { status: 400 });
+    if (!verifyTotp(rec.secret, String(token || ""))) {
+      await logAudit({
+        actor: user.username, actorId: user.id,
+        action: "auth.2fa_disable.failed", detail: { reason: "bad_code" },
+      });
+      return NextResponse.json({ error: "Enter a valid code to disable 2FA." }, { status: 400 });
+    }
+    rateLimitClear(limitKey);
+
+    await disableTwoFactor(user.username, user.username);
+    await logAudit({ actor: user.username, actorId: user.id, action: "auth.2fa_disabled" });
+    return NextResponse.json({ enabled: false });
+  } catch (e) {
+    return errorResponse("auth/2fa/disable", e);
   }
-  rateLimitClear(limitKey);
-
-  await disableTwoFactor(user.username, user.username);
-  await logAudit({ actor: user.username, actorId: user.id, action: "auth.2fa_disabled" });
-  return NextResponse.json({ enabled: false });
 }

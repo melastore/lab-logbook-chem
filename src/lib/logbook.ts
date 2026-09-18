@@ -341,7 +341,7 @@ export async function updateCurrentUserProfile(
     const taken = existing.some((p) =>
       p.id !== userId && p.username?.toLowerCase() === opts.username!.toLowerCase()
     );
-    if (taken) throw new Error("Username is already in use.");
+    if (taken) throw new PublicError("Username is already in use.", 409);
 
     await supabaseRest<unknown>(`/profiles?id=eq.${encodeURIComponent(userId)}`, {
       method: "PATCH",
@@ -849,7 +849,7 @@ export async function createNewUser(input: {
   // Reject duplicate usernames up front for a clear error.
   const existing = await supabaseRest<ProfileRow[]>("/profiles?select=id,username");
   if (existing.some((p) => p.username?.toLowerCase() === input.username.toLowerCase())) {
-    throw new Error("Username is already in use.");
+    throw new PublicError("Username is already in use.", 409);
   }
 
   let userId: string;

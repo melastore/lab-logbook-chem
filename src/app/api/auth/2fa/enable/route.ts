@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { logAudit } from "@/lib/logbook";
+import { errorResponse } from "@/lib/errors";
 import { currentUser } from "@/lib/session";
 import { verifyTotp } from "@/lib/totp";
 import { getTwoFactor, enableTwoFactor } from "@/lib/twofactor";
@@ -27,16 +28,20 @@ export async function POST(request: Request) {
   }
 
   const { token } = await request.json().catch(() => ({ token: "" }));
-  const rec = await getTwoFactor(user.username);
-  if (!rec?.secret) {
-    return NextResponse.json({ error: "Start setup first." }, { status: 400 });
-  }
-  if (!verifyTotp(rec.secret, String(token || ""))) {
-    return NextResponse.json({ error: "That code didn't match. Try again." }, { status: 400 });
-  }
+  try {
+    const rec = await getTwoFactor(user.username);
+    if (!rec?.secret) {
+      return NextResponse.json({ error: "Start setup first." }, { status: 400 });
+    }
+    if (!verifyTotp(rec.secret, String(token || ""))) {
+      return NextResponse.json({ error: "That code didn't match. Try again." }, { status: 400 });
+    }
 
-  rateLimitClear(limitKey);
-  await enableTwoFactor(user.username, rec.secret, user.username);
-  await logAudit({ actor: user.username, actorId: user.id, action: "auth.2fa_enabled" });
-  return NextResponse.json({ enabled: true });
+    rateLimitClear(limitKey);
+    await enableTwoFactor(user.username, rec.secret, user.username);
+    await logAudit({ actor: user.username, actorId: user.id, action: "auth.2fa_enabled" });
+    return NextResponse.json({ enabled: true });
+  } catch (e) {
+    return errorResponse("auth/2fa/enable", e);
+  }
 }

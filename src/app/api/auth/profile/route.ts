@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { errorResponse } from "@/lib/errors";
 import { updateCurrentUserProfile } from "@/lib/logbook";
 import { currentUser } from "@/lib/session";
 
@@ -22,7 +23,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Login required." }, { status: 401 });
   }
 
-  const body = await request.json();
+  const body = await request.json().catch(() => ({}));
   const username = typeof body.username === "string" ? body.username.trim() : "";
   const avatarSeed = typeof body.avatarSeed === "string" ? body.avatarSeed.trim() : "";
 
@@ -47,6 +48,6 @@ export async function PATCH(request: Request) {
     });
     return NextResponse.json({ user: updatedUser });
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : "Profile update failed." }, { status: 500 });
+    return errorResponse("auth/profile", e);
   }
 }
