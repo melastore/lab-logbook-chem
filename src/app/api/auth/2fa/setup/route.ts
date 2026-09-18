@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { errorResponse } from "@/lib/errors";
+import { encryptionConfigured } from "@/lib/secrets";
 import { currentUser } from "@/lib/session";
 import { generateSecret, totpUri } from "@/lib/totp";
 import { isTwoFactorEnabled, setPendingSecret } from "@/lib/twofactor";
@@ -21,11 +23,21 @@ export async function POST() {
     );
   }
 
-  const secret = generateSecret();
-  await setPendingSecret(user.username, secret, user.username);
+  if (!encryptionConfigured()) {
+    return NextResponse.json(
+      { error: "Two-factor isn't available: APP_ENCRYPTION_KEY is not set on the server." },
+      { status: 503 }
+    );
+  }
 
-  return NextResponse.json({
-    secret,
-    uri: totpUri(secret, user.email || user.username),
-  });
+  try {
+    const secret = generateSecret();
+    await setPendingSecret(user.username, secret, user.username);
+    return NextResponse.json({
+      secret,
+      uri: totpUri(secret, user.email || user.username),
+    });
+  } catch (e) {
+    return errorResponse("auth/2fa/setup", e);
+  }
 }
