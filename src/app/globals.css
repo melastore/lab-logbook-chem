@@ -9319,3 +9319,29 @@ button:disabled {
     border-left: none;
   }
 }
+
+/* Required fields left empty on a submit attempt */
+.spreadsheet-cell.cell-missing {
+  background: color-mix(in srgb, var(--error) 10%, transparent);
+  box-shadow: inset 0 0 0 1.5px var(--error);
+}
+.field-missing .form-input-modern {
+  border-color: var(--error);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--error) 15%, transparent);
+}
+.field-missing .field-label-modern { color: var(--error); }
+
+/* Weekly plan soft checks */
+.wp-warnings { display: grid; gap: 6px; margin: 0 0 12px; }
+.wp-warning {
+  display: flex; align-items: center; gap: 8px; margin: 0;
+  padding: 8px 12px; border-radius: 8px; font-size: 0.9rem;
+  background: color-mix(in srgb, var(--tertiary) 12%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--tertiary) 45%, transparent);
+}
+.wp-warning-error {
+  background: color-mix(in srgb, var(--error) 10%, var(--surface));
+  border-color: var(--error);
+  color: var(--error);
+}
+.spreadsheet-cell.wp-cell-warn { box-shadow: inset 0 0 0 1.5px var(--tertiary); }

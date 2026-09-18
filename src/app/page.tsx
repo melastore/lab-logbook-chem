@@ -6,7 +6,7 @@ import {
   Activity, Settings, LayoutDashboard, LogOut, ArrowRight,
   CheckCircle2, AlertCircle, Microscope,
   ChevronRight, ChevronDown, Zap, Droplets, Beaker,
-  RefreshCw, FileOutput, Info, PanelLeftClose, PanelLeft, ScrollText
+  RefreshCw, FileOutput, Info, PanelLeftClose, PanelLeft, ScrollText, Plus, Trash2
 } from "lucide-react";
 import { LabLogo } from "@/components/LabLogo";
 import type { AppUser, InstrumentTemplate, InstrumentCategory } from "@/lib/logbook";
@@ -47,6 +47,8 @@ function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
+const MAX_ROWS = 50;
+
 export default function AnalystEntryPage() {
   const [user, setUser] = useState<AppUser | null>(null);
   const [authReady, setAuthReady] = useState(false);
@@ -69,6 +71,9 @@ export default function AnalystEntryPage() {
   const [signatureImage, setSignatureImage] = useState("");
   const [submitState, setSubmitState] = useState<SubmitState>("idle");
   const [message, setMessage] = useState("");
+  // Set on a submit attempt with gaps, so empty required cells are only flagged
+  // once the user has tried to submit rather than the moment the form opens.
+  const [showMissing, setShowMissing] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -152,10 +157,23 @@ export default function AnalystEntryPage() {
     setMessage("");
   }
 
+  function newRow(): Record<string, string> {
+    return { date: todayISO(), ...(user ? { analyst: user.fullName || user.username } : {}) };
+  }
+
+  // Switching instrument or form starts a fresh entry, so values typed for one
+  // instrument can't be submitted under another.
+  function resetEntry() {
+    setRows([newRow()]);
+    setSignatureImage("");
+    setShowMissing(false);
+    resetTransient();
+  }
+
   function switchMode(next: Mode) {
     setMode(next);
     setNavOpen(false);
-    resetTransient();
+    resetEntry();
   }
 
   function toggleGroup(id: string) {
@@ -194,7 +212,7 @@ export default function AnalystEntryPage() {
     }
     setAnalyticalFormId(analyticalForms[0].id);
     setNavOpen(false);
-    resetTransient();
+    resetEntry();
   }
 
   // Saved instrument templates grouped by category. The categories table (with
@@ -248,13 +266,13 @@ export default function AnalystEntryPage() {
     setInstrumentForm(f || INSTRUMENT_INFO_FORM);
     setAnalyticalFormId(analyticalForms[0].id);
     setNavOpen(false);
-    resetTransient();
+    resetEntry();
   }
 
   function pickSampleForm(id: string) {
     setSampleFormId(id);
     setNavOpen(false);
-    resetTransient();
+    resetEntry();
   }
 
   async function logout() {
@@ -263,14 +281,31 @@ export default function AnalystEntryPage() {
     setUserMenuOpen(false);
   }
 
-  const missingRequired = rows.some(row => 
-    currentForm.fields.some((f) => f.required && !(row[f.key] || "").trim())
-  );
-  const canSubmit = Boolean(user) && showForm && !missingRequired && Boolean(signatureImage) && rows.length > 0;
+  const missingCount = rows.reduce((n, row) =>
+    n + currentForm.fields.filter((f) => f.required && !(row[f.key] || "").trim()).length, 0);
+  const canSubmit = Boolean(user) && showForm && missingCount === 0 && Boolean(signatureImage) && rows.length > 0;
+
+  function whatsMissing() {
+    const parts: string[] = [];
+    if (missingCount > 0) parts.push(`${missingCount} required field${missingCount === 1 ? "" : "s"} empty (marked in red)`);
+    if (!signatureImage) parts.push("signature missing");
+    return parts.length ? `Can't submit yet: ${parts.join(", ")}.` : "";
+  }
+
+  // Keep the "can't submit" note current as the user fills the gaps.
+  const blockedNote = showMissing && submitState === "error" && message.startsWith("Can't submit");
+  const stripState: SubmitState = blockedNote && canSubmit ? "idle" : submitState;
+  const liveMessage = blockedNote ? whatsMissing() : message;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!user || !canSubmit) return;
+    if (!user || !showForm) return;
+    if (!canSubmit) {
+      setShowMissing(true);
+      setSubmitState("error");
+      setMessage(whatsMissing());
+      return;
+    }
     setSubmitState("submitting");
     setMessage("");
 
@@ -324,16 +359,18 @@ export default function AnalystEntryPage() {
     });
 
     if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
       setSubmitState("error");
-      setMessage(response.status === 401 ? "Sign in before submitting." : "Submission failed. Please try again.");
+      setMessage(response.status === 401 ? "Sign in before submitting." : err.error || "Submission failed. Please try again.");
       return;
     }
 
     const result = await response.json();
     setSubmitState("sent");
     setMessage(`Successfully submitted ${result.count} ${result.count === 1 ? "record" : "records"} as ${user.fullName || user.username}. Log entries are sealed in a secure hash chain and cannot be modified or deleted.`);
-    setRows([{ date: todayISO(), analyst: user.fullName || user.username }]);
+    setRows([newRow()]);
     setSignatureImage("");
+    setShowMissing(false);
   }
 
   return (
@@ -568,7 +605,7 @@ export default function AnalystEntryPage() {
                   <button
                     type="button"
                     className={`form-tab ${isGeneral ? "active" : ""}`}
-                    onClick={() => { setAnalyticalFormId(GENERAL_TAB); resetTransient(); }}
+                    onClick={() => { setAnalyticalFormId(GENERAL_TAB); resetEntry(); }}
                   >
                     General
                   </button>
@@ -577,7 +614,7 @@ export default function AnalystEntryPage() {
                       key={f.id}
                       type="button"
                       className={`form-tab ${!isGeneral && analyticalFormId === f.id ? "active" : ""}`}
-                      onClick={() => { setAnalyticalFormId(f.id); resetTransient(); }}
+                      onClick={() => { setAnalyticalFormId(f.id); resetEntry(); }}
                     >
                       {f.title}
                     </button>
@@ -595,7 +632,7 @@ export default function AnalystEntryPage() {
                   </div>
                 </div>
               ) : (
-              <form className="entry-form-panel panel shadow-sm" onSubmit={handleSubmit}>
+              <form className="entry-form-panel panel shadow-sm" onSubmit={handleSubmit} noValidate>
                 <div className="doc-form-header" style={{ padding: '16px 24px', justifyContent: 'flex-start', gap: 12 }}>
                   <h2 className="doc-form-title" style={{ margin: 0 }}>{currentForm.title}</h2>
                   {mode === "analytical" && selectedInstrument && (
@@ -669,12 +706,18 @@ export default function AnalystEntryPage() {
                         fields={currentForm.fields}
                         rows={rows}
                         setRows={setRows}
+                        showMissing={showMissing}
+                        onAddRow={rows.length < MAX_ROWS ? () => setRows((prev) => [...prev, newRow()]) : undefined}
+                        onRemoveRow={(i) => setRows((prev) => prev.filter((_, idx) => idx !== i))}
                       />
                     ) : (
                       <FormSpreadsheet
                         fields={currentForm.fields}
                         rows={rows}
                         setRows={setRows}
+                        showMissing={showMissing}
+                        onAddRow={rows.length < MAX_ROWS ? () => setRows((prev) => [...prev, newRow()]) : undefined}
+                        onRemoveRow={(i) => setRows((prev) => prev.filter((_, idx) => idx !== i))}
                       />
                     )}
 
@@ -686,23 +729,23 @@ export default function AnalystEntryPage() {
                     <div className="submit-strip-modern shadow-sm" style={{ margin: '16px 24px 24px' }}>
                       <div className="submit-strip-status">
                         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                          {submitState === "sent" ? <CheckCircle2 size={22} color="var(--success)" /> :
-                           submitState === "error" ? <AlertCircle size={22} color="var(--danger)" /> :
+                          {stripState === "sent" ? <CheckCircle2 size={22} color="var(--success)" /> :
+                           stripState === "error" ? <AlertCircle size={22} color="var(--danger)" /> :
                            <Info size={20} />}
                           <strong style={{
                             fontSize: 16,
-                            color: submitState === "sent" ? "var(--success)" : submitState === "error" ? "var(--danger)" : undefined,
+                            color: stripState === "sent" ? "var(--success)" : stripState === "error" ? "var(--danger)" : undefined,
                           }}>
-                            {submitState === "sent" ? "Successfully submitted" : submitState === "error" ? "Submission error" : currentForm.title}
+                            {stripState === "sent" ? "Successfully submitted" : stripState === "error" ? "Submission error" : currentForm.title}
                           </strong>
                         </div>
                         <p style={{ marginLeft: 32 }}>
-                          {message}
+                          {liveMessage}
                         </p>
                       </div>
-                      <button className="btn btn-primary btn-lg btn-icon-gap" type="submit" disabled={!canSubmit || submitState === "submitting"}>
+                      <button className="btn btn-primary btn-lg btn-icon-gap" type="submit" disabled={!user || submitState === "submitting"}>
                         {submitState === "submitting" ? <><RefreshCw size={18} className="spin" /> <span>Saving…</span></> :
-                         submitState === "sent" ? <><CheckCircle2 size={18} /> <span>Saved</span></> :
+                         stripState === "sent" ? <><CheckCircle2 size={18} /> <span>Saved</span></> :
                          <><FileOutput size={18} /> <span>Submit</span></>}
                       </button>
                     </div>
@@ -721,13 +764,18 @@ export default function AnalystEntryPage() {
 /* ── Spreadsheet-style form table ── */
 
 function FormSpreadsheet({
-  fields, rows, setRows, disabled
+  fields, rows, setRows, disabled, showMissing, onAddRow, onRemoveRow
 }: {
   fields: FormField[];
   rows: Record<string, string>[];
   setRows: React.Dispatch<React.SetStateAction<Record<string, string>[]>>;
   disabled?: boolean;
+  showMissing?: boolean;
+  onAddRow?: () => void;
+  onRemoveRow?: (index: number) => void;
 }) {
+  const isMissing = (f: FormField, row: Record<string, string>) =>
+    Boolean(showMissing && f.required && !(row[f.key] || "").trim());
   const tableRef = useRef<HTMLTableElement>(null);
 
   function updateCell(rowIndex: number, key: string, value: string) {
@@ -798,6 +846,7 @@ function FormSpreadsheet({
                 </th>
               );
             })}
+            {!disabled && rows.length > 1 && <th style={{ width: 44 }} aria-label="Remove row" />}
           </tr>
         </thead>
         <tbody className="spreadsheet-tbody">
@@ -805,7 +854,7 @@ function FormSpreadsheet({
             <tr key={i} className="spreadsheet-row">
               <td className="doc-rowno">{i + 1}</td>
               {fields.map((f, fi) => (
-                <td key={f.key} className="spreadsheet-cell">
+                <td key={f.key} className={`spreadsheet-cell ${isMissing(f, row) ? "cell-missing" : ""}`}>
                   {f.type === "textarea" ? (
                     <textarea
                       className="spreadsheet-input"
@@ -841,14 +890,27 @@ function FormSpreadsheet({
                   )}
                 </td>
               ))}
+              {!disabled && rows.length > 1 && (
+                <td className="spreadsheet-cell wp-action-cell">
+                  <button type="button" className="wp-remove" onClick={() => onRemoveRow?.(i)}
+                    title={`Remove row ${i + 1}`} aria-label={`Remove row ${i + 1}`}>
+                    <Trash2 size={15} />
+                  </button>
+                </td>
+              )}
             </tr>
           ))}
         </tbody>
       </table>
       {!disabled && (
         <div className="spreadsheet-footer">
+          {onAddRow && (
+            <button type="button" className="btn btn-outline btn-sm" onClick={onAddRow}>
+              <Plus size={16} /> Add row
+            </button>
+          )}
           <div className="spreadsheet-tip">
-            <kbd>←</kbd> <kbd>→</kbd> to navigate
+            <kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd> to navigate
           </div>
         </div>
       )}
@@ -859,13 +921,18 @@ function FormSpreadsheet({
 /* ── Card-style form layout ── */
 
 function FormCards({
-  fields, rows, setRows, disabled
+  fields, rows, setRows, disabled, showMissing, onAddRow, onRemoveRow
 }: {
   fields: FormField[];
   rows: Record<string, string>[];
   setRows: React.Dispatch<React.SetStateAction<Record<string, string>[]>>;
   disabled?: boolean;
+  showMissing?: boolean;
+  onAddRow?: () => void;
+  onRemoveRow?: (index: number) => void;
 }) {
+  const isMissing = (f: FormField, row: Record<string, string>) =>
+    Boolean(showMissing && f.required && !(row[f.key] || "").trim());
   function updateCell(rowIndex: number, key: string, value: string) {
     if (disabled) return;
     setRows(prev => {
@@ -888,18 +955,26 @@ function FormCards({
               <span className="form-entry-card-num">{rows.length > 1 ? `Entry ${i + 1} of ${rows.length}` : "Entry"}</span>
               <span className="entry-progress-text">{filled} of {fields.length} fields filled</span>
             </div>
-            {requiredLeft === 0 ? (
-              <span className="entry-chip entry-chip-ready"><CheckCircle2 size={14} /> Ready to submit</span>
-            ) : (
-              <span className="entry-chip">{requiredLeft} required field{requiredLeft > 1 ? "s" : ""} left</span>
-            )}
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {requiredLeft === 0 ? (
+                <span className="entry-chip entry-chip-ready"><CheckCircle2 size={14} /> Ready to submit</span>
+              ) : (
+                <span className="entry-chip">{requiredLeft} required field{requiredLeft > 1 ? "s" : ""} left</span>
+              )}
+              {!disabled && rows.length > 1 && (
+                <button type="button" className="wp-remove" onClick={() => onRemoveRow?.(i)}
+                  title={`Remove entry ${i + 1}`} aria-label={`Remove entry ${i + 1}`}>
+                  <Trash2 size={15} />
+                </button>
+              )}
+            </div>
           </div>
           <div className="entry-progress-track">
             <div className={`entry-progress-fill ${requiredLeft === 0 ? "done" : ""}`} style={{ width: `${pct}%` }} />
           </div>
           <div className="form-entry-card-grid">
             {fields.map((f) => (
-              <div key={f.key} className="field-modern" style={{ gridColumn: (f.full || f.type === "textarea") ? '1 / -1' : undefined }}>
+              <div key={f.key} className={`field-modern ${isMissing(f, row) ? "field-missing" : ""}`} style={{ gridColumn: (f.full || f.type === "textarea") ? '1 / -1' : undefined }}>
                 <label className="field-label-modern">
                   {f.label}{f.required && <span className="req"> *</span>}
                 </label>
@@ -939,6 +1014,11 @@ function FormCards({
         </div>
         );
       })}
+      {!disabled && onAddRow && (
+        <button type="button" className="btn btn-outline btn-sm" style={{ justifySelf: "start" }} onClick={onAddRow}>
+          <Plus size={16} /> Add entry
+        </button>
+      )}
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { ArrowLeft, Save, Plus, Trash2, CheckCircle2, TrendingUp, Clock, FileSpreadsheet, History, X } from "lucide-react";
+import { ArrowLeft, Save, Plus, Trash2, CheckCircle2, TrendingUp, Clock, FileSpreadsheet, History, X, AlertTriangle } from "lucide-react";
 import type { AppUser } from "@/lib/logbook";
 import {
   WEEKLY_HOURS, taskWeight, taskAchWeight,
@@ -47,6 +47,9 @@ export default function WeeklyPlanPage() {
   const loading = !user || loadedWeek !== `${user.username}:${weekStartDate}`;
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<string>("");
+  const [saveError, setSaveError] = useState("");
+  // Tasks as last loaded or saved; anything different is unsaved work.
+  const [savedSnapshot, setSavedSnapshot] = useState("");
   const [showHistory, setShowHistory] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string>("");
   const [deletingWeek, setDeletingWeek] = useState<string>("");
@@ -78,6 +81,8 @@ export default function WeeklyPlanPage() {
             })
           : [newTask(weekStartDate, 0)];
         setTasks(rows);
+        setSavedSnapshot(JSON.stringify(rows));
+        setSaveError("");
         setSavedAt(current?.updatedAt || "");
         setLoadedWeek(`${user.username}:${weekStartDate}`);
       })
@@ -89,21 +94,44 @@ export default function WeeklyPlanPage() {
   const updateTask = (id: string, field: keyof WeeklyTask, value: string | number) =>
     setTasks((t) => t.map((x) => (x.id === id ? { ...x, [field]: value } : x)));
 
+  const dirty = !loading && JSON.stringify(tasks) !== savedSnapshot;
+
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+
+  // Switching week or leaving replaces the sheet, so check first.
+  function okToLeave() {
+    return !dirty || window.confirm("You have unsaved changes to this week. Leave without saving?");
+  }
+
   const savePlan = async () => {
     if (!user) return;
     setSaving(true);
+    setSaveError("");
     const body: WeeklyPlan = { username: user.username, weekStartDate, tasks, updatedAt: new Date().toISOString() };
-    const res = await fetch("/api/weekly-plan", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (res.ok) {
-      setSavedAt(body.updatedAt);
-      setAllPlans((prev) => {
-        const rest = prev.filter((p) => p.weekStartDate !== weekStartDate);
-        return [...rest, body];
+    try {
+      const res = await fetch("/api/weekly-plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
       });
+      if (res.ok) {
+        setSavedAt(body.updatedAt);
+        setSavedSnapshot(JSON.stringify(tasks));
+        setAllPlans((prev) => {
+          const rest = prev.filter((p) => p.weekStartDate !== weekStartDate);
+          return [...rest, body];
+        });
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setSaveError(err.error || "Save failed. Your changes are still here — try again.");
+      }
+    } catch {
+      setSaveError("Save failed — check your connection and try again.");
     }
     setSaving(false);
   };
@@ -119,7 +147,9 @@ export default function WeeklyPlanPage() {
       setAllPlans((prev) => prev.filter((p) => p.weekStartDate !== week));
       // If the open week was deleted, reset it to a fresh sheet.
       if (week === weekStartDate) {
-        setTasks([newTask(weekStartDate, 0)]);
+        const fresh = [newTask(weekStartDate, 0)];
+        setTasks(fresh);
+        setSavedSnapshot(JSON.stringify(fresh));
         setSavedAt("");
       }
     }
@@ -244,6 +274,18 @@ export default function WeeklyPlanPage() {
 
   const achievementColor = achColor(achievement);
 
+  // Soft checks — they warn but never block saving.
+  const overAchieved = tasks
+    .map((t, i) => ({ i, over: taskAchWeight(t) > taskWeight(t) + 1e-9 }))
+    .filter((x) => x.over)
+    .map((x) => x.i + 1);
+  const warnings = [
+    ...(totalHours > WEEKLY_HOURS ? [`Total hours are ${totalHours}, more than the ${WEEKLY_HOURS}-hour week.`] : []),
+    ...(overAchieved.length
+      ? [`Ach. Weight is higher than the task's Weight on row${overAchieved.length > 1 ? "s" : ""} ${overAchieved.join(", ")}.`]
+      : []),
+  ];
+
   // Exact Excel top summary metrics
   const h6 = 8 / 40;
   const h7 = totalExecWeight;
@@ -298,7 +340,8 @@ export default function WeeklyPlanPage() {
     <main className="wp-page">
       <header className="wp-topbar">
         <div className="wp-topbar-left">
-          <Link href="/" className="btn btn-outline btn-sm wp-back-btn" title="Back to Entry">
+          <Link href="/" className="btn btn-outline btn-sm wp-back-btn" title="Back to Entry"
+            onClick={(e) => { if (!okToLeave()) e.preventDefault(); }}>
             <ArrowLeft size={16} /> <span>Back</span>
           </Link>
           <div className="wp-title-group">
@@ -310,7 +353,7 @@ export default function WeeklyPlanPage() {
           <label className="wp-week-picker">
             <span>Week of</span>
             <input type="date" className="input-modern" value={weekStartDate}
-              onChange={(e) => setWeekStartDate(e.target.value)} />
+              onChange={(e) => { if (e.target.value && okToLeave()) setWeekStartDate(e.target.value); }} />
           </label>
           <div className="wp-topbar-actions">
             <button className="btn btn-outline btn-sm" onClick={() => setShowHistory(true)} disabled={loading}>
@@ -320,7 +363,7 @@ export default function WeeklyPlanPage() {
               <FileSpreadsheet size={16} /> <span>Export</span>
             </button>
             <button className="btn btn-primary btn-sm" onClick={savePlan} disabled={saving || loading}>
-              <Save size={16} /> <span>{saving ? "Saving…" : "Save Report"}</span>
+              <Save size={16} /> <span>{saving ? "Saving…" : dirty ? "Save Report •" : "Save Report"}</span>
             </button>
           </div>
         </div>
@@ -367,6 +410,13 @@ export default function WeeklyPlanPage() {
                 </tbody>
               </table>
             </div>
+
+            {(saveError || warnings.length > 0) && (
+              <div className="wp-warnings" role="status">
+                {saveError && <p className="wp-warning wp-warning-error"><AlertTriangle size={15} /> {saveError}</p>}
+                {warnings.map((w) => <p key={w} className="wp-warning"><AlertTriangle size={15} /> {w}</p>)}
+              </div>
+            )}
 
             {/* Excel-style formula bar (fx) — click any cell to see/edit its formula */}
             <div className="wp-fx-bar">
@@ -441,7 +491,7 @@ export default function WeeklyPlanPage() {
                         </td>
                         <td className={`spreadsheet-cell wp-calc wp-cell-sel ${isActive(task.id, "weight") ? "wp-cell-active" : ""}`}
                           onClick={() => selectCell(task.id, "weight")}>{weight.toFixed(3)}</td>
-                        <td className={`spreadsheet-cell wp-cell-sel ${isActive(task.id, "achWeight") ? "wp-cell-active" : ""}`}
+                        <td className={`spreadsheet-cell wp-cell-sel ${isActive(task.id, "achWeight") ? "wp-cell-active" : ""} ${achWeight > weight + 1e-9 ? "wp-cell-warn" : ""}`}
                           onClick={() => !achEditing && selectCell(task.id, "achWeight")}
                           onDoubleClick={() => selectCell(task.id, "achWeight", true)}
                           title="Double-click to edit the formula (e.g. =H13*80/100)">
@@ -471,7 +521,7 @@ export default function WeeklyPlanPage() {
                   <tr className="wp-total-row">
                     <td className="doc-rowno" />
                     <td className="wp-total-label">Total</td>
-                    <td className="wp-calc">{totalHours}</td>
+                    <td className="wp-calc" style={totalHours > WEEKLY_HOURS ? { color: "var(--error)" } : undefined}>{totalHours}</td>
                     <td />
                     <td className="wp-calc">{totalHours > 0 ? "100.0%" : "0%"}</td>
                     <td className="wp-calc" style={{ color: achievementColor }}>{achievement.toFixed(1)}%</td>
@@ -518,7 +568,10 @@ export default function WeeklyPlanPage() {
                   <div key={p.weekStartDate} className={`wp-history-item ${isOpen ? "current" : ""}`}>
                     <button
                       className="wp-history-main"
-                      onClick={() => { setWeekStartDate(p.weekStartDate); setShowHistory(false); setConfirmDelete(""); }}
+                      onClick={() => {
+                        if (p.weekStartDate !== weekStartDate && !okToLeave()) return;
+                        setWeekStartDate(p.weekStartDate); setShowHistory(false); setConfirmDelete("");
+                      }}
                     >
                       <div className="wp-history-week">
                         <strong>{weekRange(p.weekStartDate)}</strong>

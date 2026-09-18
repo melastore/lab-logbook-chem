@@ -34,9 +34,15 @@ export async function POST(request: Request) {
   const gate = passwordChangeGate(user);
   if (gate) return gate;
 
-  const body = await request.json();
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== "object") {
+    return NextResponse.json({ error: "Invalid submission." }, { status: 400 });
+  }
   const isBulk = Array.isArray(body);
   const inputs = isBulk ? body : [body];
+  if (inputs.length === 0 || inputs.length > 50 || inputs.some((i) => !i || typeof i !== "object")) {
+    return NextResponse.json({ error: "Submit between 1 and 50 entries at a time." }, { status: 400 });
+  }
 
   const recordsToCreate: LogbookInput[] = inputs.map((item) => ({
     laboratoryName: clean(item.laboratoryName),
