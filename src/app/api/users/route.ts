@@ -156,6 +156,11 @@ export async function PATCH(request: Request) {
   if (body.action === "updateCredentials") {
     const newUsername = typeof body.newUsername === "string" && body.newUsername.trim()
       ? body.newUsername.trim() : undefined;
+    if (newUsername && !/^[a-z0-9._-]{3,32}$/i.test(newUsername)) {
+      return NextResponse.json({
+        error: "Username must be 3-32 characters using letters, numbers, dots, underscores, or hyphens.",
+      }, { status: 400 });
+    }
     const newPassword = typeof body.newPassword === "string" && body.newPassword.trim()
       ? body.newPassword.trim() : undefined;
     if (newPassword) {

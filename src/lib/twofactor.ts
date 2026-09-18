@@ -16,23 +16,20 @@ function key(username: string) {
   return `totp:${username}`;
 }
 
+// Returns null only when the user has no 2FA row. Any other failure throws:
+// treating a database or key error as "no 2FA" would let login skip the code.
 export async function getTwoFactor(username: string): Promise<TwoFactorRecord | null> {
+  const rows = await supabaseRest<{ value: string }[]>(
+    `/app_config?key=eq.${encodeURIComponent(key(username))}&select=value`
+  );
+  if (!rows[0]) return null;
+  const parsed = JSON.parse(rows[0].value) as TwoFactorRecord;
+  const stored = parsed.secret || "";
   try {
-    const rows = await supabaseRest<{ value: string }[]>(
-      `/app_config?key=eq.${encodeURIComponent(key(username))}&select=value`
-    );
-    if (!rows[0]) return null;
-    const parsed = JSON.parse(rows[0].value) as TwoFactorRecord;
-    const stored = parsed.secret || "";
     return { secret: stored ? decryptSecret(stored) : "", enabled: !!parsed.enabled };
   } catch (e) {
-    // A decryption failure means a wrong or rotated APP_ENCRYPTION_KEY, not a
-    // missing enrollment. Say so in the log — silently reporting "no 2FA" would
-    // quietly drop the second factor for that account.
-    if (e instanceof Error && /decrypt|APP_ENCRYPTION_KEY|auth tag/i.test(e.message)) {
-      console.error(`[twofactor] could not read the seed for ${username}:`, e.message);
-    }
-    return null;
+    console.error(`[twofactor] could not read the seed for ${username}:`, e instanceof Error ? e.message : e);
+    throw e;
   }
 }
 
@@ -62,6 +59,20 @@ export async function setPendingSecret(username: string, secret: string, updated
 
 export async function enableTwoFactor(username: string, secret: string, updatedBy: string) {
   await save(username, { secret, enabled: true }, updatedBy);
+}
+
+// 2FA is keyed by username, so it has to follow the account when it's renamed.
+// Any stale row under the new name is dropped first so it can't be inherited.
+export async function renameTwoFactor(oldUsername: string, newUsername: string) {
+  if (oldUsername === newUsername) return;
+  await supabaseRest<unknown>(
+    `/app_config?key=eq.${encodeURIComponent(key(newUsername))}`,
+    { method: "DELETE", prefer: "return=minimal" }
+  );
+  await supabaseRest<unknown>(
+    `/app_config?key=eq.${encodeURIComponent(key(oldUsername))}`,
+    { method: "PATCH", prefer: "return=minimal", body: { key: key(newUsername) } }
+  );
 }
 
 export async function disableTwoFactor(username: string, updatedBy: string) {

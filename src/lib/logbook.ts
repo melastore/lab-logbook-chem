@@ -1,6 +1,7 @@
 import { GENERATED_USER_ACCOUNTS, type GeneratedUserAccount } from "./generated-users";
 import { ALL_FORMS, type FormDef, type FormField, type FormScope } from "./forms";
 import { PublicError } from "./errors";
+import { disableTwoFactor, renameTwoFactor } from "./twofactor";
 import { MIN_PASSWORD_LENGTH } from "./password";
 
 export const LOG_TYPES = [
@@ -342,11 +343,13 @@ export async function updateCurrentUserProfile(
       p.id !== userId && p.username?.toLowerCase() === opts.username!.toLowerCase()
     );
     if (taken) throw new PublicError("Username is already in use.", 409);
+    const oldUsername = existing.find((p) => p.id === userId)?.username;
 
     await supabaseRest<unknown>(`/profiles?id=eq.${encodeURIComponent(userId)}`, {
       method: "PATCH",
       body: { username: opts.username },
     });
+    if (oldUsername) await renameTwoFactor(oldUsername, opts.username);
   }
 
   if (opts.avatarSeed) {
@@ -752,6 +755,12 @@ export async function listProvisionedUsernames(): Promise<string[]> {
   return rows.map((r) => r.username).filter((u): u is string => !!u);
 }
 
+// Counts by role rather than by the generated usernames, which admins can rename.
+export async function countAdmins(): Promise<number> {
+  const rows = await supabaseRest<{ id: string }[]>("/profiles?select=id&role=eq.admin");
+  return rows.length;
+}
+
 export async function provisionUser(gen: GeneratedUser): Promise<void> {
   if (!gen.initialPassword || gen.initialPassword.length < MIN_PASSWORD_LENGTH) {
     throw new PublicError(
@@ -900,6 +909,7 @@ export async function deleteUser(username: string): Promise<void> {
   const profile = await findProfileByUsername(username);
   if (!profile) throw new PublicError(`User "${username}" not found.`, 404);
   await supabaseAdminDelete(`/admin/users/${encodeURIComponent(profile.id)}`);
+  if (profile.username) await disableTwoFactor(profile.username, profile.username);
 }
 
 export async function updateUserCredentials(
@@ -908,6 +918,11 @@ export async function updateUserCredentials(
 ): Promise<void> {
   const profile = await findProfileByUsername(username);
   if (!profile) throw new PublicError(`User "${username}" not found.`, 404);
+  if (opts.newUsername) {
+    opts.newUsername = opts.newUsername.toLowerCase();
+    const clash = await findProfileByUsername(opts.newUsername);
+    if (clash && clash.id !== profile.id) throw new PublicError("Username is already in use.", 409);
+  }
   if (opts.newPassword) {
     await supabaseAdminPut<unknown>(`/admin/users/${encodeURIComponent(profile.id)}`, {
       password: opts.newPassword,
@@ -928,6 +943,9 @@ export async function updateUserCredentials(
       method: "PATCH",
       body: profilePatch,
     });
+    if (opts.newUsername && profile.username) {
+      await renameTwoFactor(profile.username, opts.newUsername);
+    }
   }
 }
 

@@ -23,7 +23,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Login required." }, { status: 401 });
   }
 
-  const body = await request.json().catch(() => ({}));
+  const body = (await request.json().catch(() => null)) ?? {};
   const username = typeof body.username === "string" ? body.username.trim() : "";
   const avatarSeed = typeof body.avatarSeed === "string" ? body.avatarSeed.trim() : "";
 

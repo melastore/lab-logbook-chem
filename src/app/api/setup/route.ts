@@ -1,19 +1,16 @@
 import { NextResponse } from "next/server";
-import { GENERATED_USERS, provisionUser, listProvisionedUsernames } from "@/lib/logbook";
+import { GENERATED_USERS, countAdmins, provisionUser, listProvisionedUsernames } from "@/lib/logbook";
 import { clientIp } from "@/lib/request";
 import { rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Public endpoint — safe because it only acts when ZERO admin profiles exist.
+// Public endpoint — safe because it only acts when no profile has the admin role.
 export async function GET() {
   try {
-    const provisioned = await listProvisionedUsernames();
-    const adminsDone = GENERATED_USERS.filter(
-      (u) => u.role === "admin" && provisioned.includes(u.username)
-    ).length;
-    return NextResponse.json({ ready: adminsDone > 0, adminCount: adminsDone });
+    const adminCount = await countAdmins();
+    return NextResponse.json({ ready: adminCount > 0, adminCount });
   } catch (e) {
     // Unauthenticated endpoint: log the cause, tell the caller nothing.
     console.error("[setup] readiness check failed:", e);
@@ -37,17 +34,18 @@ export async function POST(request: Request) {
   let skipped = 0;
   const errors: string[] = [];
 
-  // Try to get already-provisioned list — if it fails, assume none exist yet
-  let provisioned: string[] = [];
+  // Fail closed: if we can't tell whether an admin exists, don't provision.
+  let provisioned: string[];
+  let adminCount: number;
   try {
-    provisioned = await listProvisionedUsernames();
-  } catch {
-    provisioned = [];
+    [provisioned, adminCount] = await Promise.all([listProvisionedUsernames(), countAdmins()]);
+  } catch (e) {
+    console.error("[setup] readiness check failed:", e);
+    return NextResponse.json({ error: "Setup status is unavailable." }, { status: 503 });
   }
 
   // Guard: once any admin exists, further provisioning belongs behind login.
-  const existingAdmins = admins.filter((a) => provisioned.includes(a.username));
-  if (existingAdmins.length > 0) {
+  if (adminCount > 0) {
     return NextResponse.json(
       { error: "Admin accounts already exist. Log in at /login?redirect=/admin" },
       { status: 409 }

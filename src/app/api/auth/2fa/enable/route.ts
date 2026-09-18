@@ -27,7 +27,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const { token } = await request.json().catch(() => ({ token: "" }));
+  const { token } = (await request.json().catch(() => null)) ?? { token: "" };
   try {
     const rec = await getTwoFactor(user.username);
     if (!rec?.secret) {
