@@ -27,6 +27,10 @@ export function middleware(request: NextRequest) {
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-nonce", nonce);
+  // Next reads the nonce for its own scripts from the request CSP, not the
+  // response one. Without this, Netlify serves them un-nonced and the browser
+  // blocks every chunk, so the page never hydrates.
+  requestHeaders.set("Content-Security-Policy", csp(nonce, process.env.NODE_ENV === "production"));
 
   const response = NextResponse.next({ request: { headers: requestHeaders } });
   return harden(response, request, isApi, nonce);
