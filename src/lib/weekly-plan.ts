@@ -46,12 +46,59 @@ export function evalAchFormula(formula: string, vars: { H: number; C: number }):
     return "(0)";
   });
   if (!/^[0-9.+\-*/()\s]+$/.test(substituted)) return null;
-  try {
-    const value = Function(`"use strict";return (${substituted})`)() as unknown;
-    return typeof value === "number" && Number.isFinite(value) ? value : null;
-  } catch {
-    return null;
+  const value = parseArithmetic(substituted);
+  return value != null && Number.isFinite(value) ? value : null;
+}
+
+// Small recursive-descent parser for + - * / and parentheses. The production
+// CSP has no 'unsafe-eval', so Function()/eval would throw in the browser.
+function parseArithmetic(src: string): number | null {
+  const s = src.replace(/\s+/g, "");
+  let i = 0;
+
+  function expr(): number | null {
+    let left = term();
+    while (left != null && (s[i] === "+" || s[i] === "-")) {
+      const op = s[i++];
+      const right = term();
+      if (right == null) return null;
+      left = op === "+" ? left + right : left - right;
+    }
+    return left;
   }
+
+  function term(): number | null {
+    let left = factor();
+    while (left != null && (s[i] === "*" || s[i] === "/")) {
+      const op = s[i++];
+      const right = factor();
+      if (right == null) return null;
+      left = op === "*" ? left * right : left / right;
+    }
+    return left;
+  }
+
+  function factor(): number | null {
+    if (s[i] === "+" || s[i] === "-") {
+      const op = s[i++];
+      const v = factor();
+      return v == null ? null : op === "-" ? -v : v;
+    }
+    if (s[i] === "(") {
+      i++;
+      const v = expr();
+      if (s[i] !== ")") return null;
+      i++;
+      return v;
+    }
+    const m = /^(\d+\.?\d*|\.\d+)/.exec(s.slice(i));
+    if (!m) return null;
+    i += m[0].length;
+    return parseFloat(m[0]);
+  }
+
+  const result = expr();
+  return i === s.length ? result : null;
 }
 
 // Ach. weight is what the analyst fills (as a value or an Excel formula such as
