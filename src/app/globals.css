@@ -851,7 +851,9 @@ button:disabled {
   color: var(--on-surface-variant);
   flex-shrink: 0;
 }
-.btn-icon-only.btn-sm { width: 32px; height: 32px; }
+.btn-icon-only.btn-sm { width: 32px; height: 32px; padding: 0; }
+/* Side padding on a fixed-width button used to squash icons to nothing. */
+.btn svg { flex-shrink: 0; }
 
 .btn-sm {
   height: 32px;
@@ -10163,5 +10165,19 @@ button:disabled {
   .um-table th, .um-table td { padding: 10px 8px; }
   .um-table th:first-child, .um-table td:first-child { padding-left: 12px; }
   .um-row-actions .btn span:not(.count-badge) { display: none; }
-  .um-row-actions .btn { padding: 0 10px; min-height: 36px; }
+  .um-row-actions .btn:not(.btn-icon-only) { padding: 0 10px; min-height: 36px; }
+}
+
+/* In-app confirm dialog */
+.confirm-overlay { z-index: 400; }
+.confirm-dialog { width: min(420px, calc(100vw - 32px)); padding: 24px; border-radius: 20px; display: grid; gap: 20px; }
+.confirm-body { display: grid; gap: 8px; }
+.confirm-icon { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 14px; margin-bottom: 6px; background: var(--primary-container); color: var(--on-primary-container); }
+.confirm-icon.danger { background: var(--error-container); color: var(--error); }
+.confirm-body h2 { margin: 0; font-size: 18px; font-weight: 800; line-height: 1.3; color: var(--on-surface); }
+.confirm-body p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--on-surface-variant); }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 10px; }
+@media (max-width: 480px) {
+  .confirm-actions { flex-direction: column-reverse; }
+  .confirm-actions .btn { width: 100%; justify-content: center; }
 }

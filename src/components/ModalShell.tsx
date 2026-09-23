@@ -14,6 +14,10 @@ import { createPortal } from "react-dom";
 //   • focus moved in on open, trapped while open, returned to the trigger after
 //   • the page behind locked against scrolling
 
+// Open dialogs, innermost last. Only the top one answers Escape and Tab, so a
+// confirm opened over another dialog doesn't close both.
+const stack: HTMLElement[] = [];
+
 const FOCUSABLE = [
   "a[href]",
   "button:not([disabled])",
@@ -68,7 +72,10 @@ export function ModalShell({
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
+    if (panel) stack.push(panel);
+
     function onKeyDown(event: KeyboardEvent) {
+      if (panel && stack[stack.length - 1] !== panel) return;
       if (event.key === "Escape") {
         event.stopPropagation();
         onCloseRef.current();
@@ -98,6 +105,7 @@ export function ModalShell({
 
     return () => {
       document.removeEventListener("keydown", onKeyDown, true);
+      if (panel) stack.splice(stack.indexOf(panel), 1);
       document.body.style.overflow = previousOverflow;
       returnFocusRef.current?.focus?.();
     };

@@ -26,6 +26,7 @@ import {
 import { UserAvatar } from "@/components/UserAvatar";
 import { MIN_PASSWORD_LENGTH } from "@/lib/password";
 import { ModalShell } from "@/components/ModalShell";
+import { ConfirmHost, askConfirm, type ConfirmOptions } from "@/components/ConfirmDialog";
 import { AppHeader } from "@/components/AppHeader";
 import { parseAnalystSignature, signatureSummary, type AnalystSignaturePayload } from "@/lib/signature";
 import { taskWeight, taskAchWeight, toISODate, mondayOf, addWeeks, weekLabel, planStats, type WeeklyPlan } from "@/lib/weekly-plan";
@@ -105,6 +106,7 @@ export default function AdminDashboard() {
   return (
     <main className="app-layout">
       <AppHeader user={user} />
+      <ConfirmHost />
       <div className="app-page">
       
       {authReady && user && !isAdmin && (
@@ -549,7 +551,7 @@ function RecordsTab({ user, isAdmin, forms, onPendingChange, initialStatus = "Al
   async function approveSelected() {
     const ids = visibleSelected;
     if (ids.length === 0) return;
-    if (!confirm(`Approve ${ids.length} record${ids.length === 1 ? "" : "s"}?`)) return;
+    if (!await askConfirm({ title: `Approve ${ids.length} record${ids.length === 1 ? "" : "s"}?`, message: "Each approval is signed with your name and sealed in the review chain.", confirmLabel: "Approve" })) return;
     setBulkState({ busy: true, message: "" });
     try {
       const r = await fetch("/api/logbook/review", {
@@ -1779,8 +1781,8 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
     setInstrTab("basic");
   }
 
-  function closeInstrument() {
-    if (JSON.stringify(form) !== formSnapshot && !confirm("Discard your changes to this instrument?")) return;
+  async function closeInstrument() {
+    if (JSON.stringify(form) !== formSnapshot && !await askConfirm({ title: "Discard changes?", message: "Your edits to this instrument haven't been saved.", confirmLabel: "Discard", cancelLabel: "Keep editing", danger: true })) return;
     setModal(null);
   }
 
@@ -1820,7 +1822,7 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
   }
 
   async function deleteTemplate(tpl: InstrumentTemplate) {
-    if (!confirm(`Delete "${tpl.instrumentName}"? Analysts will no longer be able to pick it. Existing records are kept.`)) return;
+    if (!await askConfirm({ title: `Delete ${tpl.instrumentName}?`, message: "Analysts will no longer be able to pick it. Existing records are kept.", confirmLabel: "Delete", danger: true })) return;
     setDeleting(tpl.id);
     try {
       const r = await fetch(`/api/templates?id=${encodeURIComponent(tpl.id)}`, { method: "DELETE" });
@@ -2012,7 +2014,7 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
       setCatNotice({ type: "error", text: `This category has ${count} instrument${count === 1 ? "" : "s"}. Move or delete them first.` });
       return;
     }
-    if (!confirm(`Delete the category “${categories.find((c) => c.id === id)?.name}”?`)) return;
+    if (!await askConfirm({ title: `Delete “${categories.find((c) => c.id === id)?.name}”?`, message: "The category is empty, so no instruments are affected.", confirmLabel: "Delete", danger: true })) return;
     setCatBusy(true);
     const r = await fetch(`/api/templates/categories?id=${encodeURIComponent(id)}`, { method: "DELETE" });
     const d = await r.json().catch(() => ({}));
@@ -2426,11 +2428,11 @@ function UsersTab({ user, isAdmin }: { user: AppUser | null; isAdmin: boolean })
     label: string,
     targets: string[],
     action: (username: string) => Promise<Response>,
-    confirmText?: string,
+    ask?: ConfirmOptions,
   ) {
     targets = targets.filter((u) => u !== user?.username);
     if (targets.length === 0) return;
-    if (confirmText && !confirm(confirmText)) return;
+    if (ask && !await askConfirm(ask)) return;
     setBusy(true);
     let ok = 0;
     const errors: string[] = [];
@@ -2454,18 +2456,24 @@ function UsersTab({ user, isAdmin }: { user: AppUser | null; isAdmin: boolean })
     method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
   });
   const plural = (n: number) => `${n} account${n === 1 ? "" : "s"}`;
+  const who = (targets: string[]) => {
+    const own = targets.filter((u) => u !== user?.username);
+    if (own.length !== 1) return plural(own.length);
+    const p = profiles.find((x) => x.username === own[0]);
+    return p?.fullName || own[0];
+  };
 
   const archive = (targets: string[]) => runAction("Archived", targets,
     (u) => patch({ username: u, action: "archive" }),
-    `Archive ${plural(targets.length)}? They keep their records but can no longer sign in.`);
+    { title: `Archive ${who(targets)}?`, message: "They keep their records but can no longer sign in. You can restore them any time.", confirmLabel: "Archive" });
   const restore = (targets: string[]) => runAction("Restored", targets,
     (u) => patch({ username: u, action: "unarchive" }));
   const resetPw = (targets: string[]) => runAction("Password reset for", targets,
     (u) => patch({ username: u, action: "resetPassword" }),
-    `Reset ${plural(targets.length)} to the shared initial password? They must choose a new one at next sign-in.`);
+    { title: `Reset password for ${who(targets)}?`, message: "Their password goes back to the shared initial password. They must choose a new one at next sign-in.", confirmLabel: "Reset password" });
   const remove = (targets: string[]) => runAction("Deleted", targets,
     (u) => fetch("/api/users", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: u }) }),
-    `Permanently delete ${plural(targets.length)}? This cannot be undone.`);
+    { title: `Delete ${who(targets)}?`, message: "This permanently removes the account and cannot be undone. Archive instead if you may need it again.", confirmLabel: "Delete permanently", danger: true });
 
   const active   = profiles.filter((p) => !p.archived);
   const archived = profiles.filter((p) => p.archived);
@@ -2896,8 +2904,8 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
     setExpanded(null);
     setEditTab(tab);
   }
-  function closeDraft() {
-    if (draft && JSON.stringify(draft) !== draftSnapshot && !confirm("Discard your changes to this form?")) return;
+  async function closeDraft() {
+    if (draft && JSON.stringify(draft) !== draftSnapshot && !await askConfirm({ title: "Discard changes?", message: "Your edits to this form haven't been saved.", confirmLabel: "Discard", cancelLabel: "Keep editing", danger: true })) return;
     setDraft(null);
   }
 
@@ -3003,7 +3011,7 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
   }
 
   async function removeForm(id: string) {
-    if (!confirm("Delete this form? Existing records keep their data, but this log type will no longer be available for new entries.")) return;
+    if (!await askConfirm({ title: `Delete ${forms.find((f) => f.id === id)?.title || "this form"}?`, message: "Existing records keep their data, but this log type won't be available for new entries.", confirmLabel: "Delete", danger: true })) return;
     setDeleting(id);
     try {
       const r = await fetch(`/api/forms?id=${encodeURIComponent(id)}`, { method: "DELETE" });
@@ -3041,10 +3049,10 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
   function addPresetField(preset: typeof PRESET_FIELDS[0]) {
     setDraft((p) => p && ({ ...p, fields: [...p.fields, { key: preset.key, label: preset.label, type: preset.type }] }));
   }
-  function removeField(i: number) {
+  async function removeField(i: number) {
     const f = draft?.fields[i];
     const saved = forms.find((x) => x.id === draft?.id)?.fields.some((x) => x.key === f?.key);
-    if (saved && !confirm(`Remove “${f?.label}”? Old records keep the value, but it won't show on this form.`)) return;
+    if (saved && !await askConfirm({ title: `Remove “${f?.label}”?`, message: "Old records keep the value, but it won't show on this form any more.", confirmLabel: "Remove", danger: true })) return;
     setDraft((p) => p && ({ ...p, fields: p.fields.filter((_, idx) => idx !== i) }));
     setExpanded(null);
   }
