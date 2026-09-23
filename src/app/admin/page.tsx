@@ -2084,7 +2084,7 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
             <thead>
               <tr>
                 {isAdmin && canReorder && <th className="um-col-check"><span className="sr-only">Order</span></th>}
-                <th>Instrument</th><th>Category</th><th className="um-hide-sm">ID / Serial</th><th className="um-hide-md">Location</th>
+                <th>Instrument</th><th className="um-hide-sm">Category</th><th className="um-hide-sm">ID / Serial</th><th className="um-hide-md">Location</th>
                 {isAdmin && <th className="um-col-actions"><span className="sr-only">Actions</span></th>}
               </tr>
             </thead>
@@ -2107,7 +2107,7 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
                         <span className="um-user-handle">{[tpl.manufacturer, tpl.instrumentModel].filter(Boolean).join(" · ") || "—"}</span>
                       </div>
                     </td>
-                    <td><span className={`cat-badge cat-badge-${tpl.categoryName.toLowerCase().replace(/\s+/g, "-")}`}>{tpl.categoryName}</span></td>
+                    <td className="um-hide-sm"><span className={`cat-badge cat-badge-${tpl.categoryName.toLowerCase().replace(/\s+/g, "-")}`}>{tpl.categoryName}</span></td>
                     <td className="um-hide-sm mono um-muted">{tpl.instrumentId || "—"}{tpl.serialNumber ? <><br />SN {tpl.serialNumber}</> : null}</td>
                     <td className="um-hide-md um-muted">{tpl.location || "—"}</td>
                     {isAdmin && (
@@ -2595,7 +2595,7 @@ function UsersTab({ user, isAdmin }: { user: AppUser | null; isAdmin: boolean })
                   </th>
                 )}
                 <th>User</th>
-                <th>Role</th>
+                <th className="um-hide-sm">Role</th>
                 <th className="um-hide-sm">Position</th>
                 <th className="um-hide-md">Email</th>
                 {isAdmin && <th className="um-col-actions"><span className="sr-only">Actions</span></th>}
@@ -2622,7 +2622,7 @@ function UsersTab({ user, isAdmin }: { user: AppUser | null; isAdmin: boolean })
                         </div>
                       </div>
                     </td>
-                    <td><span className={`um-role um-role-${p.role}`}>{p.role === "admin" ? <ShieldCheck size={12} /> : <User size={12} />}{p.role}</span></td>
+                    <td className="um-hide-sm"><span className={`um-role um-role-${p.role}`}>{p.role === "admin" ? <ShieldCheck size={12} /> : <User size={12} />}{p.role}</span></td>
                     <td className="um-hide-sm um-muted">{p.position || "—"}</td>
                     <td className="um-hide-md um-muted mono">{p.email}</td>
                     {isAdmin && (
@@ -3114,7 +3114,7 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
                 <th style={{ width: 56 }}><span className="sr-only">Order</span></th>
                 <th>Form Title</th>
                 <th>Log Type</th>
-                <th>Fields</th>
+                <th className="um-hide-sm">Fields</th>
                 <th className="um-col-actions"><span className="sr-only">Actions</span></th>
               </tr>
             </thead>
@@ -3135,7 +3135,7 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
                     {f.id === "instrument" && <span className="badge-system-default">SYSTEM DEFAULT</span>}
                   </td>
                   <td className="mono" style={{ fontSize: 13 }}>{f.activityType}</td>
-                  <td className="um-muted">{f.fields.length} field{f.fields.length === 1 ? "" : "s"}{f.fields.some((x) => x.required) ? ` · ${f.fields.filter((x) => x.required).length} required` : ""}</td>
+                  <td className="um-muted um-hide-sm">{f.fields.length} field{f.fields.length === 1 ? "" : "s"}{f.fields.some((x) => x.required) ? ` · ${f.fields.filter((x) => x.required).length} required` : ""}</td>
                   <td className="um-col-actions">
                     <div className="um-row-actions">
                       <button className="btn btn-outline btn-sm btn-icon-gap" type="button" onClick={() => openEdit(f, i)}><Pencil size={14} /> <span>Edit fields</span></button>
@@ -3423,6 +3423,7 @@ function WeeklyReportsTab() {
   const [plans, setPlans] = useState<WeeklyPlan[]>([]);
   const [people, setPeople] = useState<ProfilePublic[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showMissing, setShowMissing] = useState(false);
   const [week, setWeek] = useState<string>(() => mondayOf());
   const [allWeeks, setAllWeeks] = useState(false);
   const [who, setWho] = useState("");
@@ -3537,7 +3538,13 @@ function WeeklyReportsTab() {
       {!allWeeks && !who && missing.length > 0 && (
         <div className="wpa-missing">
           <AlertTriangle size={16} />
-          <span><strong>No plan yet:</strong> {missing.map((m) => m.fullName || m.username).join(", ")}</span>
+          <span>
+            <strong>{missing.length} without a plan{showMissing ? ":" : ""}</strong>
+            {showMissing && ` ${missing.map((m) => m.fullName || m.username).sort((a, b) => a.localeCompare(b)).join(", ")}`}
+          </span>
+          <button type="button" className="btn btn-ghost btn-sm wpa-missing-toggle" onClick={() => setShowMissing((v) => !v)}>
+            {showMissing ? "Hide" : "Show names"}
+          </button>
         </div>
       )}
 

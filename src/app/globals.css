@@ -10146,3 +10146,23 @@ button:disabled {
 .ul-toolbar .um-chip { flex: 0 0 auto; white-space: nowrap; }
 .ul-reject-note { display: flex; align-items: flex-start; gap: 6px; margin-top: 4px; font-size: 12px; color: var(--error); text-align: left; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .avatar-logs-error .btn { margin-top: 8px; }
+
+/* Phones. Kept last so these win over the desktop rules above. */
+@media (max-width: 640px) {
+  .scope-switch, .status-chips-filter {
+    display: flex; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
+    max-width: 100%; border-radius: 999px;
+  }
+  .scope-switch::-webkit-scrollbar, .status-chips-filter::-webkit-scrollbar { display: none; }
+  .scope-switch-btn, .status-chip-btn { flex: 0 0 auto; white-space: nowrap; }
+  .scope-switch-btn { padding: 8px 14px; }
+  .toolbar-actions-modern { flex-wrap: nowrap; gap: 8px; }
+  .toolbar-actions-modern .btn-group { width: auto; flex: 0 0 auto; }
+  /* Admin lists fit the screen so the row actions stay visible. */
+  .um-table { min-width: 0; }
+  .um-table th, .um-table td { padding: 10px 8px; }
+  .um-table th:first-child, .um-table td:first-child { padding-left: 12px; }
+  .um-row-actions .btn span:not(.count-badge) { display: none; }
+  .um-row-actions .btn { padding: 0 10px; min-height: 36px; }
+  .wpa-missing-toggle { margin-left: auto; }
+}
