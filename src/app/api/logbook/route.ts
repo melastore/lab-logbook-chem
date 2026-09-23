@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { errorResponse } from "@/lib/errors";
-import { createRecords, createAmendment, listRecords, logAudit, type LogbookInput } from "@/lib/logbook";
+import { createRecords, createAmendment, currentVersionIds, listRecords, logAudit, type LogbookInput } from "@/lib/logbook";
 import { canReview, currentUser, passwordChangeGate } from "@/lib/session";
 
 export const runtime = "nodejs";
@@ -75,8 +75,19 @@ export async function POST(request: Request) {
 
   // A single record carrying `amends` is a correction, not a new entry.
   if (!isBulk && typeof body.amends === "string" && body.amends) {
+    // Admins can correct anything. Analysts can correct their own record once
+    // it has been rejected, so they can act on the reviewer's comment.
     if (!canReview(user)) {
-      return NextResponse.json({ error: "Admin access required to amend a record." }, { status: 403 });
+      const mine = await listRecords(user, user.username);
+      const target = mine.find((r) => r.id === body.amends);
+      const root = target ? target.amends || target.id : "";
+      const current = currentVersionIds(mine);
+      const latest = mine.find((r) => current.has(r.id) && (r.amends || r.id) === root);
+      const original = mine.find((r) => r.id === root);
+      if (!latest || !original || original.submittedBy !== user.id || latest.status !== "Rejected") {
+        return NextResponse.json({ error: "You can only correct your own records after they are rejected." }, { status: 403 });
+      }
+      recordsToCreate[0].analyst = latest.analyst;
     }
     const reason = clean(body.amendmentReason);
     if (!reason) {

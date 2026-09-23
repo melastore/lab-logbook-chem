@@ -6,7 +6,7 @@ import {
   Activity, ArrowRight, X, Search,
   CheckCircle2, AlertCircle, Microscope,
   ChevronRight, ChevronDown, Zap, Droplets, Beaker,
-  RefreshCw, FileOutput, Info, PanelLeftClose, PanelLeft, ScrollText, Plus, Trash2
+  RefreshCw, FileOutput, Info, PanelLeftClose, PanelLeft, Plus, Trash2
 } from "lucide-react";
 import { LabLogo } from "@/components/LabLogo";
 import type { AppUser, InstrumentTemplate, InstrumentCategory } from "@/lib/logbook";
@@ -14,8 +14,6 @@ import {
   INSTRUMENT_TREE, ANALYTICAL_FORMS, SAMPLE_FORMS, INSTRUMENT_INFO_FORM, STANDARD_KEYS, INSTRUMENT_STANDARD_KEYS,
   type InstrumentNode, type FormDef, type FormField,
 } from "@/lib/forms";
-import { UserAvatar } from "@/components/UserAvatar";
-import { UserLogsModal } from "@/components/UserLogsModal";
 import { SignaturePad } from "@/components/SignaturePad";
 import { AppHeader } from "@/components/AppHeader";
 import { toISODate } from "@/lib/weekly-plan";
@@ -88,8 +86,6 @@ export default function AnalystEntryPage() {
   const [showMissing, setShowMissing] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const [logsOpen, setLogsOpen] = useState(false);
-  const [reviewCounts, setReviewCounts] = useState({ pending: 0, rejected: 0 });
   const [templates, setTemplates] = useState<InstrumentTemplate[]>([]);
   const [categories, setCategories] = useState<InstrumentCategory[]>([]);
   const { formLayout } = useSettings();
@@ -106,10 +102,6 @@ export default function AnalystEntryPage() {
       .catch(() => {})
       .finally(() => setAuthReady(true));
 
-    fetch("/api/logbook/review")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (d) setReviewCounts({ pending: d.pending || 0, rejected: d.rejected || 0 }); })
-      .catch(() => {});
 
     fetch("/api/templates/categories")
       .then((r) => r.ok ? r.json() : { categories: [] })
@@ -167,7 +159,6 @@ export default function AnalystEntryPage() {
     : (sampleForms.find((f) => f.id === sampleFormId) ?? sampleForms[0]);
 
   const showForm = mode === "analytical" ? selectedInstrument !== null : true;
-  const canAccessAdmin = user?.role === "admin";
 
   // Anything typed beyond the prefilled date/analyst, or a signature, is work
   // worth asking about before it's thrown away.
@@ -437,13 +428,6 @@ export default function AnalystEntryPage() {
       <AppHeader
         user={user}
         confirmLeave={confirmDiscard}
-        actions={user ? [{
-          label: "My logs",
-          icon: <ScrollText size={18} />,
-          onClick: () => setLogsOpen(true),
-          badge: !canAccessAdmin ? reviewCounts.rejected : 0,
-          badgeTone: "danger",
-        }] : []}
       />
       <div className="entry-shell">
       {/* ── Instrument list ── */}
@@ -574,15 +558,6 @@ export default function AnalystEntryPage() {
             <h1>Chemical Metrology Laboratory Logbook</h1>
           </div>
         </div>
-
-        {user && (
-          <UserLogsModal
-            name={user.username}
-            open={logsOpen}
-            onClose={() => setLogsOpen(false)}
-            headerAvatar={<UserAvatar name={user.username} seed={user.avatarSeed} size="md" clickable={false} />}
-          />
-        )}
 
         <div className="mode-tabs">
           <button type="button" className={`mode-tab ${mode === "analytical" ? "active" : ""}`} onClick={() => switchMode("analytical")}>

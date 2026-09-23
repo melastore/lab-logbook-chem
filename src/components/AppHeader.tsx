@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, CalendarDays, ChevronDown, LayoutDashboard, LogOut, Menu, Settings, X } from "lucide-react";
+import { Activity, CalendarDays, ChevronDown, LayoutDashboard, LogOut, Menu, ScrollText, Settings, X } from "lucide-react";
 import type { AppUser } from "@/lib/logbook";
 import { LabLogo } from "./LabLogo";
 import { ModalShell } from "./ModalShell";
@@ -89,6 +89,7 @@ export function AppHeader({ user, actions = [], confirmLeave }: {
 
   const nav: NavItem[] = [
     { href: "/", label: "Log entry", icon: <Activity size={18} /> },
+    { href: "/logs", label: "My logs", icon: <ScrollText size={18} />, badge: isAdmin ? 0 : counts.rejected, badgeTone: "danger" },
     { href: "/weekly-plan", label: "Weekly plan", icon: <CalendarDays size={18} /> },
     ...(isAdmin ? [{ href: "/admin", label: "Admin", icon: <LayoutDashboard size={18} />, badge: counts.pending }] : []),
   ];
