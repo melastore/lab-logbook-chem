@@ -55,6 +55,10 @@ function endBeforeStart(row: Record<string, string>) {
   return Boolean(row.startTime && row.endTime && row.endTime < row.startTime);
 }
 
+function futureDate(row: Record<string, string>) {
+  return Boolean(row.date && row.date > todayISO());
+}
+
 const MAX_ROWS = 50;
 
 export default function AnalystEntryPage() {
@@ -328,12 +332,14 @@ export default function AnalystEntryPage() {
   const missingCount = rows.reduce((n, row) =>
     n + currentForm.fields.filter((f) => f.required && !(row[f.key] || "").trim()).length, 0);
   const badTimeRows = rows.map((row, i) => (endBeforeStart(row) ? i + 1 : 0)).filter(Boolean);
-  const canSubmit = Boolean(user) && showForm && missingCount === 0 && badTimeRows.length === 0 && Boolean(signatureImage) && rows.length > 0;
+  const futureRows = rows.map((row, i) => (futureDate(row) ? i + 1 : 0)).filter(Boolean);
+  const canSubmit = Boolean(user) && showForm && missingCount === 0 && badTimeRows.length === 0 && futureRows.length === 0 && Boolean(signatureImage) && rows.length > 0;
 
   function whatsMissing() {
     const parts: string[] = [];
     if (missingCount > 0) parts.push(`${missingCount} required field${missingCount === 1 ? "" : "s"} empty (marked in red)`);
     if (badTimeRows.length) parts.push(`end time is before start time on row ${badTimeRows.join(", ")}`);
+    if (futureRows.length) parts.push(`date is in the future on row ${futureRows.join(", ")}`);
     if (!signatureImage) parts.push("signature missing");
     return parts.length ? `Can't submit yet: ${parts.join(", ")}.` : "";
   }
@@ -619,7 +625,8 @@ export default function AnalystEntryPage() {
                 </div>
               )}
               {mode === "analytical" && (
-                <div className="form-tabs" style={{ justifyContent: "flex-start" }}>
+                <div className="form-tabs" style={{ justifyContent: "flex-start" }}
+                  onClick={(e) => (e.target as HTMLElement).closest("button")?.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" })}>
                   <button
                     type="button"
                     className={`form-tab ${isGeneral ? "active" : ""}`}

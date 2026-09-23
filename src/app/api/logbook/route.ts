@@ -62,10 +62,16 @@ export async function POST(request: Request) {
     measuredValue: clean(item.measuredValue),
     startTime: clean(item.startTime),
     endTime: clean(item.endTime),
-    metadata: item.metadata || {},
+    metadata: plainObject(item.metadata) as Record<string, string>,
     remarks: clean(item.remarks),
     analystSignature: cleanSignature(item.analystSignature),
   }));
+
+  const bad = recordsToCreate.findIndex((r) => formatProblem(r));
+  if (bad >= 0) {
+    const where = isBulk ? ` (row ${bad + 1})` : "";
+    return NextResponse.json({ error: `${formatProblem(recordsToCreate[bad])}${where}` }, { status: 400 });
+  }
 
   // A single record carrying `amends` is a correction, not a new entry.
   if (!isBulk && typeof body.amends === "string" && body.amends) {
@@ -88,16 +94,29 @@ export async function POST(request: Request) {
     }
   }
 
-  const createdRecords = await createRecords(recordsToCreate, user.id);
-  await logAudit({
-    actor: user.username, actorId: user.id, action: "record.create",
-    target: createdRecords.map((r) => r.id).join(","), detail: { count: createdRecords.length },
-  });
+  try {
+    const createdRecords = await createRecords(recordsToCreate, user.id);
+    await logAudit({
+      actor: user.username, actorId: user.id, action: "record.create",
+      target: createdRecords.map((r) => r.id).join(","), detail: { count: createdRecords.length },
+    });
+    return NextResponse.json({ records: createdRecords, count: createdRecords.length });
+  } catch (e) {
+    return errorResponse("logbook", e);
+  }
+}
 
-  return NextResponse.json({
-    records: createdRecords,
-    count: createdRecords.length
-  });
+// The date/time columns reject anything else with an opaque database error.
+function formatProblem(r: LogbookInput) {
+  if (r.date && !/^\d{4}-\d{2}-\d{2}$/.test(r.date)) return "Date must be YYYY-MM-DD.";
+  // One day of slack for clients ahead of the server's timezone.
+  if (r.date && r.date > new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)) return "Date can't be in the future.";
+  for (const t of [r.startTime, r.endTime]) if (t && !/^\d{2}:\d{2}(:\d{2})?$/.test(t)) return "Times must be HH:MM.";
+  return null;
+}
+
+function plainObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
 // No DELETE: records are append-only and the database blocks removal.
