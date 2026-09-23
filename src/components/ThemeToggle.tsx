@@ -81,7 +81,7 @@ export function ThemeToggle({ variant = "chip" }: { variant?: Variant }) {
           border: '1px solid var(--outline-variant)'
         }}
       >
-        {isDark ? "White" : "Dark"}
+        {isDark ? "Light" : "Dark"}
       </button>
     );
   }

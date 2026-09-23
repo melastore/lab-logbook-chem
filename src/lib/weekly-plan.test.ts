@@ -30,3 +30,24 @@ describe("evalAchFormula", () => {
     }
   });
 });
+
+describe("week keys", () => {
+  it("snaps any day to its Monday without UTC drift", async () => {
+    const { mondayOf, normalizeWeekKey, addWeeks } = await import("./weekly-plan");
+    expect(mondayOf("2026-09-24")).toBe("2026-09-21");
+    expect(mondayOf("2026-09-21")).toBe("2026-09-21");
+    expect(mondayOf(new Date(2026, 8, 27, 1, 30))).toBe("2026-09-21");
+    expect(normalizeWeekKey("2026-09-20")).toBe("2026-09-21"); // legacy Sunday key
+    expect(normalizeWeekKey("2026-09-23")).toBe("2026-09-21");
+    expect(normalizeWeekKey("bad")).toBe("");
+    expect(addWeeks("2026-09-21", -1)).toBe("2026-09-14");
+  });
+
+  it("sanitizes stored tasks", async () => {
+    const { sanitizeTasks } = await import("./weekly-plan");
+    const [t] = sanitizeTasks([{ id: "a", hours: -5, activity: 42, date: "2026-02-30", evil: 1 }]);
+    expect(t).toMatchObject({ id: "a", hours: 0, activity: "", date: "" });
+    expect(t).not.toHaveProperty("evil");
+    expect(sanitizeTasks("nope")).toEqual([]);
+  });
+});

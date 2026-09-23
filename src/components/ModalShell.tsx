@@ -48,6 +48,11 @@ export function ModalShell({
 }: ModalShellProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
+  // Callers pass inline arrows, so onClose changes every render. Keeping it in a
+  // ref stops the effect below re-running on each keystroke, which used to
+  // yank focus back to the first field while typing.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
 
   useEffect(() => {
     if (!open) return;
@@ -65,7 +70,7 @@ export function ModalShell({
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.stopPropagation();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== "Tab" || !panelRef.current) return;
@@ -95,7 +100,7 @@ export function ModalShell({
       document.body.style.overflow = previousOverflow;
       returnFocusRef.current?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 

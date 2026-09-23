@@ -1,30 +1,21 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import Link from "next/link";
-import { ArrowLeft, Save, Plus, Trash2, CheckCircle2, TrendingUp, Clock, FileSpreadsheet, History, X, AlertTriangle } from "lucide-react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { AppHeader } from "@/components/AppHeader";
+import {
+  Save, Plus, Trash2, CheckCircle2, TrendingUp, Clock, FileSpreadsheet, History, X,
+  AlertTriangle, ChevronLeft, ChevronRight, CalendarDays,
+} from "lucide-react";
 import type { AppUser } from "@/lib/logbook";
 import {
-  WEEKLY_HOURS, taskWeight, taskAchWeight,
+  WEEKLY_HOURS, taskWeight, taskAchWeight, mondayOf, addWeeks, weekLabel, weekRangeDMY,
+  planStats, performanceRating,
   type WeeklyTask, type WeeklyPlan,
 } from "@/lib/weekly-plan";
+import { templateSheet, summarySheets, sheetName, fileSafe } from "@/lib/weekly-export";
 
-function getMonday(d = new Date()) {
-  d = new Date(d);
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  return new Date(d.setDate(diff)).toISOString().slice(0, 10);
-}
-
-// "25-05-2026 to 29-05-2026" style range (Mon–Fri) for the report title.
-function weekRange(weekStart: string) {
-  const start = new Date(weekStart + "T00:00:00");
-  const end = new Date(start);
-  end.setDate(start.getDate() + 4);
-  const fmt = (d: Date) =>
-    `${String(d.getDate()).padStart(2, "0")}-${String(d.getMonth() + 1).padStart(2, "0")}-${d.getFullYear()}`;
-  return `${fmt(start)} to ${fmt(end)}`;
-}
+const weekRange = (weekStart: string) => weekRangeDMY(weekStart);
+const AUTOSAVE_MS = 2500;
 
 function newTask(date: string, index: number): WeeklyTask {
   return { id: crypto.randomUUID(), date, hours: 0, activity: "", achWeight: 0, achFormula: `=H${13 + index}*0/100`, comment: "" };
@@ -39,7 +30,7 @@ type ColKey = "date" | "hours" | "activity" | "plan" | "ach" | "comment" | "weig
 
 export default function WeeklyPlanPage() {
   const [user, setUser] = useState<AppUser | null>(null);
-  const [weekStartDate, setWeekStartDate] = useState<string>(getMonday());
+  const [weekStartDate, setWeekStartDate] = useState<string>(() => mondayOf());
   const [tasks, setTasks] = useState<WeeklyTask[]>([]);
   const [allPlans, setAllPlans] = useState<WeeklyPlan[]>([]);
   // Loading is derived: the week is loading until its data has arrived.
@@ -91,8 +82,10 @@ export default function WeeklyPlanPage() {
 
   const addTask = () => setTasks((t) => [...t, newTask(weekStartDate, t.length)]);
   const removeTask = (id: string) => setTasks((t) => t.filter((x) => x.id !== id));
-  const updateTask = (id: string, field: keyof WeeklyTask, value: string | number) =>
+  const updateTask = (id: string, field: keyof WeeklyTask, value: string | number) => {
+    setSaveError("");
     setTasks((t) => t.map((x) => (x.id === id ? { ...x, [field]: value } : x)));
+  };
 
   const dirty = !loading && JSON.stringify(tasks) !== savedSnapshot;
 
@@ -108,33 +101,59 @@ export default function WeeklyPlanPage() {
     return !dirty || window.confirm("You have unsaved changes to this week. Leave without saving?");
   }
 
-  const savePlan = async () => {
-    if (!user) return;
+  // Saves exactly what was on screen when the save started; edits made while
+  // it is in flight stay dirty and get picked up by the next save.
+  const savingRef = useRef(false);
+  const savePlan = useCallback(async () => {
+    if (!user || savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     setSaveError("");
-    const body: WeeklyPlan = { username: user.username, weekStartDate, tasks, updatedAt: new Date().toISOString() };
+    const snapshot = JSON.stringify(tasks);
+    const week = weekStartDate;
     try {
       const res = await fetch("/api/weekly-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ username: user.username, weekStartDate: week, tasks }),
       });
-      if (res.ok) {
-        setSavedAt(body.updatedAt);
-        setSavedSnapshot(JSON.stringify(tasks));
-        setAllPlans((prev) => {
-          const rest = prev.filter((p) => p.weekStartDate !== weekStartDate);
-          return [...rest, body];
-        });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok && d.plan) {
+        const saved = d.plan as WeeklyPlan;
+        setSavedAt(saved.updatedAt);
+        setSavedSnapshot(snapshot);
+        setAllPlans((prev) => [...prev.filter((p) => p.weekStartDate !== week), saved]);
       } else {
-        const err = await res.json().catch(() => ({}));
-        setSaveError(err.error || "Save failed. Your changes are still here — try again.");
+        setSaveError(d.error || "Couldn't save. Your changes are still here — try again.");
       }
     } catch {
-      setSaveError("Save failed — check your connection and try again.");
+      setSaveError("Couldn't save — check your connection. Your changes are still here.");
     }
+    savingRef.current = false;
     setSaving(false);
-  };
+  }, [user, tasks, weekStartDate]);
+
+  // Autosave shortly after typing stops. A failed save waits for the next edit
+  // (or a manual save) instead of retrying in a loop.
+  useEffect(() => {
+    if (!dirty || saving || saveError) return;
+    const t = setTimeout(savePlan, AUTOSAVE_MS);
+    return () => clearTimeout(t);
+  }, [dirty, saving, saveError, savePlan]);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); if (dirty) savePlan(); }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [dirty, savePlan]);
+
+  function goToWeek(week: string) {
+    if (!week || week === weekStartDate || !okToLeave()) return;
+    setActive(null);
+    setWeekStartDate(week);
+  }
 
   async function deletePlan(week: string) {
     if (!user) return;
@@ -162,107 +181,35 @@ export default function WeeklyPlanPage() {
     .filter((p) => p.tasks.length > 0)
     .sort((a, b) => b.weekStartDate.localeCompare(a.weekStartDate));
 
-  // Overall achievement for an arbitrary plan (used by the history list).
-  function planAchievement(p: WeeklyPlan) {
-    const w = p.tasks.reduce((s, t) => s + taskWeight(t), 0);
-    const aw = p.tasks.reduce((s, t) => s + taskAchWeight(t), 0);
-    return w > 0 ? (aw / w) * 100 : 0;
+  const planAchievement = (p: WeeklyPlan) => planStats(p.tasks).achievement;
+  const displayName = user?.fullName || user?.username || "";
+
+  const stats = planStats(tasks);
+  const hasPlan = stats.taskCount > 0 && stats.totalHours > 0;
+  const historyAvg = savedWeeks.length
+    ? savedWeeks.reduce((sum, p) => sum + planAchievement(p), 0) / savedWeeks.length : 0;
+  const thisWeek = mondayOf();
+
+  // This week in the official template layout.
+  async function exportWeek() {
+    const XLSX = await import("xlsx");
+    const wb = XLSX.utils.book_new();
+    const plan = { username: user?.username || "", weekStartDate, tasks, updatedAt: savedAt };
+    XLSX.utils.book_append_sheet(wb, templateSheet(XLSX, plan, displayName), "Weekly Report");
+    XLSX.writeFile(wb, `weekly_report_${fileSafe(user?.username || "me")}_${weekStartDate}.xlsx`);
   }
 
-  // Export the current week to an .xlsx that reproduces the original government
-  // "Weekly Plan & Report" template (may25weeklyPlan.xlsx) row-for-row: the
-  // title + side metric block, the merged bilingual header, the top/bottom
-  // totals rows and the same live formulas. xlsx is loaded lazily.
-  async function exportXlsx() {
+  // Every saved week: a summary, all tasks, then one template sheet per week.
+  async function exportHistory() {
+    if (savedWeeks.length === 0) return;
     const XLSX = await import("xlsx");
-    const range = weekRange(weekStartDate);
-
-    // Column letters B..I match the template (column A stays empty).
-    const START = 13;                                   // first data row
-    const N = Math.max(13, tasks.length);               // keep ≥13 template rows
-    const END = START + N - 1;                           // last data row
-    const TOTAL = END + 1;                               // bottom totals row
-    const sumH = `SUM($H$${START}:$H$${END})`;
-
-    type Cell = { t: string; v?: string | number; f?: string; z?: string };
-    const ws: Record<string, Cell> = {};
-    const s = (addr: string, v: string) => { ws[addr] = { t: "s", v }; };          // string
-    const f = (addr: string, formula: string, z?: string) => { ws[addr] = { t: "n", f: formula, ...(z ? { z } : {}) }; };
-    const n = (addr: string, v: number, z?: string) => { ws[addr] = { t: "n", v, ...(z ? { z } : {}) }; };
-
-    // ── Title block ──
-    s("C3", "Name:"); s("D3", user?.fullName || user?.username || "");
-    s("B5", `በሳምንቱ ክትትል የሚያስፈልጋቸው ስራዎች  (${range})`);
-    s("B6", `እቅድ (የሚሸፍነው ግዜ፡ 1 ሳምንት)  (${range})`);
-
-    // ── Side metric block (per-day government work-hour usage) ──
-    f("E6", `SUM(E${START}:E${END})`, "0.0%");
-    s("F6", "የመንግስትን የሥራ ሰዓት አጠቃቀም  ክብደት (የ1 ቀን)"); f("H6", "8/40"); f("I6", "H7/H6");
-    s("F7", "የመንግስትን የሥራ ሰዓት አጠቃቀም አፈጻጸም (የ1 ቀን)"); f("H7", `SUM(I${START}:I${END})`);
-    s("F8", "እቅድ ክብደት (የ 1 ቀን)"); f("H8", "1*C12/5"); f("I8", "H9/H8");
-    s("F9", "እቅድ አፈጻጸም (የ 1 ቀን)"); f("H9", `SUM(I${START}:I${END})`);
-
-    // ── Bilingual header rows 10–11 ──
-    s("B10", "Date (mm.dd.yy)"); s("C10", "ስራው የሚፈጀው ሰዓት"); s("D10", "ዋና ዋና ተግባራት");
-    s("E10", "እቅድ (የሳምንቱ)"); s("F10", "አፈጻጸም (የሳምንቱ)");
-    s("G10", "አስተያየት /የተገኘ ውጤት፣ የደረሰ ጉዳት፣ ያጋጠመ ችግር.../"); s("H10", "ክብደት");
-    s("H11", "የስራው ክብደት"); s("I11", "የአፈጻጸም ክብደት");
-
-    // ── Top totals row 12 ──
-    f("C12", `SUM(C${START}:C${END})`); f("E12", `SUM(E${START}:E${END})`, "0.0%"); f("F12", `SUM(F${START}:F${END})`, "0.0%");
-
-    // ── Data rows (formulas mirror the template; Ach. Weight is the typed value) ──
-    tasks.forEach((t, i) => {
-      const r = START + i;
-      if (t.date) s(`B${r}`, t.date);
-      n(`C${r}`, Number(t.hours) || 0);
-      if (t.activity) s(`D${r}`, t.activity);
-      f(`E${r}`, `IF(H${r}="","",H${r}/${sumH})`, "0.0%");
-      f(`F${r}`, `IF(I${r}="","",I${r}/${sumH})`, "0.0%");
-      if (t.comment) s(`G${r}`, t.comment);
-      f(`H${r}`, `IF(C${r}="","",C${r}/40)`, "0.000");
-      
-      // Ach. Weight: carry the user's live formula into Excel, remapping any
-      // row reference (H13, C13…) to this export row so it stays self-consistent.
-      const raw = t.achFormula?.trim();
-      if (raw && raw.startsWith("=")) {
-        const body = raw.slice(1).replace(/([A-Za-z]+)\$?\d+/g, (_, L) => `${L}${r}`);
-        f(`I${r}`, body, "0.000");
-      } else {
-        n(`I${r}`, Number(taskAchWeight(t).toFixed(3)), "0.000");
-      }
-    });
-    // Empty template rows keep the same plan/weight formulas (resolve to "").
-    for (let r = START + tasks.length; r <= END; r++) {
-      f(`E${r}`, `IF(H${r}="","",H${r}/${sumH})`, "0.0%");
-      f(`F${r}`, `IF(I${r}="","",I${r}/${sumH})`, "0.0%");
-      f(`H${r}`, `IF(C${r}="","",C${r}/40)`, "0.000");
-    }
-
-    // ── Bottom totals row ──
-    f(`E${TOTAL}`, `SUM(E${START}:E${END})`, "0.0%"); f(`F${TOTAL}`, `SUM(F${START}:F${END})`, "0.0%");
-
-    // Merges: fixed header block (0-based, B..I) from the template + dynamic bottom total.
-    const meta = ws as Record<string, unknown>;
-    meta["!merges"] = [
-      { s: { c: 3, r: 1 }, e: { c: 6, r: 1 } }, { s: { c: 1, r: 4 }, e: { c: 8, r: 4 } },
-      { s: { c: 1, r: 5 }, e: { c: 3, r: 8 } }, { s: { c: 4, r: 5 }, e: { c: 4, r: 8 } },
-      { s: { c: 5, r: 5 }, e: { c: 6, r: 5 } }, { s: { c: 8, r: 5 }, e: { c: 8, r: 6 } },
-      { s: { c: 5, r: 6 }, e: { c: 6, r: 6 } }, { s: { c: 5, r: 7 }, e: { c: 6, r: 7 } },
-      { s: { c: 8, r: 7 }, e: { c: 8, r: 8 } }, { s: { c: 5, r: 8 }, e: { c: 6, r: 8 } },
-      { s: { c: 1, r: 9 }, e: { c: 1, r: 11 } }, { s: { c: 2, r: 9 }, e: { c: 2, r: 10 } },
-      { s: { c: 3, r: 9 }, e: { c: 3, r: 11 } }, { s: { c: 4, r: 9 }, e: { c: 4, r: 10 } },
-      { s: { c: 5, r: 9 }, e: { c: 5, r: 10 } }, { s: { c: 6, r: 9 }, e: { c: 6, r: 11 } },
-      { s: { c: 7, r: 9 }, e: { c: 8, r: 9 } }, { s: { c: 7, r: 10 }, e: { c: 7, r: 11 } },
-      { s: { c: 8, r: 10 }, e: { c: 8, r: 11 } }, { s: { c: 3, r: TOTAL - 1 }, e: { c: 5, r: TOTAL - 1 } },
-    ];
-    meta["!cols"] = [{ wch: 4 }, { wch: 14 }, { wch: 11 }, { wch: 40 }, { wch: 12 }, { wch: 13 }, { wch: 34 }, { wch: 12 }, { wch: 13 }];
-    meta["!ref"] = `A1:I${TOTAL}`;
-
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws as Parameters<typeof XLSX.utils.book_append_sheet>[1], "Weekly Report");
-    const safe = (user?.username || "report").replace(/[^a-z0-9]/gi, "_");
-    XLSX.writeFile(wb, `weekly_report_${safe}_${weekStartDate}.xlsx`);
+    const { summary, detail } = summarySheets(XLSX, savedWeeks, () => displayName);
+    const used = new Set<string>();
+    XLSX.utils.book_append_sheet(wb, summary, sheetName("Summary", used));
+    XLSX.utils.book_append_sheet(wb, detail, sheetName("All tasks", used));
+    for (const p of savedWeeks) XLSX.utils.book_append_sheet(wb, templateSheet(XLSX, p, displayName), sheetName(p.weekStartDate, used));
+    XLSX.writeFile(wb, `weekly_history_${fileSafe(user?.username || "me")}.xlsx`);
   }
 
   // ── Automatic calculations (mirror the Excel formulas) ──
@@ -337,33 +284,41 @@ export default function WeeklyPlanPage() {
   const isActive = (id: string, col: ColKey) => active?.id === id && active.col === col;
 
   return (
-    <main className="wp-page">
+    <main className="app-layout wp-page">
+      <AppHeader user={user} confirmLeave={okToLeave} />
       <header className="wp-topbar">
         <div className="wp-topbar-left">
-          <Link href="/" className="btn btn-outline btn-sm wp-back-btn" title="Back to Entry"
-            onClick={(e) => { if (!okToLeave()) e.preventDefault(); }}>
-            <ArrowLeft size={16} /> <span>Back</span>
-          </Link>
           <div className="wp-title-group">
-            <h1 className="wp-title">Weekly Plan &amp; Report</h1>
-            <span className="wp-title-sub">{weekRange(weekStartDate)}</span>
+            <h1 className="wp-title">Weekly Plan</h1>
+            <span className="wp-title-sub">{displayName}</span>
           </div>
         </div>
         <div className="wp-topbar-right">
-          <label className="wp-week-picker">
-            <span>Week of</span>
-            <input type="date" className="input-modern" value={weekStartDate}
-              onChange={(e) => { if (e.target.value && okToLeave()) setWeekStartDate(e.target.value); }} />
-          </label>
+          <div className="wp-weeknav" role="group" aria-label="Week">
+            <button type="button" className="wp-weeknav-btn" onClick={() => goToWeek(addWeeks(weekStartDate, -1))} aria-label="Previous week" title="Previous week"><ChevronLeft size={18} /></button>
+            <label className="wp-weeknav-label" title="Pick any day — the week starting that Monday opens">
+              <CalendarDays size={16} />
+              <span><small>Week of</small>{weekLabel(weekStartDate)}</span>
+              <input type="date" value={weekStartDate} aria-label="Pick a week"
+                onChange={(e) => goToWeek(mondayOf(e.target.value))} />
+            </label>
+            <button type="button" className="wp-weeknav-btn" onClick={() => goToWeek(addWeeks(weekStartDate, 1))} aria-label="Next week" title="Next week"><ChevronRight size={18} /></button>
+            {weekStartDate !== thisWeek && (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => goToWeek(thisWeek)}>This week</button>
+            )}
+          </div>
           <div className="wp-topbar-actions">
+            <span className={`wp-save-state ${saveError ? "error" : dirty || saving ? "pending" : "ok"}`} role="status">
+              {loading ? "" : saving ? "Saving…" : saveError ? "Not saved" : dirty ? "Unsaved changes" : savedAt ? <><CheckCircle2 size={14} /> Saved {new Date(savedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</> : "Not saved yet"}
+            </span>
             <button className="btn btn-outline btn-sm" onClick={() => setShowHistory(true)} disabled={loading}>
               <History size={16} /> <span>History{savedWeeks.length > 0 ? ` (${savedWeeks.length})` : ""}</span>
             </button>
-            <button className="btn btn-outline btn-sm" onClick={exportXlsx} disabled={loading || tasks.length === 0} title="Export this week to Excel">
+            <button className="btn btn-outline btn-sm" onClick={exportWeek} disabled={loading || !hasPlan} title="Download this week as the official Excel template">
               <FileSpreadsheet size={16} /> <span>Export</span>
             </button>
-            <button className="btn btn-primary btn-sm" onClick={savePlan} disabled={saving || loading}>
-              <Save size={16} /> <span>{saving ? "Saving…" : dirty ? "Save Report •" : "Save Report"}</span>
+            <button className="btn btn-primary btn-sm" onClick={savePlan} disabled={saving || loading || !dirty} title="Save (Ctrl+S)">
+              <Save size={16} /> <span>{saving ? "Saving…" : "Save"}</span>
             </button>
           </div>
         </div>
@@ -380,7 +335,7 @@ export default function WeeklyPlanPage() {
                 <tbody>
                   <tr>
                     <td colSpan={2} className="wp-excel-title">በሳምንቱ ክትትል የሚያስፈልጋቸው ስራዎች  ({weekRange(weekStartDate)})</td>
-                    <td colSpan={4} className="wp-excel-saved">{savedAt && <span className="wp-saved-chip"><CheckCircle2 size={14} /> Saved {new Date(savedAt).toLocaleString()}</span>}</td>
+                    <td colSpan={4} className="wp-excel-saved" />
                   </tr>
                   <tr>
                     <td colSpan={2} className="wp-excel-title">እቅድ (የሚሸፍነው ግዜ፡ 1 ሳምንት)  ({weekRange(weekStartDate)})</td>
@@ -555,6 +510,30 @@ export default function WeeklyPlanPage() {
               </button>
             </div>
 
+            {savedWeeks.length > 0 && (
+              <div className="wp-trend">
+                <div className="wp-trend-head">
+                  <span>Achievement trend</span>
+                  <span>Average <strong>{historyAvg.toFixed(0)}%</strong></span>
+                </div>
+                <div className="wp-trend-bars">
+                  {[...savedWeeks].slice(0, 12).reverse().map((p) => {
+                    const a = planAchievement(p);
+                    return (
+                      <button key={p.weekStartDate} type="button" className={`wp-trend-bar ${p.weekStartDate === weekStartDate ? "current" : ""}`}
+                        title={`${weekLabel(p.weekStartDate)}: ${a.toFixed(0)}%`}
+                        onClick={() => { goToWeek(p.weekStartDate); setShowHistory(false); }}>
+                        <span style={{ height: `${Math.max(Math.min(a, 100), 3)}%`, background: achColor(a) }} />
+                      </button>
+                    );
+                  })}
+                </div>
+                <button className="btn btn-outline btn-sm" type="button" onClick={exportHistory}>
+                  <FileSpreadsheet size={15} /> <span>Export all weeks</span>
+                </button>
+              </div>
+            )}
+
             <div className="wp-history-list">
               {savedWeeks.length === 0 && (
                 <div className="wp-history-empty">No saved reports yet. Save a week to see it here.</div>
@@ -570,18 +549,18 @@ export default function WeeklyPlanPage() {
                       className="wp-history-main"
                       onClick={() => {
                         if (p.weekStartDate !== weekStartDate && !okToLeave()) return;
-                        setWeekStartDate(p.weekStartDate); setShowHistory(false); setConfirmDelete("");
+                        setActive(null); setWeekStartDate(p.weekStartDate); setShowHistory(false); setConfirmDelete("");
                       }}
                     >
                       <div className="wp-history-week">
-                        <strong>{weekRange(p.weekStartDate)}</strong>
+                        <strong>{weekLabel(p.weekStartDate)}</strong>
                         {isOpen && <span className="wp-history-badge">Current</span>}
                       </div>
                       <div className="wp-history-meta">
                         <span><Clock size={13} /> {hours} hrs</span>
                         <span>{p.tasks.length} task{p.tasks.length === 1 ? "" : "s"}</span>
                         <span className="wp-history-ach" style={{ color: achColor(ach) }}>
-                          <TrendingUp size={13} /> {ach.toFixed(0)}%
+                          <TrendingUp size={13} /> {ach.toFixed(0)}% · {performanceRating(ach).label}
                         </span>
                       </div>
                     </button>

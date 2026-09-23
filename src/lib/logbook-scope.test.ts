@@ -48,8 +48,8 @@ describe("listRecords scoping", () => {
     expect(recordQuery()).toContain(`submitted_by=eq.${user().id}`);
   });
 
-  it("does not restrict a supervisor", async () => {
-    await listRecords(user({ role: "supervisor" }));
+  it("does not restrict an admin", async () => {
+    await listRecords(user({ role: "admin" }));
     expect(recordQuery()).not.toContain("submitted_by=eq.");
   });
 
@@ -70,8 +70,8 @@ describe("listRecords scoping", () => {
     expect(recordQuery()).toContain(`submitted_by=eq.${user().id}`);
   });
 
-  it("lets a supervisor narrow to one analyst", async () => {
-    await listRecords(user({ role: "supervisor", username: "sup01" }), "analyst08");
+  it("lets an admin narrow to one analyst", async () => {
+    await listRecords(user({ role: "admin", username: "adm01" }), "analyst08");
     expect(recordQuery()).toContain("submitted_by=eq.22222222-2222-2222-2222-222222222222");
   });
 });

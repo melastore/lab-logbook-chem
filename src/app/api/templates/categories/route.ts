@@ -20,7 +20,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const user = await currentUser();
   if (!user || !canReview(user)) {
-    return NextResponse.json({ error: "Supervisor access required." }, { status: 403 });
+    return NextResponse.json({ error: "Admin access required." }, { status: 403 });
   }
   const gate = passwordChangeGate(user);
   if (gate) return gate;
@@ -38,7 +38,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const user = await currentUser();
   if (!user || !canReview(user)) {
-    return NextResponse.json({ error: "Supervisor access required." }, { status: 403 });
+    return NextResponse.json({ error: "Admin access required." }, { status: 403 });
   }
   const gate = passwordChangeGate(user);
   if (gate) return gate;
@@ -61,7 +61,7 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const user = await currentUser();
   if (!user || !canReview(user)) {
-    return NextResponse.json({ error: "Supervisor access required." }, { status: 403 });
+    return NextResponse.json({ error: "Admin access required." }, { status: 403 });
   }
   const gate = passwordChangeGate(user);
   if (gate) return gate;

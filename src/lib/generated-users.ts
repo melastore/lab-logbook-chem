@@ -2,14 +2,14 @@ export type GeneratedUserAccount = {
   username: string;
   email: string;
   fullName: string;
-  role: "analyst" | "supervisor" | "admin";
+  role: "analyst" | "admin";
 };
 
 export const GENERATED_USER_ACCOUNTS: GeneratedUserAccount[] = [
-  // Supervisors / Admins (3)
-  { username: "admin01",    email: "admin01@lab.local",    fullName: "Supervisor Admin 01", role: "admin" },
-  { username: "admin02",    email: "admin02@lab.local",    fullName: "Supervisor Admin 02", role: "admin" },
-  { username: "admin03",    email: "admin03@lab.local",    fullName: "Supervisor Admin 03", role: "admin" },
+  // Admins (3)
+  { username: "admin01",    email: "admin01@lab.local",    fullName: "Admin 01", role: "admin" },
+  { username: "admin02",    email: "admin02@lab.local",    fullName: "Admin 02", role: "admin" },
+  { username: "admin03",    email: "admin03@lab.local",    fullName: "Admin 03", role: "admin" },
   // Analysts (15)
   { username: "analyst01",  email: "analyst01@lab.local",  fullName: "Analyst User 01",     role: "analyst" },
   { username: "analyst02",  email: "analyst02@lab.local",  fullName: "Analyst User 02",     role: "analyst" },

@@ -1,16 +1,15 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import Link from "next/link";
 import {
-  User, Lock, Palette, LayoutDashboard,
-  Activity, Settings as SettingsIcon, LogOut, ArrowLeft,
+  User, Lock, Palette,
   CheckCircle2, XCircle, RefreshCw,
   Type, Eye, EyeOff, Check, ShieldCheck,
   QrCode, Smartphone, Table2, LayoutList
 } from "lucide-react";
 import type { AppUser } from "@/lib/logbook";
 import { UserAvatar } from "@/components/UserAvatar";
+import { AppHeader } from "@/components/AppHeader";
 import { useSettings } from "@/lib/settings-context";
 import { MIN_PASSWORD_LENGTH } from "@/lib/password";
 
@@ -51,8 +50,21 @@ export default function SettingsPage() {
   const [disabling2fa, setDisabling2fa] = useState(false);
 
   const { theme, setTheme, fontSize, setFontSize, formLayout, setFormLayout } = useSettings();
-  const canAccessAdmin = user?.role === "admin" || user?.role === "supervisor";
   const avatarDirty = avatarSeed !== savedSeed;
+  const [activeSection, setActiveSection] = useState("profile");
+
+  // Highlight the section currently in view in the side / top menu.
+  useEffect(() => {
+    if (loading) return;
+    const els = ["profile", "password", "two-factor", "appearance"]
+      .map((id) => document.getElementById(id)).filter((el): el is HTMLElement => !!el);
+    const io = new IntersectionObserver((entries) => {
+      const top = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+      if (top) setActiveSection(top.target.id);
+    }, { rootMargin: "-120px 0px -55% 0px" });
+    els.forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, [loading]);
 
   useEffect(() => {
     fetch("/api/auth/profile")
@@ -68,11 +80,6 @@ export default function SettingsPage() {
       })
       .finally(() => setLoading(false));
   }, []);
-
-  async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" });
-    window.location.href = "/login";
-  }
 
   // Load current 2FA state once the user is known.
   useEffect(() => {
@@ -270,448 +277,289 @@ export default function SettingsPage() {
     </div>
   );
 
-  return (
-    <main className="app-shell">
-      <aside className="app-rail">
-        <div className="rail-brand">
-          <div className="lab-logo-modern"><SettingsIcon size={24} /></div>
-          <span>Settings</span>
-        </div>
-        <nav className="rail-nav">
-          <Link className="rail-link" href="/"><Activity size={22} /><span>Entry</span></Link>
-          {canAccessAdmin && (
-            <Link className="rail-link" href="/admin"><LayoutDashboard size={22} /><span>Admin</span></Link>
-          )}
-          <Link className="rail-link active" href="/settings"><SettingsIcon size={22} /><span>Settings</span></Link>
-        </nav>
-      </aside>
+  const sections = [
+    { id: "profile", label: "Profile", icon: <User size={17} /> },
+    { id: "password", label: "Password", icon: <Lock size={17} /> },
+    { id: "two-factor", label: "Two-factor", icon: <Smartphone size={17} /> },
+    { id: "appearance", label: "Appearance", icon: <Palette size={17} /> },
+  ];
 
-      <div className="app-frame settings-frame-modern">
-        <header className="settings-header">
-          <div className="settings-header-left">
-            <Link href="/" className="settings-back-btn" title="Back to Entry">
-              <ArrowLeft size={22} />
-            </Link>
-            <div>
-              <h1>Settings</h1>
-              <p className="settings-header-sub">Manage your account and preferences</p>
-            </div>
-          </div>
-          <div className="settings-header-right">
-            {user && (
-              <>
-                <span className="user-chip shadow-sm">
-                  <UserAvatar name={user.username} seed={avatarSeed} size="sm" />
-                  <span className="user-chip-name">{user.username}</span>
-                  <span className="user-role-badge">{user.role}</span>
-                </span>
-                <button className="btn btn-outline btn-sm btn-icon-gap" onClick={logout}>
-                  <LogOut size={16} /> <span>Sign out</span>
-                </button>
-              </>
-            )}
-          </div>
+  const passwordToggle = (shown: boolean, set: (v: boolean) => void) => (
+    <button type="button" className="st-pw-toggle" onClick={() => set(!shown)} aria-label={shown ? "Hide password" : "Show password"} title={shown ? "Hide" : "Show"}>
+      {shown ? <EyeOff size={18} /> : <Eye size={18} />}
+    </button>
+  );
+
+  return (
+    <main className="app-layout">
+      <AppHeader user={user ? { ...user, avatarSeed: savedSeed || user.avatarSeed } : null} />
+      <div className="app-page st">
+        <header className="st-head">
+          <h1>Settings</h1>
+          <p>Your account, security and how the logbook looks.</p>
         </header>
 
-        <div className="settings-stack">
+        <div className="st-layout">
+          <nav className="st-nav" aria-label="Settings sections">
+            {sections.map((sec) => (
+              <a key={sec.id} href={`#${sec.id}`} className={`st-nav-link ${activeSection === sec.id ? "active" : ""}`}
+                onClick={(e) => { e.preventDefault(); document.getElementById(sec.id)?.scrollIntoView({ behavior: "smooth", block: "start" }); setActiveSection(sec.id); }}>
+                {sec.icon}<span>{sec.label}</span>
+                {sec.id === "two-factor" && twoFactorEnabled !== null && <span className={`st-dot ${twoFactorEnabled ? "on" : "off"}`} aria-label={twoFactorEnabled ? "on" : "off"} />}
+              </a>
+            ))}
+          </nav>
 
-          {/* ── Profile ── */}
-          <section className="set-card">
-            <header className="set-head">
-              <div className="set-head-icon"><User size={20} /></div>
-              <div>
-                <h2>Profile</h2>
-                <p>How you appear across the logbook.</p>
-              </div>
-            </header>
-
-            <form onSubmit={saveProfile}>
-              <div className="set-body">
-                <div className="set-profile-row">
-                  <div className="profile-avatar-wrap">
+          <div className="st-sections">
+            {/* ── Profile ── */}
+            <section id="profile" className="st-card" aria-labelledby="st-profile">
+              <form onSubmit={saveProfile}>
+                <div className="st-profile">
+                  <div className="st-avatar">
                     <UserAvatar name={user?.username || ""} seed={avatarSeed} size="lg" />
-                    <button className="avatar-edit-badge" onClick={shuffleAvatar} title="Shuffle avatar" type="button">
-                      <RefreshCw size={16} />
-                    </button>
                   </div>
-                  <div className="set-profile-text">
-                    <h3>{user?.fullName || "—"}</h3>
+                  <div className="st-profile-text">
+                    <h2 id="st-profile">{user?.fullName || "—"}</h2>
                     <p>{user?.email || "No email on file"}</p>
-                    <span className="user-role-badge">{user?.role}</span>
+                    <div className="st-tags">
+                      <span className="user-role-badge">{user?.role}</span>
+                      <code>@{user?.username}</code>
+                    </div>
                   </div>
                 </div>
 
-                <div className="set-divider" />
-
-                <div className="set-field-row">
-                  <div className="set-field-info">
-                    <label>Username</label>
-                    <p>Set by an administrator — used to sign in.</p>
+                <div className="st-row">
+                  <div className="st-row-text">
+                    <strong>Avatar</strong>
+                    <span>Generated for you. Shuffle until you like one, then save.</span>
                   </div>
-                  <code className="set-username-chip">{user?.username}</code>
-                </div>
-
-                <div className="set-field-row">
-                  <div className="set-field-info">
-                    <label>Avatar</label>
-                    <p>Generated just for you. Don&apos;t like it? Shuffle until one fits.</p>
-                  </div>
-                  <button type="button" className="btn btn-outline btn-icon-gap" onClick={shuffleAvatar}>
-                    <RefreshCw size={15} /> <span>Shuffle</span>
-                  </button>
-                </div>
-
-                <InlineNotice notice={profileNotice} />
-              </div>
-
-              <footer className="set-foot">
-                <span className="set-foot-hint">{avatarDirty ? "You have an unsaved avatar." : ""}</span>
-                <button className="btn btn-primary" type="submit" disabled={savingProfile || !avatarDirty}>
-                  {savingProfile && <RefreshCw className="spin" size={15} style={{ marginRight: 8 }} />}
-                  <span>{savingProfile ? "Saving…" : "Save avatar"}</span>
-                </button>
-              </footer>
-            </form>
-          </section>
-
-          {/* ── Password ── */}
-          <section className="set-card">
-            <header className="set-head">
-              <div className="set-head-icon"><Lock size={20} /></div>
-              <div>
-                <h2>Password</h2>
-                <p>Use at least {MIN_PASSWORD_LENGTH} characters — a mix of letters, numbers and symbols is strongest.</p>
-              </div>
-            </header>
-
-            <form onSubmit={savePassword}>
-              <div className="set-body">
-                <div className="field-modern">
-                  <label htmlFor="currentPassword">Current password</label>
-                  <div className="input-password-wrapper">
-                    <input
-                      id="currentPassword"
-                      type={showCurrentPassword ? "text" : "password"}
-                      value={currentPassword}
-                      onChange={(e) => setCurrentPassword(e.target.value)}
-                      placeholder="Confirm it's you"
-                      autoComplete="current-password"
-                      className="input-with-toggle"
-                    />
-                    <button
-                      type="button"
-                      className="password-toggle-btn"
-                      onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                      aria-label={showCurrentPassword ? "Hide password" : "Show password"}
-                      title={showCurrentPassword ? "Hide password" : "Show password"}
-                    >
-                      {showCurrentPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  <div className="st-row-actions">
+                    <button type="button" className="btn btn-outline btn-icon-gap" onClick={shuffleAvatar}>
+                      <RefreshCw size={15} /> <span>Shuffle</span>
                     </button>
+                    {avatarDirty && (
+                      <>
+                        <button type="button" className="btn btn-ghost" onClick={() => setAvatarSeed(savedSeed)} disabled={savingProfile}>Undo</button>
+                        <button className="btn btn-primary" type="submit" disabled={savingProfile}>
+                          {savingProfile ? "Saving…" : "Save"}
+                        </button>
+                      </>
+                    )}
                   </div>
-                  <p className="field-hint">Required so nobody can change your password from a session you left open.</p>
+                </div>
+                <div className="st-row">
+                  <div className="st-row-text">
+                    <strong>Name, username and email</strong>
+                    <span>Managed by an admin. Ask them if something is wrong.</span>
+                  </div>
+                </div>
+                <InlineNotice notice={profileNotice} />
+              </form>
+            </section>
+
+            {/* ── Password ── */}
+            <section id="password" className="st-card" aria-labelledby="st-password">
+              <div className="st-card-head">
+                <span className="st-card-icon"><Lock size={18} /></span>
+                <div>
+                  <h2 id="st-password">Password</h2>
+                  <p>At least {MIN_PASSWORD_LENGTH} characters. A mix of letters, numbers and symbols is strongest.</p>
+                </div>
+              </div>
+
+              <form onSubmit={savePassword} className="st-form">
+                <div className="st-field">
+                  <label htmlFor="currentPassword">Current password</label>
+                  <div className="st-pw">
+                    <input id="currentPassword" type={showCurrentPassword ? "text" : "password"} value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)} placeholder="Confirm it's you" autoComplete="current-password" />
+                    {passwordToggle(showCurrentPassword, setShowCurrentPassword)}
+                  </div>
                 </div>
 
-                <div className="form-row-2">
-                  <div className="field-modern">
-                    <label>New password</label>
-                    <div className="input-password-wrapper">
-                      <input
-                        type={showNewPassword ? "text" : "password"}
-                        value={newPassword}
-                        onChange={(e) => setNewPassword(e.target.value)}
-                        placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
-                        autoComplete="new-password"
-                        className="input-with-toggle"
-                      />
-                      <button
-                        type="button"
-                        className="password-toggle-btn"
-                        onClick={() => setShowNewPassword(!showNewPassword)}
-                        title={showNewPassword ? "Hide password" : "Show password"}
-                      >
-                        {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                      </button>
+                <div className="st-grid-2">
+                  <div className="st-field">
+                    <label htmlFor="newPassword">New password</label>
+                    <div className="st-pw">
+                      <input id="newPassword" type={showNewPassword ? "text" : "password"} value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)} placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`} autoComplete="new-password" />
+                      {passwordToggle(showNewPassword, setShowNewPassword)}
                     </div>
                   </div>
-
-                  <div className="field-modern">
-                    <label>Confirm new password</label>
-                    <div className="input-password-wrapper">
-                      <input
-                        type={showConfirmPassword ? "text" : "password"}
-                        value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
-                        placeholder="Type it again"
-                        autoComplete="new-password"
-                        className="input-with-toggle"
-                      />
-                      <button
-                        type="button"
-                        className="password-toggle-btn"
-                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                        title={showConfirmPassword ? "Hide password" : "Show password"}
-                      >
-                        {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                      </button>
+                  <div className="st-field">
+                    <label htmlFor="confirmPassword">Confirm new password</label>
+                    <div className="st-pw">
+                      <input id="confirmPassword" type={showConfirmPassword ? "text" : "password"} value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Type it again" autoComplete="new-password"
+                        aria-invalid={!!confirmPassword && confirmPassword !== newPassword} />
+                      {passwordToggle(showConfirmPassword, setShowConfirmPassword)}
                     </div>
+                    {confirmPassword && confirmPassword !== newPassword && <span className="st-error">Doesn&apos;t match yet.</span>}
                   </div>
                 </div>
 
                 {newPassword && (
-                  <div className="strength-meter">
-                    <div className="strength-meter-head">
-                      <span>Password strength</span>
-                      <span style={{ color: getStrengthColor(strengthDetails.score) }}>{getStrengthLabel(strengthDetails.score)}</span>
+                  <div className="st-strength">
+                    <div className="st-strength-head">
+                      <span>Strength</span>
+                      <strong style={{ color: getStrengthColor(strengthDetails.score) }}>{getStrengthLabel(strengthDetails.score)}</strong>
                     </div>
-                    <div className="strength-bar-bg">
-                      <div
-                        className="strength-bar-fill"
-                        style={{
-                          width: `${(strengthDetails.score / 5) * 100}%`,
-                          backgroundColor: getStrengthColor(strengthDetails.score)
-                        }}
-                      />
+                    <div className="st-strength-bar">
+                      <span style={{ width: `${(strengthDetails.score / 5) * 100}%`, background: getStrengthColor(strengthDetails.score) }} />
                     </div>
-                    <div className="strength-criteria">
+                    <ul className="st-criteria">
                       {criteriaList.map((c) => (
-                        <div key={c.key} className={`criterion-item ${strengthDetails.criteria[c.key] ? "met" : ""}`}>
-                          <span className="criterion-icon">
-                            {strengthDetails.criteria[c.key] ? <Check size={14} /> : <span className="criterion-dot" />}
-                          </span>
-                          <span>{c.label}</span>
-                        </div>
+                        <li key={c.key} className={strengthDetails.criteria[c.key] ? "met" : ""}>
+                          {strengthDetails.criteria[c.key] ? <Check size={14} /> : <span className="st-criteria-dot" />}
+                          {c.label}
+                        </li>
                       ))}
-                    </div>
+                    </ul>
                   </div>
                 )}
 
                 <InlineNotice notice={passwordNotice} />
+
+                <div className="st-actions">
+                  <span className="st-hint">You&apos;ll use the new password from your next sign-in.</span>
+                  <button className="btn btn-primary" type="submit" disabled={savingPassword || !currentPassword || !newPassword || !confirmPassword}>
+                    {savingPassword ? "Updating…" : "Update password"}
+                  </button>
+                </div>
+              </form>
+            </section>
+
+            {/* ── Two-factor ── */}
+            <section id="two-factor" className="st-card" aria-labelledby="st-2fa">
+              <div className="st-card-head">
+                <span className="st-card-icon"><Smartphone size={18} /></span>
+                <div>
+                  <h2 id="st-2fa">Two-factor authentication</h2>
+                  <p>Ask for a code from your authenticator app at sign-in, so a stolen password alone isn&apos;t enough.</p>
+                </div>
               </div>
 
-              <footer className="set-foot">
-                <span className="set-foot-hint">You&apos;ll use the new password from your next sign-in.</span>
-                <button className="btn btn-primary" type="submit" disabled={savingPassword || !currentPassword || !newPassword || !confirmPassword}>
-                  {savingPassword && <RefreshCw className="spin" size={15} style={{ marginRight: 8 }} />}
-                  <span>{savingPassword ? "Updating…" : "Update password"}</span>
-                </button>
-              </footer>
-            </form>
-          </section>
-
-          {/* ── Two-factor authentication ── */}
-          <section className="set-card">
-            <header className="set-head">
-              <div className="set-head-icon"><Smartphone size={20} /></div>
-              <div>
-                <h2>Two-factor authentication</h2>
-                <p>Ask for a code from your authenticator app at sign-in — even if someone knows your password, they can&apos;t get in.</p>
-              </div>
-            </header>
-
-            <div className="set-body">
-              <div className="twofa-status-row">
-                <div className="twofa-status-text">
+              <div className="st-row st-row-top">
+                <div className="st-row-text">
                   <span className={`twofa-badge ${twoFactorEnabled ? "on" : "off"}`}>
                     {twoFactorEnabled ? <ShieldCheck size={15} /> : <Lock size={15} />}
                     {twoFactorEnabled === null ? "Checking…" : twoFactorEnabled ? "On" : "Off"}
                   </span>
-                  <p>
+                  <span>
                     {twoFactorEnabled
                       ? "Your account asks for a 6-digit code at sign-in."
                       : "Works with Google Authenticator, Authy, 1Password and similar apps."}
-                  </p>
+                  </span>
                 </div>
-                {twoFactorEnabled === false && !twoFactorSetup && (
-                  <button type="button" className="btn btn-primary btn-icon-gap" onClick={startTwoFactorSetup} disabled={twoFactorBusy}>
-                    {twoFactorBusy ? <RefreshCw className="spin" size={15} /> : <QrCode size={16} />}
-                    <span>Turn on</span>
-                  </button>
-                )}
-                {twoFactorEnabled === true && !disabling2fa && (
-                  <button type="button" className="btn btn-outline" onClick={() => { setDisabling2fa(true); setTwoFactorCode(""); setTwoFactorNotice(null); }}>
-                    Turn off
-                  </button>
-                )}
+                <div className="st-row-actions">
+                  {twoFactorEnabled === false && !twoFactorSetup && (
+                    <button type="button" className="btn btn-primary btn-icon-gap" onClick={startTwoFactorSetup} disabled={twoFactorBusy}>
+                      {twoFactorBusy ? <RefreshCw className="spin" size={15} /> : <QrCode size={16} />}
+                      <span>Turn on</span>
+                    </button>
+                  )}
+                  {twoFactorEnabled === true && !disabling2fa && (
+                    <button type="button" className="btn btn-outline" onClick={() => { setDisabling2fa(true); setTwoFactorCode(""); setTwoFactorNotice(null); }}>
+                      Turn off
+                    </button>
+                  )}
+                </div>
               </div>
 
-              {/* Enrollment: scan QR + confirm a code */}
               {twoFactorSetup && (
-                <div className="twofa-enroll">
-                  <ol className="twofa-steps">
-                    <li>Scan this QR code with your authenticator app.</li>
-                    <li>Enter the 6-digit code it shows to confirm.</li>
-                  </ol>
-                  <div className="twofa-qr-wrap">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={twoFactorSetup.qr} alt="2FA QR code" width={200} height={200} />
-                    <div className="twofa-manual">
-                      <span>Can&apos;t scan? Enter this key manually:</span>
-                      <code>{twoFactorSetup.secret}</code>
+                <div className="st-2fa-enroll">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={twoFactorSetup.qr} alt="QR code for your authenticator app" width={180} height={180} />
+                  <div className="st-2fa-steps">
+                    <ol>
+                      <li>Scan the QR code with your authenticator app.</li>
+                      <li>Type the 6-digit code it shows.</li>
+                    </ol>
+                    <p className="st-hint">Can&apos;t scan? Enter this key: <code>{twoFactorSetup.secret}</code></p>
+                    <div className="st-code-row">
+                      <input className="st-code" type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="123456"
+                        value={twoFactorCode} onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, ""))} aria-label="6-digit code" />
+                      <button type="button" className="btn btn-primary btn-icon-gap" onClick={confirmTwoFactor} disabled={twoFactorBusy || twoFactorCode.length !== 6}>
+                        {twoFactorBusy ? <RefreshCw className="spin" size={15} /> : <Check size={16} />}
+                        <span>Verify</span>
+                      </button>
+                      <button type="button" className="btn btn-ghost" onClick={() => { setTwoFactorSetup(null); setTwoFactorCode(""); setTwoFactorNotice(null); }} disabled={twoFactorBusy}>
+                        Cancel
+                      </button>
                     </div>
-                  </div>
-                  <div className="twofa-confirm">
-                    <input
-                      className="input-modern"
-                      type="text"
-                      inputMode="numeric"
-                      maxLength={6}
-                      placeholder="123456"
-                      value={twoFactorCode}
-                      onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, ""))}
-                    />
-                    <button type="button" className="btn btn-primary btn-icon-gap" onClick={confirmTwoFactor} disabled={twoFactorBusy || twoFactorCode.length !== 6}>
-                      {twoFactorBusy ? <RefreshCw className="spin" size={15} /> : <Check size={16} />}
-                      <span>Verify &amp; turn on</span>
-                    </button>
-                    <button type="button" className="btn btn-outline" onClick={() => { setTwoFactorSetup(null); setTwoFactorCode(""); setTwoFactorNotice(null); }} disabled={twoFactorBusy}>
-                      Cancel
-                    </button>
                   </div>
                 </div>
               )}
 
-              {/* Disable: require a current code */}
               {disabling2fa && (
-                <div className="twofa-confirm" style={{ marginTop: 16 }}>
-                  <input
-                    className="input-modern"
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={6}
-                    placeholder="Current code"
-                    value={twoFactorCode}
-                    onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, ""))}
-                  />
+                <div className="st-code-row st-code-row-pad">
+                  <input className="st-code" type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="Current code"
+                    value={twoFactorCode} onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, ""))} aria-label="Current 6-digit code" />
                   <button type="button" className="btn btn-primary" onClick={disableTwoFactor} disabled={twoFactorBusy || twoFactorCode.length !== 6}>
-                    {twoFactorBusy ? <RefreshCw className="spin" size={15} /> : <span>Confirm turn off</span>}
+                    {twoFactorBusy ? <RefreshCw className="spin" size={15} /> : "Turn off"}
                   </button>
-                  <button type="button" className="btn btn-outline" onClick={() => { setDisabling2fa(false); setTwoFactorCode(""); }} disabled={twoFactorBusy}>
+                  <button type="button" className="btn btn-ghost" onClick={() => { setDisabling2fa(false); setTwoFactorCode(""); }} disabled={twoFactorBusy}>
                     Cancel
                   </button>
                 </div>
               )}
 
               <InlineNotice notice={twoFactorNotice} />
-            </div>
-          </section>
+            </section>
 
-          {/* ── Appearance ── */}
-          <section className="set-card">
-            <header className="set-head">
-              <div className="set-head-icon"><Palette size={20} /></div>
-              <div>
-                <h2>Appearance</h2>
-                <p>Theme, text size, and how data-entry forms are laid out. Changes apply instantly.</p>
-              </div>
-            </header>
-
-            <div className="set-body set-body-groups">
-
-              <div className="appearance-group">
-                <label className="group-label">Theme</label>
-                <div className="theme-options-modern">
-                  <button
-                    type="button"
-                    className={`theme-opt ${theme === "light" ? "active" : ""}`}
-                    onClick={() => handleThemeChange("light")}
-                  >
-                    <div className="theme-preview-mock light-mode">
-                      <div className="mock-sidebar" />
-                      <div className="mock-main">
-                        <div className="mock-header" />
-                        <div className="mock-row" />
-                        <div className="mock-row short" />
-                      </div>
-                    </div>
-                    <div className="theme-opt-label">
-                      <span>Light</span>
-                      {theme === "light" && <CheckCircle2 size={16} style={{ color: "var(--primary)" }} />}
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    className={`theme-opt ${theme === "dark" ? "active" : ""}`}
-                    onClick={() => handleThemeChange("dark")}
-                  >
-                    <div className="theme-preview-mock dark-mode">
-                      <div className="mock-sidebar" style={{ background: "#334155" }} />
-                      <div className="mock-main">
-                        <div className="mock-header" style={{ background: "#334155" }} />
-                        <div className="mock-row" style={{ background: "#334155" }} />
-                        <div className="mock-row short" style={{ background: "#334155" }} />
-                      </div>
-                    </div>
-                    <div className="theme-opt-label">
-                      <span>Dark</span>
-                      {theme === "dark" && <CheckCircle2 size={16} style={{ color: "var(--primary)" }} />}
-                    </div>
-                  </button>
+            {/* ── Appearance ── */}
+            <section id="appearance" className="st-card" aria-labelledby="st-appearance">
+              <div className="st-card-head">
+                <span className="st-card-icon"><Palette size={18} /></span>
+                <div>
+                  <h2 id="st-appearance">Appearance</h2>
+                  <p>Changes apply straight away on this device.</p>
                 </div>
               </div>
 
-              <div className="appearance-group">
-                <label className="group-label">Text size</label>
-                <div className="font-options-modern">
-                  {(["small", "medium", "large"] as const).map((s) => (
-                    <button
-                      type="button"
-                      key={s}
-                      className={`font-opt ${fontSize === s ? "active" : ""}`}
-                      onClick={() => setFontSize(s)}
-                    >
-                      <Type size={s === "small" ? 14 : s === "medium" ? 18 : 22} />
-                      <span style={{ textTransform: "capitalize" }}>{s}</span>
+              <div className="st-group">
+                <span className="st-group-label">Theme</span>
+                <div className="st-choices st-choices-2" role="radiogroup" aria-label="Theme">
+                  {(["light", "dark"] as const).map((t) => (
+                    <button key={t} type="button" role="radio" aria-checked={theme === t} className={`st-choice ${theme === t ? "active" : ""}`} onClick={() => handleThemeChange(t)}>
+                      <span className={`st-theme-mock ${t}`}><span /><span><i /><i /><i /></span></span>
+                      <span className="st-choice-label">{t === "light" ? "Light" : "Dark"}{theme === t && <CheckCircle2 size={16} />}</span>
                     </button>
                   ))}
                 </div>
               </div>
 
-              <div className="appearance-group">
-                <label className="group-label">Data-entry layout</label>
-                <div className="layout-options-modern">
-                  <button
-                    type="button"
-                    className={`layout-opt ${formLayout === "spreadsheet" ? "active" : ""}`}
-                    onClick={() => setFormLayout("spreadsheet")}
-                  >
-                    <div className="layout-opt-mock">
-                      <div className="mock-sheet">
-                        <span /><span /><span /><span /><span /><span /><span /><span /><span />
-                      </div>
-                    </div>
-                    <div className="layout-opt-text">
-                      <div className="layout-opt-title"><Table2 size={15} /> Spreadsheet</div>
-                      <div className="layout-opt-desc">All fields in one compact grid — fastest for routine entries.</div>
-                    </div>
-                    {formLayout === "spreadsheet" && <CheckCircle2 size={16} className="layout-opt-check" />}
-                  </button>
-
-                  <button
-                    type="button"
-                    className={`layout-opt ${formLayout === "cards" ? "active" : ""}`}
-                    onClick={() => setFormLayout("cards")}
-                  >
-                    <div className="layout-opt-mock">
-                      <div className="mock-stack">
-                        <span /><span />
-                      </div>
-                    </div>
-                    <div className="layout-opt-text">
-                      <div className="layout-opt-title"><LayoutList size={15} /> Vertical cards</div>
-                      <div className="layout-opt-desc">One field per line in roomy cards — easiest to read and review.</div>
-                    </div>
-                    {formLayout === "cards" && <CheckCircle2 size={16} className="layout-opt-check" />}
-                  </button>
+              <div className="st-group">
+                <span className="st-group-label">Text size</span>
+                <div className="st-segment" role="radiogroup" aria-label="Text size">
+                  {(["small", "medium", "large"] as const).map((sz) => (
+                    <button type="button" key={sz} role="radio" aria-checked={fontSize === sz} className={fontSize === sz ? "active" : ""} onClick={() => setFontSize(sz)}>
+                      <Type size={sz === "small" ? 13 : sz === "medium" ? 16 : 19} />
+                      <span>{sz[0].toUpperCase() + sz.slice(1)}</span>
+                    </button>
+                  ))}
                 </div>
               </div>
 
-            </div>
-          </section>
-
+              <div className="st-group">
+                <span className="st-group-label">Data-entry layout</span>
+                <div className="st-choices st-choices-2" role="radiogroup" aria-label="Data-entry layout">
+                  {([
+                    ["spreadsheet", <Table2 key="i" size={16} />, "Spreadsheet", "All fields in one compact grid. Fastest for routine entries."],
+                    ["cards", <LayoutList key="i" size={16} />, "Vertical cards", "One field per line. Easiest to read on small screens."],
+                  ] as const).map(([value, icon, title, desc]) => (
+                    <button key={value} type="button" role="radio" aria-checked={formLayout === value} className={`st-choice st-choice-row ${formLayout === value ? "active" : ""}`} onClick={() => setFormLayout(value)}>
+                      <span className="st-choice-icon">{icon}</span>
+                      <span className="st-choice-text"><strong>{title}</strong><small>{desc}</small></span>
+                      {formLayout === value && <CheckCircle2 size={16} className="st-choice-check" />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </section>
+          </div>
         </div>
       </div>
-
     </main>
   );
 }

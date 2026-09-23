@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState, useRef, KeyboardEvent } from "react";
 import Link from "next/link";
 import {
-  Activity, Settings, LayoutDashboard, LogOut, ArrowRight,
+  Activity, ArrowRight, X, Search,
   CheckCircle2, AlertCircle, Microscope,
   ChevronRight, ChevronDown, Zap, Droplets, Beaker,
   RefreshCw, FileOutput, Info, PanelLeftClose, PanelLeft, ScrollText, Plus, Trash2
@@ -17,7 +17,8 @@ import {
 import { UserAvatar } from "@/components/UserAvatar";
 import { UserLogsModal } from "@/components/UserLogsModal";
 import { SignaturePad } from "@/components/SignaturePad";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { AppHeader } from "@/components/AppHeader";
+import { toISODate } from "@/lib/weekly-plan";
 import { encodeAnalystSignature } from "@/lib/signature";
 import { useSettings } from "@/lib/settings-context";
 
@@ -43,8 +44,15 @@ function categoryIcon(name: string): React.ReactNode {
   return <Beaker size={16} />;
 }
 
+// Local date: toISOString() is UTC and gives yesterday's date after midnight
+// in Addis (UTC+3) until 03:00.
 function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  return toISODate(new Date());
+}
+
+// "HH:MM" strings compare correctly as text.
+function endBeforeStart(row: Record<string, string>) {
+  return Boolean(row.startTime && row.endTime && row.endTime < row.startTime);
 }
 
 const MAX_ROWS = 50;
@@ -76,8 +84,8 @@ export default function AnalystEntryPage() {
   const [showMissing, setShowMissing] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [logsOpen, setLogsOpen] = useState(false);
+  const [reviewCounts, setReviewCounts] = useState({ pending: 0, rejected: 0 });
   const [templates, setTemplates] = useState<InstrumentTemplate[]>([]);
   const [categories, setCategories] = useState<InstrumentCategory[]>([]);
   const { formLayout } = useSettings();
@@ -93,6 +101,11 @@ export default function AnalystEntryPage() {
       })
       .catch(() => {})
       .finally(() => setAuthReady(true));
+
+    fetch("/api/logbook/review")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d) setReviewCounts({ pending: d.pending || 0, rejected: d.rejected || 0 }); })
+      .catch(() => {});
 
     fetch("/api/templates/categories")
       .then((r) => r.ok ? r.json() : { categories: [] })
@@ -138,7 +151,7 @@ export default function AnalystEntryPage() {
     const timer = setTimeout(() => {
       setSubmitState("idle");
       setMessage("");
-    }, 3000);
+    }, 8000);
     return () => clearTimeout(timer);
   }, [submitState]);
 
@@ -150,7 +163,23 @@ export default function AnalystEntryPage() {
     : (sampleForms.find((f) => f.id === sampleFormId) ?? sampleForms[0]);
 
   const showForm = mode === "analytical" ? selectedInstrument !== null : true;
-  const canAccessAdmin = user?.role === "admin" || user?.role === "supervisor";
+  const canAccessAdmin = user?.role === "admin";
+
+  // Anything typed beyond the prefilled date/analyst, or a signature, is work
+  // worth asking about before it's thrown away.
+  const isDirty = Boolean(signatureImage) || rows.length > 1 || rows.some((row) =>
+    Object.entries(row).some(([k, v]) => k !== "date" && k !== "analyst" && (v || "").trim()));
+
+  function confirmDiscard() {
+    return !isDirty || window.confirm("You have an unsubmitted entry. Discard it?");
+  }
+
+  useEffect(() => {
+    if (!isDirty) return;
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [isDirty]);
 
   function resetTransient() {
     setSubmitState("idle");
@@ -171,6 +200,7 @@ export default function AnalystEntryPage() {
   }
 
   function switchMode(next: Mode) {
+    if (next === mode || !confirmDiscard()) return;
     setMode(next);
     setNavOpen(false);
     resetEntry();
@@ -185,6 +215,8 @@ export default function AnalystEntryPage() {
   }
 
   function pickInstrument(node: InstrumentNode) {
+    if (selectedInstrument?.id === node.id) { setNavOpen(false); return; }
+    if (!confirmDiscard()) return;
     const matched = templates.find(t => t.instrumentId === node.instrumentId);
     if (matched) {
       const t = matched;
@@ -240,7 +272,21 @@ export default function AnalystEntryPage() {
     return groups;
   }, [templates, categories]);
 
+  const [navQuery, setNavQuery] = useState("");
+  const navQ = navQuery.trim().toLowerCase();
+  const searching = navQ.length > 0;
+  const visibleGroups = templateGroups
+    .map((g) => ({
+      ...g,
+      items: searching
+        ? g.items.filter((t) => [t.instrumentName, t.instrumentId, t.instrumentModel, g.name].some((v) => (v || "").toLowerCase().includes(navQ)))
+        : g.items,
+    }))
+    .filter((g) => !searching || g.items.length > 0);
+
   function pickTemplate(t: InstrumentTemplate) {
+    if (selectedInstrument?.id === t.id) { setNavOpen(false); return; }
+    if (!confirmDiscard()) return;
     setSelectedInstrument({
       id: t.id,
       name: t.instrumentName,
@@ -270,24 +316,24 @@ export default function AnalystEntryPage() {
   }
 
   function pickSampleForm(id: string) {
+    if (id === sampleFormId) { setNavOpen(false); return; }
+    if (!confirmDiscard()) return;
     setSampleFormId(id);
     setNavOpen(false);
     resetEntry();
   }
 
-  async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" });
-    setUser(null);
-    setUserMenuOpen(false);
-  }
+
 
   const missingCount = rows.reduce((n, row) =>
     n + currentForm.fields.filter((f) => f.required && !(row[f.key] || "").trim()).length, 0);
-  const canSubmit = Boolean(user) && showForm && missingCount === 0 && Boolean(signatureImage) && rows.length > 0;
+  const badTimeRows = rows.map((row, i) => (endBeforeStart(row) ? i + 1 : 0)).filter(Boolean);
+  const canSubmit = Boolean(user) && showForm && missingCount === 0 && badTimeRows.length === 0 && Boolean(signatureImage) && rows.length > 0;
 
   function whatsMissing() {
     const parts: string[] = [];
     if (missingCount > 0) parts.push(`${missingCount} required field${missingCount === 1 ? "" : "s"} empty (marked in red)`);
+    if (badTimeRows.length) parts.push(`end time is before start time on row ${badTimeRows.join(", ")}`);
     if (!signatureImage) parts.push("signature missing");
     return parts.length ? `Can't submit yet: ${parts.join(", ")}.` : "";
   }
@@ -352,11 +398,18 @@ export default function AnalystEntryPage() {
       };
     });
 
-    const response = await fetch("/api/logbook", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payloads),
-    });
+    let response: Response;
+    try {
+      response = await fetch("/api/logbook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payloads),
+      });
+    } catch {
+      setSubmitState("error");
+      setMessage("Couldn't reach the server — nothing was submitted. Check your connection and try again.");
+      return;
+    }
 
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
@@ -365,7 +418,7 @@ export default function AnalystEntryPage() {
       return;
     }
 
-    const result = await response.json();
+    const result = await response.json().catch(() => ({ count: payloads.length }));
     setSubmitState("sent");
     setMessage(`Successfully submitted ${result.count} ${result.count === 1 ? "record" : "records"} as ${user.fullName || user.username}. Log entries are sealed in a secure hash chain and cannot be modified or deleted.`);
     setRows([newRow()]);
@@ -374,11 +427,24 @@ export default function AnalystEntryPage() {
   }
 
   return (
-    <main className="app-shell">
-      {/* ── Left navigation ── */}
-      <aside className={`lab-nav ${navOpen ? "open" : ""} ${collapsed ? "collapsed" : ""}`} aria-label="Primary navigation">
+    <main className="app-layout">
+      <AppHeader
+        user={user}
+        confirmLeave={confirmDiscard}
+        actions={user ? [{
+          label: "My logs",
+          icon: <ScrollText size={18} />,
+          onClick: () => setLogsOpen(true),
+          badge: !canAccessAdmin ? reviewCounts.rejected : 0,
+          badgeTone: "danger",
+        }] : []}
+      />
+      <div className="entry-shell">
+      {/* ── Instrument list ── */}
+      <aside className={`lab-nav ${navOpen ? "open" : ""} ${collapsed ? "collapsed" : ""}`} aria-label="Instruments">
         <div className="lab-nav-brand">
-          <LabLogo size={32} />
+          <span className="lab-nav-title">{mode === "analytical" ? "Instruments" : "Sample preparation"}</span>
+          <button className="lab-nav-close" type="button" onClick={() => setNavOpen(false)} aria-label="Close list"><X size={18} /></button>
           <button className="nav-collapse-btn" type="button" onClick={() => setCollapsed(true)} title="Collapse menu" aria-label="Collapse menu">
             <PanelLeftClose size={18} />
           </button>
@@ -387,28 +453,43 @@ export default function AnalystEntryPage() {
         <nav className="lab-nav-tree">
           {mode === "analytical" ? (
             <>
-              <p className="nav-section-label">Instruments</p>
+              {templates.length > 0 && (
+                <div className="nav-search">
+                  <Search size={15} aria-hidden="true" />
+                  <input value={navQuery} onChange={(e) => setNavQuery(e.target.value)} placeholder="Find instrument…" aria-label="Find instrument" />
+                  {navQuery && <button type="button" onClick={() => setNavQuery("")} aria-label="Clear"><X size={14} /></button>}
+                </div>
+              )}
               {templateGroups.length > 0 ? (
-                templateGroups.map((group) => {
-                  const open = expanded.has(group.name);
+                visibleGroups.length === 0 ? (
+                  <p className="nav-empty">No instrument matches “{navQuery}”.</p>
+                ) : visibleGroups.map((group) => {
+                  // While searching, every matching group is open.
+                  const open = searching || expanded.has(group.name);
                   return (
                     <div key={group.name} className="nav-group">
-                      <button type="button" className="nav-group-head" onClick={() => toggleGroup(group.name)}>
+                      <button type="button" className="nav-group-head" onClick={() => toggleGroup(group.name)} aria-expanded={open}>
                         <span className="nav-group-icon">{categoryIcon(group.name)}</span>
                         <span className="nav-group-name">{group.name}</span>
+                        <span className="nav-group-count">{group.items.length}</span>
                         <ChevronDown size={15} className={`nav-caret ${open ? "open" : ""}`} />
                       </button>
                       {open && (
                         <div className="nav-instruments">
+                          {group.items.length === 0 && <p className="nav-empty">No instruments yet.</p>}
                           {group.items.map((tpl) => (
                             <button
                               key={tpl.id}
                               type="button"
                               className={`nav-instrument ${selectedInstrument?.id === tpl.id ? "active" : ""}`}
                               onClick={() => pickTemplate(tpl)}
+                              aria-current={selectedInstrument?.id === tpl.id ? "true" : undefined}
                             >
                               <ChevronRight size={13} />
-                              <span>{tpl.instrumentName}</span>
+                              <span className="nav-instrument-text">
+                                <span>{tpl.instrumentName}</span>
+                                {tpl.instrumentId && <small>{tpl.instrumentId}</small>}
+                              </span>
                             </button>
                           ))}
                         </div>
@@ -474,82 +555,19 @@ export default function AnalystEntryPage() {
       {navOpen && <div className="lab-nav-scrim" onClick={() => setNavOpen(false)} />}
 
       <div className="app-frame entry-frame">
-        <header className="entry-topbar">
-          <button className="nav-burger" type="button" onClick={() => setNavOpen(true)} aria-label="Open navigation">
-            <span /><span /><span />
+        <div className="entry-topbar">
+          <button className="entry-list-btn" type="button" onClick={() => setNavOpen(true)} aria-label="Choose instrument">
+            <PanelLeft size={18} /> <span>{mode === "analytical" ? (selectedInstrument?.name || "Choose instrument") : currentForm.title}</span>
           </button>
           {collapsed && (
-            <button className="nav-reopen" type="button" onClick={() => setCollapsed(false)} title="Open menu" aria-label="Open menu">
+            <button className="nav-reopen" type="button" onClick={() => setCollapsed(false)} title="Show list" aria-label="Show list">
               <PanelLeft size={20} />
             </button>
           )}
           <div className="entry-topbar-title">
             <h1>Chemical Metrology Laboratory Logbook</h1>
           </div>
-          <div className="entry-topbar-actions" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            {user ? (
-              <>
-              <Link href="/weekly-plan" className="btn btn-outline btn-sm btn-icon-gap" title="Weekly Plan & Report">
-                <ScrollText size={16} /> <span className="hidden-mobile">Weekly Plan</span>
-              </Link>
-              <button
-                className="btn btn-outline btn-sm btn-icon-gap"
-                type="button"
-                onClick={() => setLogsOpen(true)}
-                title="View my logbook entries"
-              >
-                <ScrollText size={16} /> <span>Logs</span>
-              </button>
-              <div className="user-dropdown-container">
-                <button
-                  className="user-chip shadow-sm"
-                  type="button"
-                  onClick={() => setUserMenuOpen(!userMenuOpen)}
-                  aria-haspopup="true"
-                  aria-expanded={userMenuOpen}
-                >
-                  <UserAvatar name={user.username} seed={user.avatarSeed} size="sm" clickable={false} />
-                  <span className="user-chip-name">{user.username}</span>
-                  <ChevronDown size={14} className={`dropdown-caret ${userMenuOpen ? 'open' : ''}`} />
-                </button>
-                
-                {userMenuOpen && (
-                  <>
-                    <div className="user-menu-scrim" onClick={() => setUserMenuOpen(false)} />
-                    <div className="user-menu shadow-lg">
-                      <div className="user-menu-info">
-                        <strong>{user.fullName}</strong>
-                        <span>{user.email}</span>
-                        <div className="user-role-badge">{user.role}</div>
-                      </div>
-                      <div className="user-menu-links">
-                        <div className="user-menu-theme-row">
-                          <span>Appearance</span>
-                          <ThemeToggle variant="minimal" />
-                        </div>
-                        <Link href="/settings" onClick={() => setUserMenuOpen(false)}>
-                          <Settings size={16} />
-                          <span>Settings</span>
-                        </Link>
-                        {canAccessAdmin && (
-                          <Link href="/admin" onClick={() => setUserMenuOpen(false)}>
-                            <LayoutDashboard size={16} />
-                            <span>Admin Panel</span>
-                          </Link>
-                        )}
-                        <button type="button" onClick={logout}>
-                          <LogOut size={16} />
-                          <span>Sign out</span>
-                        </button>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-              </>
-            ) : null}
-          </div>
-        </header>
+        </div>
 
         {user && (
           <UserLogsModal
@@ -605,7 +623,7 @@ export default function AnalystEntryPage() {
                   <button
                     type="button"
                     className={`form-tab ${isGeneral ? "active" : ""}`}
-                    onClick={() => { setAnalyticalFormId(GENERAL_TAB); resetEntry(); }}
+                    onClick={() => { if (isGeneral || !confirmDiscard()) return; setAnalyticalFormId(GENERAL_TAB); resetEntry(); }}
                   >
                     General
                   </button>
@@ -614,7 +632,7 @@ export default function AnalystEntryPage() {
                       key={f.id}
                       type="button"
                       className={`form-tab ${!isGeneral && analyticalFormId === f.id ? "active" : ""}`}
-                      onClick={() => { setAnalyticalFormId(f.id); resetEntry(); }}
+                      onClick={() => { if (!isGeneral && analyticalFormId === f.id) return; if (!confirmDiscard()) return; setAnalyticalFormId(f.id); resetEntry(); }}
                     >
                       {f.title}
                     </button>
@@ -757,11 +775,16 @@ export default function AnalystEntryPage() {
           )}
         </div>
       </div>
+      </div>
     </main>
   );
 }
 
 /* ── Spreadsheet-style form table ── */
+
+function usesNativeArrows(el: HTMLElement) {
+  return el.tagName === "SELECT" || el.tagName === "TEXTAREA" || (el as HTMLInputElement).type === "number";
+}
 
 function FormSpreadsheet({
   fields, rows, setRows, disabled, showMissing, onAddRow, onRemoveRow
@@ -795,6 +818,9 @@ function FormSpreadsheet({
       if (rowIndex < rows.length - 1) {
         focusCell(rowIndex + 1, fieldIndex);
       }
+    } else if ((e.key === "ArrowDown" || e.key === "ArrowUp") && usesNativeArrows(e.currentTarget)) {
+      // Dropdowns, text areas and number inputs need Up/Down themselves.
+      return;
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
       if (rowIndex < rows.length - 1) focusCell(rowIndex + 1, fieldIndex);

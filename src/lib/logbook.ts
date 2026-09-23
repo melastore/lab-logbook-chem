@@ -14,7 +14,14 @@ export const LOG_TYPES = [
   { id: "REAG", label: "Reagent & Standard", desc: "Preparation of standards or reagents" },
 ];
 
-export type UserRole = "analyst" | "supervisor" | "admin";
+export type UserRole = "analyst" | "admin";
+
+// Only two roles exist. Older rows may still say "supervisor" (or anything
+// else); treat supervisor as admin so those accounts keep working until
+// supabase/two-roles.sql is run.
+export function normalizeRole(role: unknown): UserRole {
+  return role === "admin" || role === "supervisor" ? "admin" : "analyst";
+}
 
 export type AppUser = {
   id: string;
@@ -57,13 +64,31 @@ export type LogbookRecord = {
   recordHash: string;
   amends: string | null;
   amendmentReason: string;
+  status: ReviewStatus;
+  reviews: RecordReview[];
+  submitterName: string;
+};
+
+export type ReviewStatus = "Pending" | "Approved" | "Rejected";
+export type ReviewDecision = "Approved" | "Rejected" | "Comment";
+
+export type RecordReview = {
+  id: string;
+  createdAt: string;
+  recordId: string;
+  decision: ReviewDecision;
+  comment: string;
+  reviewerName: string;
+  // false if the record changed after this review was made
+  hashMatches: boolean;
 };
 
 export type LogbookInput = Omit<
   LogbookRecord,
   "id" | "createdAt" | "updatedAt" | "submittedBy"
   | "chainIndex" | "prevHash" | "recordHash" | "amends" | "amendmentReason"
->; // integrity columns are written by the database, not the client
+  | "status" | "reviews" | "submitterName"
+>; // integrity and review fields are written by the database, not the client
 
 export type InstrumentCategory = {
   id: string;
@@ -378,8 +403,8 @@ export async function updateCurrentUserProfile(
 // `username` narrows further: managers may point it at anyone, an analyst only
 // at themselves, and asking for someone else returns nothing rather than an
 // error the caller could use to probe who exists.
-export async function listRecords(user: AppUser, username?: string) {
-  const isManager = user.role === "supervisor" || user.role === "admin";
+export async function listRecords(user: AppUser, username?: string, columns = "*") {
+  const isManager = user.role === "admin";
 
   let submitterId: string | null = null;
 
@@ -398,9 +423,182 @@ export async function listRecords(user: AppUser, username?: string) {
 
   const scoped = submitterId ? `&submitted_by=eq.${encodeURIComponent(submitterId)}` : "";
   const rows = await supabaseRest<LogbookRow[]>(
-    `/logbook_records?select=*&order=created_at.desc${scoped}`
+    `/logbook_records?select=${columns}&order=created_at.desc${scoped}`
   );
-  return rows.map(mapRecord);
+
+  // corrections are submitted by the admin, so pull them in separately
+  if (submitterId) {
+    const seen = new Set(rows.map((r) => r.id));
+    const roots = rows.filter((r) => !r.amends).map((r) => r.id);
+    for (const ids of chunk(roots, 100)) {
+      const extra = await supabaseRest<LogbookRow[]>(
+        `/logbook_records?select=${columns}&amends=in.(${ids.join(",")})`
+      );
+      for (const r of extra) if (!seen.has(r.id)) { seen.add(r.id); rows.push(r); }
+    }
+    rows.sort((a, b) => b.created_at.localeCompare(a.created_at));
+  }
+
+  const [reviews, names] = await Promise.all([
+    listReviewsFor(rows),
+    profileNames(rows.map((r) => r.submitted_by)),
+  ]);
+  return rows.map((row) => {
+    const rec = mapRecord(row);
+    rec.reviews = reviews.get(row.id) || [];
+    rec.status = statusFrom(rec.reviews);
+    rec.submitterName = (row.submitted_by && names.get(row.submitted_by)) || "";
+    return rec;
+  });
+}
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+async function profileNames(ids: (string | null)[]): Promise<Map<string, string>> {
+  const unique = Array.from(new Set(ids.filter((id): id is string => !!id)));
+  const names = new Map<string, string>();
+  for (const part of chunk(unique, 100)) {
+    const rows = await supabaseRest<{ id: string; full_name: string | null; username: string | null }[]>(
+      `/profiles?select=id,full_name,username&id=in.(${part.join(",")})`
+    );
+    for (const p of rows) names.set(p.id, p.full_name || p.username || "");
+  }
+  return names;
+}
+
+// ─── Reviews ──────────────────────────────────────────────────────────────────
+
+type ReviewRow = {
+  id: string;
+  created_at: string;
+  record_id: string;
+  record_hash: string;
+  decision: ReviewDecision;
+  comment: string | null;
+  reviewer_name: string | null;
+};
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// ids of the newest version of each record (the original or its latest correction)
+export function currentVersionIds(records: Pick<LogbookRecord, "id" | "amends" | "createdAt">[]) {
+  const latest = new Map<string, { id: string; createdAt: string }>();
+  for (const rec of records) {
+    const root = rec.amends || rec.id;
+    const seen = latest.get(root);
+    if (!seen || rec.createdAt > seen.createdAt) latest.set(root, rec);
+  }
+  return new Set([...latest.values()].map((r) => r.id));
+}
+
+// Managers get records waiting for review, analysts their rejected records.
+export async function reviewCounts(user: AppUser) {
+  const records = await listRecords(user, undefined, "id,amends,created_at,submitted_by,record_hash");
+  const current = currentVersionIds(records);
+  const count = (status: ReviewStatus) =>
+    records.filter((r) => current.has(r.id) && r.status === status).length;
+  return { pending: count("Pending"), rejected: count("Rejected") };
+}
+
+export function statusFrom(reviews: RecordReview[]): ReviewStatus {
+  for (let i = reviews.length - 1; i >= 0; i--) {
+    const d = reviews[i].decision;
+    if (d === "Approved" || d === "Rejected") return d;
+  }
+  return "Pending";
+}
+
+async function listReviewsFor(rows: LogbookRow[]): Promise<Map<string, RecordReview[]>> {
+  const byRecord = new Map<string, RecordReview[]>();
+  const hashes = new Map(rows.map((r) => [r.id, r.record_hash || ""]));
+  try {
+    for (const ids of chunk(rows.map((r) => r.id), 100)) {
+      const reviewRows = await supabaseRest<ReviewRow[]>(
+        `/logbook_reviews?select=*&record_id=in.(${ids.join(",")})&order=created_at.asc`
+      );
+      for (const r of reviewRows) {
+        const list = byRecord.get(r.record_id) || [];
+        list.push({
+          id: r.id,
+          createdAt: r.created_at,
+          recordId: r.record_id,
+          decision: r.decision,
+          comment: r.comment || "",
+          reviewerName: r.reviewer_name || "",
+          hashMatches: r.record_hash === hashes.get(r.record_id),
+        });
+        byRecord.set(r.record_id, list);
+      }
+    }
+  } catch {
+    // reviews.sql not run yet
+  }
+  return byRecord;
+}
+
+export async function addReview(
+  recordId: string,
+  decision: ReviewDecision,
+  comment: string,
+  reviewer: AppUser
+): Promise<RecordReview> {
+  if (!UUID_RE.test(recordId)) throw new PublicError("Record not found.", 404);
+  if (!["Approved", "Rejected", "Comment"].includes(decision)) throw new PublicError("Invalid decision.", 400);
+  const text = comment.trim();
+  if (decision !== "Approved" && !text) {
+    throw new PublicError(decision === "Rejected" ? "A reason is required to reject a record." : "Comment is empty.", 400);
+  }
+  if (text.length > 2000) throw new PublicError("Comment is too long (2000 characters max).", 400);
+
+  const [record] = await supabaseRest<LogbookRow[]>(
+    `/logbook_records?id=eq.${recordId}&select=id,amends,record_hash,submitted_by,created_at`
+  );
+  if (!record) throw new PublicError("Record not found.", 404);
+
+  if (decision !== "Comment") {
+    // no approving your own work
+    if (record.submitted_by === reviewer.id) {
+      throw new PublicError("You cannot approve or reject a record you submitted.", 403);
+    }
+    const rootId = record.amends || record.id;
+    const [latest] = await supabaseRest<{ id: string }[]>(
+      `/logbook_records?select=id&amends=eq.${rootId}&order=created_at.desc&limit=1`
+    );
+    if (latest && latest.id !== record.id) {
+      throw new PublicError("This record has a newer correction. Review the latest version instead.", 409);
+    }
+  }
+
+  let rows: ReviewRow[];
+  try {
+    rows = await supabaseRest<ReviewRow[]>("/logbook_reviews?select=*", {
+      method: "POST",
+      prefer: "return=representation",
+      body: [{
+        record_id: recordId,
+        record_hash: record.record_hash || "",
+        decision,
+        comment: text,
+        reviewer_id: reviewer.id,
+        reviewer_name: reviewer.fullName || reviewer.username,
+      }],
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "";
+    if (msg.includes("logbook_reviews") && (msg.includes("PGRST205") || msg.includes("does not exist"))) {
+      throw new PublicError("Reviews are not set up yet. Run supabase/reviews.sql in the Supabase SQL editor.", 503);
+    }
+    throw e;
+  }
+  const r = rows[0];
+  return {
+    id: r.id, createdAt: r.created_at, recordId: r.record_id, decision: r.decision,
+    comment: r.comment || "", reviewerName: r.reviewer_name || "", hashMatches: true,
+  };
 }
 
 export async function createRecord(input: LogbookInput, submittedBy: string) {
@@ -418,9 +616,7 @@ function recordToRow(
 ) {
   return {
     submitted_by: submittedBy,
-    // status / supervisor_comment are not-null with a check constraint.
-    status: "Approved",
-    supervisor_comment: "",
+    // status is left at its default; reviews live in logbook_reviews
     laboratory_name: input.laboratoryName,
     department: input.department,
     location: input.location,
@@ -462,27 +658,65 @@ export async function createAmendment(
   reason: string,
   submittedBy: string
 ): Promise<LogbookRecord> {
-  const original = await supabaseRest<LogbookRow[]>(
-    `/logbook_records?id=eq.${encodeURIComponent(originalId)}&select=id`
+  if (!UUID_RE.test(originalId)) throw new PublicError("Original record not found.", 404);
+  if (!reason.trim()) throw new PublicError("A reason is required for an amendment.", 400);
+  const [target] = await supabaseRest<LogbookRow[]>(
+    `/logbook_records?id=eq.${originalId}&select=*`
   );
-  if (original.length === 0) throw new Error("Original record not found.");
-  if (!reason.trim()) throw new Error("A reason is required for an amendment.");
+  if (!target) throw new PublicError("Original record not found.", 404);
+
+  // always link to the original record
+  const rootId = target.amends || target.id;
+  const [latestRow] = await supabaseRest<LogbookRow[]>(
+    `/logbook_records?select=*&amends=eq.${rootId}&order=created_at.desc&limit=1`
+  );
+  const current = latestRow ? mapRecord(latestRow) : target.amends ? null : mapRecord(target);
+  if (!current) throw new PublicError("Original record not found.", 404);
+
+  // instrument details, log type and signature can't be changed by a correction
+  const corrected: LogbookInput = {
+    ...input,
+    laboratoryName: current.laboratoryName,
+    department: current.department,
+    location: current.location,
+    instrumentName: current.instrumentName,
+    instrumentModel: current.instrumentModel,
+    serialNumber: current.serialNumber,
+    manufacturer: current.manufacturer,
+    installationDate: current.installationDate,
+    instrumentId: current.instrumentId,
+    activityType: current.activityType,
+    analystSignature: current.analystSignature,
+  };
+  const changed = (Object.keys(corrected) as (keyof LogbookInput)[]).some((k) =>
+    JSON.stringify(corrected[k] ?? "") !== JSON.stringify(current[k] ?? "")
+  );
+  if (!changed) throw new PublicError("Nothing was changed. Edit at least one value to issue a correction.", 400);
 
   const rows = await supabaseRest<LogbookRow[]>("/logbook_records?select=*", {
     method: "POST",
     prefer: "return=representation",
-    body: [recordToRow(input, submittedBy, { amends: originalId, amendmentReason: reason.trim() })],
+    body: [recordToRow(corrected, submittedBy, { amends: rootId, amendmentReason: reason.trim() })],
   });
   return mapRecord(rows[0]);
 }
 
-export async function verifyLogbookChain(): Promise<{ ok: boolean; checked: number; firstBad: string | null }> {
+type ChainResult = { ok: boolean; checked: number; firstBad: string | null };
+
+async function verifyChain(fn: string): Promise<ChainResult> {
   const rows = await supabaseRest<{ ok: boolean; checked: number; first_bad: string | null }[]>(
-    "/rpc/verify_logbook_chain",
+    `/rpc/${fn}`,
     { method: "POST", body: {} }
   );
   const r = rows[0] || { ok: true, checked: 0, first_bad: null };
   return { ok: r.ok, checked: Number(r.checked) || 0, firstBad: r.first_bad ?? null };
+}
+
+export async function verifyLogbookChain(): Promise<ChainResult & { reviews: ChainResult | null }> {
+  const records = await verifyChain("verify_logbook_chain");
+  // null until reviews.sql has been run
+  const reviews = await verifyChain("verify_review_chain").catch(() => null);
+  return { ...records, reviews };
 }
 
 // ─── Audit Log (append-only security events) ──────────────────────────────────
@@ -757,7 +991,7 @@ export async function listProvisionedUsernames(): Promise<string[]> {
 
 // Counts by role rather than by the generated usernames, which admins can rename.
 export async function countAdmins(): Promise<number> {
-  const rows = await supabaseRest<{ id: string }[]>("/profiles?select=id&role=eq.admin");
+  const rows = await supabaseRest<{ id: string }[]>("/profiles?select=id&role=in.(admin,supervisor)");
   return rows.length;
 }
 
@@ -841,7 +1075,7 @@ export async function listProfiles(): Promise<ProfilePublic[]> {
     username: r.username || "",
     email: r.email || "",
     fullName: r.full_name || "",
-    role: r.role,
+    role: normalizeRole(r.role),
     position: r.position || "",
     archived: r.archived === true,
   }));
@@ -914,7 +1148,7 @@ export async function deleteUser(username: string): Promise<void> {
 
 export async function updateUserCredentials(
   username: string,
-  opts: { newUsername?: string; newPassword?: string; newFullName?: string; newPosition?: string }
+  opts: { newUsername?: string; newPassword?: string; newFullName?: string; newPosition?: string; newRole?: UserRole }
 ): Promise<void> {
   const profile = await findProfileByUsername(username);
   if (!profile) throw new PublicError(`User "${username}" not found.`, 404);
@@ -932,6 +1166,9 @@ export async function updateUserCredentials(
   if (opts.newUsername) profilePatch.username = opts.newUsername;
   if (opts.newFullName) profilePatch.full_name = opts.newFullName;
   if (opts.newPosition !== undefined) profilePatch.position = opts.newPosition;
+  if (opts.newRole) profilePatch.role = opts.newRole;
+  // An admin-chosen password is a temporary one: make the user replace it.
+  if (opts.newPassword) profilePatch.password_change_required = true;
   if (Object.keys(profilePatch).length > 0) {
     // Keep the auth user's metadata in sync so the full name stays consistent.
     if (opts.newFullName) {
@@ -968,7 +1205,7 @@ function mapProfile(row: ProfileRow, metadata?: AuthMetadata): AppUser {
     email: row.email || "",
     username: row.username || row.email?.split("@")[0] || "user",
     fullName: row.full_name || row.email || "User",
-    role: row.role,
+    role: normalizeRole(row.role),
     passwordChangeRequired: row.password_change_required ?? false,
     avatarSeed: metadataString(metadata, "avatar_seed") || metadataString(metadata, "avatarSeed") || row.id,
   };
@@ -1010,6 +1247,9 @@ function mapRecord(row: LogbookRow): LogbookRecord {
     recordHash: row.record_hash || "",
     amends: row.amends ?? null,
     amendmentReason: row.amendment_reason || "",
+    status: "Pending",
+    reviews: [],
+    submitterName: "",
   };
 }
 

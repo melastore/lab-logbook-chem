@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const user = await currentUser();
   if (!user || !canReview(user)) {
-    return NextResponse.json({ error: "Supervisor access required." }, { status: 403 });
+    return NextResponse.json({ error: "Admin access required." }, { status: 403 });
   }
   try {
     const entries = await listAuditLog();

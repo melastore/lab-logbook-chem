@@ -70,7 +70,7 @@ export async function POST(request: Request) {
   // A single record carrying `amends` is a correction, not a new entry.
   if (!isBulk && typeof body.amends === "string" && body.amends) {
     if (!canReview(user)) {
-      return NextResponse.json({ error: "Supervisor access required to amend a record." }, { status: 403 });
+      return NextResponse.json({ error: "Admin access required to amend a record." }, { status: 403 });
     }
     const reason = clean(body.amendmentReason);
     if (!reason) {
@@ -84,7 +84,7 @@ export async function POST(request: Request) {
       });
       return NextResponse.json({ records: [amendment], count: 1 });
     } catch (e) {
-      return errorResponse("logbook", e, 400);
+      return errorResponse("logbook", e);
     }
   }
 

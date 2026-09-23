@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 const FIELD_TYPES: FieldType[] = ["text", "date", "time", "textarea", "number", "select"];
 
 // Any signed-in user can read the forms (the data-entry page needs them);
-// only supervisors/admins may change them.
+// only admins may change them.
 export async function GET() {
   const user = await currentUser();
   if (!user) return NextResponse.json({ forms: [] }, { status: 401 });
@@ -25,18 +25,24 @@ export async function GET() {
 export async function POST(request: Request) {
   const user = await currentUser();
   if (!user || !canReview(user)) {
-    return NextResponse.json({ error: "Supervisor access required." }, { status: 403 });
+    return NextResponse.json({ error: "Admin access required." }, { status: 403 });
   }
   const gate = passwordChangeGate(user);
   if (gate) return gate;
   try {
     const body = await request.json();
-    const id = slug(body.id) || slug(body.title) || `form-${Date.now()}`;
     const title = clean(body.title);
     const activityType = clean(body.activityType).toUpperCase();
     if (!title || !activityType) {
-      return NextResponse.json({ error: "Title and activity type are required." }, { status: 400 });
+      return NextResponse.json({ error: "Title and log type code are required." }, { status: 400 });
     }
+    const existing = await listForms();
+    const problem = formProblem(existing, { title, activityType });
+    if (problem) return NextResponse.json({ error: problem }, { status: 400 });
+    // Two forms titled alike must not collide on id and overwrite each other.
+    const base = slug(body.id) || slug(title) || "form";
+    let id = base;
+    for (let n = 2; existing.some((f) => f.id === id); n++) id = `${base}-${n}`;
     const form = await createForm({
       id,
       title,
@@ -54,7 +60,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const user = await currentUser();
   if (!user || !canReview(user)) {
-    return NextResponse.json({ error: "Supervisor access required." }, { status: 403 });
+    return NextResponse.json({ error: "Admin access required." }, { status: 403 });
   }
   const gate = passwordChangeGate(user);
   if (gate) return gate;
@@ -63,6 +69,11 @@ export async function PATCH(request: Request) {
   if (!id) return NextResponse.json({ error: "id required." }, { status: 400 });
   try {
     const body = await request.json();
+    const problem = formProblem(await listForms(), {
+      title: body.title !== undefined ? clean(body.title) : undefined,
+      activityType: body.activityType !== undefined ? clean(body.activityType).toUpperCase() : undefined,
+    }, id);
+    if (problem) return NextResponse.json({ error: problem }, { status: 400 });
     const form = await updateForm(id, {
       title:        body.title        !== undefined ? clean(body.title)                    : undefined,
       activityType: body.activityType !== undefined ? clean(body.activityType).toUpperCase() : undefined,
@@ -80,19 +91,39 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const user = await currentUser();
   if (!user || !canReview(user)) {
-    return NextResponse.json({ error: "Supervisor access required." }, { status: 403 });
+    return NextResponse.json({ error: "Admin access required." }, { status: 403 });
   }
   const gate = passwordChangeGate(user);
   if (gate) return gate;
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id") || "";
   if (!id) return NextResponse.json({ error: "id required." }, { status: 400 });
+  if (id === "instrument") {
+    return NextResponse.json({ error: "The default General Information form can't be deleted." }, { status: 400 });
+  }
   try {
     await deleteForm(id);
     return NextResponse.json({ ok: true });
   } catch (e) {
     return errorResponse("forms", e, 500);
   }
+}
+
+// Log type codes tie records to their form, so they must be unique and simple.
+function formProblem(
+  existing: { id: string; activityType: string }[],
+  next: { title?: string; activityType?: string },
+  editingId?: string,
+) {
+  if (next.title !== undefined && !next.title) return "Title can't be empty.";
+  if (next.activityType !== undefined) {
+    if (!/^[A-Z0-9_]{1,12}$/.test(next.activityType)) {
+      return "Log type code must be 1–12 letters, numbers or underscores (e.g. OP, CAL, MAINT).";
+    }
+    const clash = existing.find((f) => f.id !== editingId && f.activityType.toUpperCase() === next.activityType);
+    if (clash) return `Log type code "${next.activityType}" is already used by another form.`;
+  }
+  return null;
 }
 
 function clean(value: unknown) {
@@ -117,7 +148,8 @@ function sanitizeFields(value: unknown): FormField[] {
     const r = raw as Record<string, unknown>;
     const key = slugKey(r.key) || slugKey(r.label);
     const label = clean(r.label);
-    if (!key || !label) continue;
+    // Duplicate keys would make two fields share one stored value.
+    if (!key || !label || fields.some((f) => f.key === key)) continue;
     const type = FIELD_TYPES.includes(r.type as FieldType) ? (r.type as FieldType) : "text";
     const field: FormField = { key, label, type };
     if (r.required === true) field.required = true;

@@ -5,23 +5,17 @@ import type { UserRole } from "./logbook";
 // target's role and pass it in.
 
 export function isManager(role: UserRole): boolean {
-  return role === "supervisor" || role === "admin";
+  return role === "admin";
 }
 
-// Who may create an account of a given role. Analyst accounts: any manager.
-// Supervisor/admin accounts: admins only (blocks a supervisor from minting an
-// admin and escalating).
-export function canCreateRole(actorRole: UserRole, targetRole: UserRole): boolean {
-  if (targetRole === "analyst") return isManager(actorRole);
+// Only admins create accounts, of either role.
+export function canCreateRole(actorRole: UserRole): boolean {
   return actorRole === "admin";
 }
 
-// Who may manage (reset password / rename / archive / delete) an account of a
-// given role. Admins manage everyone; supervisors manage analysts only.
-export function canManageRole(actorRole: UserRole, targetRole: UserRole): boolean {
-  if (actorRole === "admin") return true;
-  if (actorRole === "supervisor") return targetRole === "analyst";
-  return false;
+// Only admins manage (reset password / rename / archive / delete) accounts.
+export function canManageRole(actorRole: UserRole): boolean {
+  return actorRole === "admin";
 }
 
 // Resolve which user's weekly plans a request may touch. Managers may target any

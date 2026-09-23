@@ -7,7 +7,7 @@ create table if not exists public.profiles (
   email text,
   full_name text not null,
   username text unique,
-  role text not null default 'analyst' check (role in ('analyst', 'supervisor', 'admin')),
+  role text not null default 'analyst' check (role in ('analyst', 'admin')),
   position text not null default '',
   password_change_required boolean not null default true,
   archived boolean not null default false,
@@ -244,7 +244,7 @@ end $$;
 --   alter table public.app_config enable row level security;
 --
 -- ─── Pre-generated User Accounts ─────────────────────────────────────────────
--- Use the Supervisor Dashboard → Users tab to provision all 18 accounts
+-- Use the Admin Dashboard → Users tab to provision all 18 accounts
 -- (3 admins + 15 analysts) into Supabase Auth with one click.
 
 -- Update form_definitions scope check

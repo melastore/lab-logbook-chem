@@ -149,7 +149,7 @@ export const QUALITY_CALIBRATION: FormDef = {
     { key: "percentRecovery",   label: "% Recovery",                          type: "text", placeholder: "e.g. 102%" },
     { key: "resultStatus",      label: "Result / Status",                     type: "text", placeholder: "e.g. PASS" },
     { key: "analyst",           label: "Performed By",                        type: "text", required: true, placeholder: "Full name" },
-    { key: "approvedBy",        label: "Approved By",                         type: "text", placeholder: "Supervisor name" },
+    { key: "approvedBy",        label: "Approved By",                         type: "text", placeholder: "Admin name" },
     { key: "dueDate",           label: "Due Date",                            type: "date" },
     { key: "remarks",           label: "Remarks",                             type: "textarea", full: true },
   ],

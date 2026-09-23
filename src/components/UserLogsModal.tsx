@@ -5,9 +5,8 @@ import { RefreshCw, XCircle, Info, ShieldCheck, ChevronDown, Calendar } from "lu
 import type { LogbookRecord } from "@/lib/logbook";
 import { ModalShell } from "./ModalShell";
 
-// Records from /api/logbook map to LogbookRecord; status is attached server-side
-// and recordDate is an occasional alias for the record date.
-type LogRecord = LogbookRecord & { status?: string; recordDate?: string };
+// recordDate is an occasional alias for the record date.
+type LogRecord = LogbookRecord & { recordDate?: string };
 
 type UserLogsModalProps = {
   name: string;
@@ -95,7 +94,7 @@ export function UserLogsModal({ name, open, onClose, headerAvatar }: UserLogsMod
             {userLogs.map((log, index) => {
               const expanded = expandedRowId === log.id;
               const details = buildRecordDetails(log);
-              const status = log.status || "Approved";
+              const status = log.status || "Pending";
               const recordDate = log.date || log.recordDate || "No date";
 
               return (
@@ -134,6 +133,23 @@ export function UserLogsModal({ name, open, onClose, headerAvatar }: UserLogsMod
                           </div>
                         ))}
                       </div>
+                      {log.reviews?.length > 0 && (
+                        <div className="review-history">
+                          <p className="detail-label">Admin review</p>
+                          <ol>
+                            {log.reviews.map((r) => (
+                              <li key={r.id} className={`review-entry ${r.decision.toLowerCase()}`}>
+                                <div className="review-entry-head">
+                                  <strong>{r.decision === "Comment" ? "Comment" : r.decision}</strong>
+                                  <span>{r.reviewerName}</span>
+                                  <span className="review-entry-time">{new Date(r.createdAt).toLocaleString()}</span>
+                                </div>
+                                {r.comment && <p className="review-entry-text">{r.comment}</p>}
+                              </li>
+                            ))}
+                          </ol>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -192,7 +208,10 @@ function buildRecordDetails(log: LogRecord): RecordDetail[] {
   }
 
   push("Remarks", log.remarks, { full: true });
-  if (log.amends) push("Amendment Reason", log.amendmentReason, { full: true });
+  if (log.amends) {
+    push("Amendment Reason", log.amendmentReason, { full: true });
+    push("Corrected By", log.submitterName);
+  }
 
   // ISO/IEC 17025 integrity trail.
   if (log.chainIndex !== null && log.chainIndex !== undefined) push("Chain Index", `#${log.chainIndex}`);

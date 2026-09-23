@@ -60,7 +60,7 @@ export default function SetupPage() {
                 Admin accounts are already set up. Go to the login page.
               </div>
               <Link className="btn btn-primary btn-lg" href="/login?redirect=/admin">
-                Go to Supervisor Login
+                Go to Admin Login
               </Link>
             </div>
           )}
@@ -76,7 +76,7 @@ export default function SetupPage() {
             <div className="setup-stack">
               <p className="setup-copy">
                 No admin accounts have been provisioned yet. Click below to create the
-                3 supervisor accounts in Supabase Auth. This only runs once and is a
+                3 admin accounts in Supabase Auth. This only runs once and is a
                 no-op if admins already exist.
               </p>
 
@@ -133,13 +133,13 @@ export default function SetupPage() {
                     Sign in as <code className="setup-code">admin01</code> with the private temporary password configured in <code className="setup-code">LAB_INITIAL_PASSWORD</code>.
                   </li>
                   <li>Change the temporary password when prompted.</li>
-                  <li>Go to Supervisor Dashboard, then Users, and provision all users.</li>
-                  <li>Go to Supervisor Dashboard, then Instruments, and fill in lab details.</li>
+                  <li>Go to Admin Dashboard, then Users, and provision all users.</li>
+                  <li>Go to Admin Dashboard, then Instruments, and fill in lab details.</li>
                 </ol>
               </div>
 
               <Link className="btn btn-primary btn-lg" href="/login?redirect=/admin">
-                Sign in as Supervisor
+                Sign in as Admin
               </Link>
             </div>
           )}
@@ -163,7 +163,7 @@ export default function SetupPage() {
 
         <footer className="setup-footer">
           <Link href="/" style={{ color: "var(--muted)" }}>Analyst logbook form</Link>
-          <Link className="text-link" href="/login?redirect=/admin">Supervisor login</Link>
+          <Link className="text-link" href="/login?redirect=/admin">Admin login</Link>
         </footer>
       </div>
     </main>

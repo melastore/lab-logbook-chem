@@ -73,7 +73,7 @@ export async function currentUser(): Promise<AppUser | null> {
 }
 
 export function canReview(user: AppUser) {
-  return user.role === "supervisor" || user.role === "admin";
+  return user.role === "admin";
 }
 
 // Accounts start on the shared initial password with passwordChangeRequired set.

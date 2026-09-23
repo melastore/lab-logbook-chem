@@ -20,18 +20,20 @@ export async function GET() {
 export async function POST(request: Request) {
   const user = await currentUser();
   if (!user || !canReview(user)) {
-    return NextResponse.json({ error: "Supervisor access required." }, { status: 403 });
+    return NextResponse.json({ error: "Admin access required." }, { status: 403 });
   }
   const gate = passwordChangeGate(user);
   if (gate) return gate;
   try {
     const body = await request.json();
+    const problem = await templateProblem(body);
+    if (problem) return NextResponse.json({ error: problem.error }, { status: problem.status });
     const template = await createTemplate({
       categoryId:       clean(body.categoryId),
       instrumentName:   clean(body.instrumentName),
       instrumentModel:  clean(body.instrumentModel),
       serialNumber:     clean(body.serialNumber),
-      manufacturer:     clean(body.manufacturer) || "Thermo Scientific",
+      manufacturer:     clean(body.manufacturer),
       installationDate: clean(body.installationDate),
       instrumentId:     clean(body.instrumentId),
       laboratoryName:   clean(body.laboratoryName),
@@ -42,7 +44,7 @@ export async function POST(request: Request) {
       logbookEndDate:   clean(body.logbookEndDate),
       methodUsed:       clean(body.methodUsed),
       displayOrder:     Number(body.displayOrder) || 0,
-      metadata:         body.metadata || {},
+      metadata:         plainObject(body.metadata),
       infoFormId:       clean(body.infoFormId),
     });
     return NextResponse.json({ template }, { status: 201 });
@@ -54,7 +56,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const user = await currentUser();
   if (!user || !canReview(user)) {
-    return NextResponse.json({ error: "Supervisor access required." }, { status: 403 });
+    return NextResponse.json({ error: "Admin access required." }, { status: 403 });
   }
   const gate = passwordChangeGate(user);
   if (gate) return gate;
@@ -63,6 +65,8 @@ export async function PATCH(request: Request) {
   if (!id) return NextResponse.json({ error: "id required." }, { status: 400 });
   try {
     const body = await request.json();
+    const problem = await templateProblem(body, id);
+    if (problem) return NextResponse.json({ error: problem.error }, { status: problem.status });
     const template = await updateTemplate(id, {
       categoryId:       body.categoryId       !== undefined ? clean(body.categoryId)       : undefined,
       instrumentName:   body.instrumentName   !== undefined ? clean(body.instrumentName)   : undefined,
@@ -79,7 +83,7 @@ export async function PATCH(request: Request) {
       logbookEndDate:   body.logbookEndDate   !== undefined ? clean(body.logbookEndDate)   : undefined,
       methodUsed:       body.methodUsed       !== undefined ? clean(body.methodUsed)       : undefined,
       displayOrder:     body.displayOrder     !== undefined ? Number(body.displayOrder)    : undefined,
-      metadata:         body.metadata         !== undefined ? body.metadata                : undefined,
+      metadata:         body.metadata         !== undefined ? plainObject(body.metadata)   : undefined,
       infoFormId:       body.infoFormId       !== undefined ? clean(body.infoFormId)       : undefined,
     });
     if (!template) return NextResponse.json({ error: "Not found." }, { status: 404 });
@@ -92,7 +96,7 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const user = await currentUser();
   if (!user || !canReview(user)) {
-    return NextResponse.json({ error: "Supervisor access required." }, { status: 403 });
+    return NextResponse.json({ error: "Admin access required." }, { status: 403 });
   }
   const gate = passwordChangeGate(user);
   if (gate) return gate;
@@ -109,4 +113,28 @@ export async function DELETE(request: Request) {
 
 function clean(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function plainObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+// Name and category are required on create (and can't be blanked on edit);
+// instrument IDs must be unique so records point at one instrument.
+async function templateProblem(body: Record<string, unknown>, editingId?: string) {
+  const creating = !editingId;
+  if ((creating || body.instrumentName !== undefined) && !clean(body.instrumentName)) {
+    return { status: 400, error: "Instrument name is required." };
+  }
+  if ((creating || body.categoryId !== undefined) && !clean(body.categoryId)) {
+    return { status: 400, error: "Choose a category." };
+  }
+  const instrumentId = clean(body.instrumentId);
+  if (instrumentId) {
+    const clash = (await listTemplates()).find(
+      (t) => t.id !== editingId && t.instrumentId.trim().toLowerCase() === instrumentId.toLowerCase()
+    );
+    if (clash) return { status: 409, error: `Instrument ID "${instrumentId}" is already used by ${clash.instrumentName}.` };
+  }
+  return null;
 }

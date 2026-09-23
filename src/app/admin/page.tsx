@@ -1,35 +1,46 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { 
-  PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, 
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
   AreaChart, Area 
 } from "recharts";
 import { 
   LayoutDashboard, FileText, Activity, Users, Download, RefreshCw,
   Filter, X, Search, ChevronDown, CheckCircle2, XCircle,
-  Clock, Microscope, Settings, LogOut,
+  Clock, Microscope, Settings,
   ArrowLeft, FileOutput, Calendar, User, Hash, Info,
-  Plus, Edit2, Trash2, ShieldAlert, Tag, Table as TableIcon, LayoutGrid,
+  Plus, Trash2, ShieldAlert, Tag, Table as TableIcon, LayoutGrid,
   FileSpreadsheet, Archive, ArchiveRestore, KeyRound, UserCheck,
-  ShieldCheck, AlertTriangle, Pencil, History, TrendingUp, ChevronRight, Printer
+  ShieldCheck, AlertTriangle, Pencil, History, TrendingUp, ChevronRight, Printer,
+  MessageSquare, Eye, EyeOff, ChevronLeft
 } from "lucide-react";
-import type { AppUser, InstrumentCategory, InstrumentTemplate, LogbookRecord, ProfilePublic } from "@/lib/logbook";
-import { LOG_TYPES } from "@/lib/logbook";
+import type { AppUser, InstrumentCategory, InstrumentTemplate, LogbookRecord, ProfilePublic, ReviewDecision } from "@/lib/logbook";
+import { LOG_TYPES, currentVersionIds } from "@/lib/logbook";
 import { 
   ALL_FORMS, STANDARD_KEYS, INSTRUMENT_STANDARD_KEYS,
   type FormDef, type FormField, type FieldType, type FormScope 
 } from "@/lib/forms";
 import { UserAvatar } from "@/components/UserAvatar";
+import { MIN_PASSWORD_LENGTH } from "@/lib/password";
 import { ModalShell } from "@/components/ModalShell";
-import { ThemeToggle } from "@/components/ThemeToggle";
-import { LabLogo } from "@/components/LabLogo";
+import { AppHeader } from "@/components/AppHeader";
 import { parseAnalystSignature, signatureSummary, type AnalystSignaturePayload } from "@/lib/signature";
-import { taskWeight, taskAchWeight, type WeeklyPlan } from "@/lib/weekly-plan";
+import { taskWeight, taskAchWeight, toISODate, mondayOf, addWeeks, weekLabel, planStats, performanceRating, type WeeklyPlan } from "@/lib/weekly-plan";
+import { templateSheet, summarySheets, sheetName, fileSafe } from "@/lib/weekly-export";
 
 type Tab = "instruments" | "records" | "insights" | "users" | "forms" | "weekly";
+
+const TAB_LABELS: Record<Tab, string> = {
+  records: "Records",
+  weekly: "Weekly Plans",
+  insights: "Overview",
+  instruments: "Instruments",
+  forms: "Forms",
+  users: "Users",
+};
 
 function formatRunTime(start: string, end: string) {
   if (!start && !end) return "";
@@ -47,8 +58,14 @@ export default function AdminDashboard() {
   const [tab, setTab] = useState<Tab | null>(null);
   const [user, setUser] = useState<AppUser | null>(null);
   const [authReady, setAuthReady] = useState(false);
-  const [authMessage, setAuthMessage] = useState("");
   const [forms, setForms] = useState<FormDef[]>(ALL_FORMS);
+  const [pendingReviews, setPendingReviews] = useState(0);
+  // Lets Overview open Records pre-filtered; the key remounts it with that filter.
+  const [recordsView, setRecordsView] = useState<{ status: RecordsStatus; key: number }>({ status: "All", key: 0 });
+  const openRecords = useCallback((status: RecordsStatus) => {
+    setRecordsView((v) => ({ status, key: v.key + 1 }));
+    setTab("records");
+  }, []);
   const router = useRouter();
 
   useEffect(() => {
@@ -62,109 +79,33 @@ export default function AdminDashboard() {
       .then((r) => r.ok ? r.json() : { forms: [] })
       .then((d) => { if (d.forms?.length) setForms(d.forms); })
       .catch(() => {});
+
+    fetch("/api/logbook/review")
+      .then((r) => r.ok ? r.json() : { pending: 0 })
+      .then((d) => setPendingReviews(d.pending || 0))
+      .catch(() => {});
   }, []);
 
-  async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" });
-    setUser(null);
-    setAuthMessage("Signed out.");
-  }
 
-  const isAdmin = user?.role === "admin" || user?.role === "supervisor";
+
+  const isAdmin = user?.role === "admin";
 
   // Analysts have no business on the admin/logs dashboard (it lists every
   // analyst's records). Their own logs are on the entry page's "Logs" button.
-  // Bounce a signed-in non-admin back home; only admins/supervisors stay.
+  // Bounce a signed-in non-admin back home; only admins stay.
   useEffect(() => {
     if (authReady && user && !isAdmin) router.replace("/");
   }, [authReady, user, isAdmin, router]);
 
   const visibleTabs = useMemo<Tab[]>(() => (
-    isAdmin ? ["instruments", "records", "weekly", "insights", "users", "forms"] : []
+    isAdmin ? ["records", "weekly", "insights", "instruments", "forms", "users"] : []
   ), [isAdmin]);
   const activeTab = tab && visibleTabs.includes(tab) ? tab : visibleTabs[0];
 
   return (
-    <main className="app-shell">
-      <aside className="app-rail" aria-label="Primary navigation">
-        <div className="rail-brand">
-            <LabLogo size={32} />
-          <span>Lab Admin</span>
-        </div>
-        <nav className="rail-nav">
-          <Link className="rail-link" href="/">
-            <Activity size={22} />
-            <span>Entry</span>
-          </Link>
-          {isAdmin && (
-            <Link className="rail-link active" href="/admin">
-              <LayoutDashboard size={22} />
-              <span>Admin</span>
-            </Link>
-          )}
-          {user && (
-            <Link className="rail-link" href="/settings">
-              <Settings size={22} />
-              <span>Settings</span>
-            </Link>
-          )}
-          <ThemeToggle variant="rail" />
-          {user && (
-            <Link className="rail-avatar" href="/settings" title={user.fullName}>
-              <UserAvatar name={user.username} seed={user.avatarSeed} size="sm" />
-              <span>{user.username}</span>
-            </Link>
-          )}
-        </nav>
-        <div className="rail-foot">
-          <span className="rail-caption">Supervisor tools</span>
-        </div>
-      </aside>
-
-      <div className="app-frame">
-      <header className="topbar">
-        <div className="brand-heading">
-          <LabLogo size={40} />
-          <div className="brand-text">
-            <p className="eyebrow">Supervisor Dashboard</p>
-            <h1>Instrument Logbook Management</h1>
-          </div>
-        </div>
-        <div className="topbar-actions">
-          {user ? (
-            <>
-              <span className="user-chip shadow-sm">
-                <UserAvatar name={user.username} seed={user.avatarSeed} size="sm" />
-                <span className="user-chip-name">{user.username}</span>
-                <span className="user-role-badge">{user.role}</span>
-              </span>
-              <div className="topbar-nav-btns">
-                <ThemeToggle variant="chip" />
-                {user.role === "admin" && (
-                  <a className="btn btn-outline btn-sm" href="/api/admin/backup" download>
-                    <Download size={14} /> Backup
-                  </a>
-                )}
-                <Link className="btn btn-outline btn-sm" href="/settings">
-                  <Settings size={14} />
-                </Link>
-                <button className="btn btn-outline btn-sm" type="button" onClick={logout}>
-                  <LogOut size={14} />
-                </button>
-                <Link className="btn btn-primary btn-sm" href="/">
-                  <ArrowLeft size={14} /> Entry
-                </Link>
-              </div>
-            </>
-          ) : (
-            <div className="topbar-nav-btns">
-              <ThemeToggle variant="chip" />
-            </div>
-          )}
-        </div>
-      </header>
-
-      {authMessage && <div className="notice notice-info">{authMessage}</div>}
+    <main className="app-layout">
+      <AppHeader user={user} />
+      <div className="app-page">
       
       {authReady && user && !isAdmin && (
         <div className="notice notice-info">Redirecting to the entry page…</div>
@@ -175,7 +116,7 @@ export default function AdminDashboard() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <ShieldAlert size={24} className="tone-amber" />
-              <span>Sign in with a supervisor or admin account to access restricted management tools.</span>
+              <span>Sign in with an admin account to access restricted management tools.</span>
             </div>
             <span style={{ display: "flex", gap: 10 }}>
               <Link className="btn btn-primary btn-sm" href="/login?redirect=/admin">Sign in →</Link>
@@ -195,17 +136,18 @@ export default function AdminDashboard() {
               {t === "insights" && <LayoutDashboard size={16} />}
               {t === "users" && <Users size={16} />}
               {t === "forms" && <FileSpreadsheet size={16} />}
-              <span>
-                {t === "instruments" ? "Instruments" : t === "records" ? "Log Records" : t === "weekly" ? "Weekly Reports" : t === "insights" ? "Report" : t === "users" ? "Users" : "Forms"}
-              </span>
+              <span>{TAB_LABELS[t]}</span>
+              {t === "records" && pendingReviews > 0 && (
+                <span className="count-badge" title={`${pendingReviews} waiting for review`}>{pendingReviews}</span>
+              )}
             </button>
           ))}
         </div>
       </div>
 
       <div className="admin-content-area">
-        {activeTab === "insights"    && <InsightsTab />}
-        {activeTab === "records"     && <RecordsTab user={user} isAdmin={isAdmin} forms={forms} />}
+        {activeTab === "insights"    && <InsightsTab onOpenRecords={openRecords} onOpenTab={setTab} />}
+        {activeTab === "records"     && <RecordsTab key={recordsView.key} initialStatus={recordsView.status} user={user} isAdmin={isAdmin} forms={forms} onPendingChange={setPendingReviews} />}
         {isAdmin && activeTab === "weekly"      && <WeeklyReportsTab />}
         {isAdmin && activeTab === "instruments" && <InstrumentsTab user={user} isAdmin={isAdmin} forms={forms} />}
         {isAdmin && activeTab === "users"       && <UsersTab user={user} isAdmin={isAdmin} />}
@@ -220,195 +162,204 @@ export default function AdminDashboard() {
    Tab 0 — Insights
    ════════════════════════════════════════════════════════════════════════════ */
 
-function InsightsTab() {
+type RecordsStatus = "All" | "Pending" | "Approved" | "Rejected";
+
+// Shared inline notice for the admin tabs; success messages fade on their own.
+function TabNotice({ notice, onClose }: { notice: { type: "success" | "error"; text: string } | null; onClose: () => void }) {
+  useEffect(() => {
+    if (notice?.type !== "success") return;
+    const t = setTimeout(onClose, 4000);
+    return () => clearTimeout(t);
+  }, [notice, onClose]);
+  if (!notice) return null;
+  return (
+    <div className={`notice notice-${notice.type} um-notice`} role="status">
+      {notice.type === "success" ? <CheckCircle2 size={18} /> : <XCircle size={18} />}
+      <span>{notice.text}</span>
+      <button className="btn btn-ghost btn-sm" type="button" onClick={onClose} aria-label="Dismiss"><X size={14} /></button>
+    </div>
+  );
+}
+
+function InsightsTab({ onOpenRecords, onOpenTab }: {
+  onOpenRecords: (status: RecordsStatus) => void;
+  onOpenTab: (tab: Tab) => void;
+}) {
   const [records, setRecords] = useState<LogbookRecord[]>([]);
+  const [plans, setPlans] = useState<WeeklyPlan[]>([]);
+  const [people, setPeople] = useState<ProfilePublic[]>([]);
   const [loading, setLoading] = useState(true);
+  const [days, setDays] = useState(14);
 
   useEffect(() => {
-    fetch("/api/logbook")
-      .then(r => r.json())
-      .then(d => {
-        setRecords(d.records || []);
-        setLoading(false);
-      });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const get = (url: string): Promise<any> => fetch(url, { cache: "no-store" }).then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
+    Promise.all([get("/api/logbook"), get("/api/weekly-plan"), get("/api/users")]).then(([l, w, u]) => {
+      setRecords(l.records || []);
+      setPlans(w.plans || []);
+      setPeople(u.profiles || []);
+      setLoading(false);
+    });
   }, []);
 
-  const stats = useMemo(() => {
-    if (records.length === 0) return null;
+  const data = useMemo(() => {
+    const current = currentVersionIds(records);
+    const live = records.filter((r) => current.has(r.id));
+    const today = toISODate(new Date());
+    const dayOf = (r: LogbookRecord) => r.date || toISODate(new Date(r.createdAt));
 
-    // Record scope distribution
-    const scopeData = [
-      { name: "Instrument", value: records.filter(r => !isSampleRecord(r)).length, color: "var(--primary)" },
-      { name: "Sample Prep", value: records.filter(r => isSampleRecord(r)).length, color: "var(--warning)" },
-    ].filter(s => s.value > 0);
-
-    // Activity Type Distribution
-    const activityTypeMap: Record<string, number> = {};
-    records.forEach(r => {
-      const label = LOG_TYPES.find(t => t.id === r.activityType)?.label || r.activityType;
-      activityTypeMap[label] = (activityTypeMap[label] || 0) + 1;
-    });
-    const activityTypeData = Object.entries(activityTypeMap)
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value);
-
-    // Instrument Usage
-    const instMap: Record<string, number> = {};
-    records.forEach(r => {
-      instMap[r.instrumentName] = (instMap[r.instrumentName] || 0) + 1;
-    });
-    const instrumentData = Object.entries(instMap)
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 8);
-
-    // Daily Activity (last 14 days)
-    const dateMap: Record<string, number> = {};
-    const last14Days = Array.from({ length: 14 }, (_, i) => {
+    const range = Array.from({ length: days }, (_, i) => {
       const d = new Date();
-      d.setDate(d.getDate() - i);
-      return d.toISOString().slice(0, 10);
-    }).reverse();
-
-    records.forEach(r => {
-      const d = r.date || r.createdAt.slice(0, 10);
-      if (last14Days.includes(d)) {
-        dateMap[d] = (dateMap[d] || 0) + 1;
-      }
+      d.setDate(d.getDate() - (days - 1 - i));
+      return toISODate(d);
     });
-    const activityTrendData = last14Days.map(date => ({
-      date: new Date(date).toLocaleDateString("en-GB", { day: "2-digit", month: "short" }),
-      count: dateMap[date] || 0
+    const inRange = live.filter((r) => dayOf(r) >= range[0]);
+    const perDay = new Map<string, number>();
+    inRange.forEach((r) => perDay.set(dayOf(r), (perDay.get(dayOf(r)) || 0) + 1));
+    const trend = range.map((date) => ({
+      date: new Date(date + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short" }),
+      count: perDay.get(date) || 0,
     }));
 
-    return { scopeData, activityTypeData, instrumentData, activityTrendData };
-  }, [records]);
+    const countBy = (list: LogbookRecord[], key: (r: LogbookRecord) => string) => {
+      const m = new Map<string, number>();
+      list.forEach((r) => { const k = key(r) || "—"; m.set(k, (m.get(k) || 0) + 1); });
+      return [...m.entries()].map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+    };
+
+    const week = mondayOf();
+    const analysts = people.filter((p) => !p.archived && p.role === "analyst");
+    const submitted = new Set(plans.filter((p) => p.weekStartDate === week && p.tasks.length > 0).map((p) => p.username));
+
+    return {
+      pending: live.filter((r) => r.status === "Pending").length,
+      rejected: live.filter((r) => r.status === "Rejected").length,
+      today: live.filter((r) => dayOf(r) === today).length,
+      inRange: inRange.length,
+      perDayAvg: inRange.length / days,
+      activeInstruments: new Set(inRange.map((r) => r.instrumentName)).size,
+      activeAnalysts: new Set(inRange.map((r) => r.analyst)).size,
+      missingPlans: analysts.filter((a) => !submitted.has(a.username)),
+      analystCount: analysts.length,
+      trend,
+      byType: countBy(inRange, (r) => LOG_TYPES.find((t) => t.id === r.activityType)?.label || r.activityType),
+      byInstrument: countBy(inRange, (r) => r.instrumentName).slice(0, 8),
+      byAnalyst: countBy(inRange, (r) => r.analyst).slice(0, 8),
+    };
+  }, [records, plans, people, days]);
 
   if (loading) return (
     <div className="insights-skeleton-grid">
-      <div className="skeleton chart-card-skeleton" />
-      <div className="skeleton chart-card-skeleton" />
-      <div className="skeleton chart-card-skeleton" />
-      <div className="skeleton chart-card-skeleton" />
+      {[1, 2, 3, 4].map((i) => <div key={i} className="skeleton chart-card-skeleton" />)}
     </div>
   );
 
-  if (!stats) return <div className="empty-state-modern"><LayoutDashboard size={40} /><p>No data available for analytics yet.</p></div>;
+  const attention = [
+    {
+      key: "pending", tone: "amber", icon: <Clock size={20} />, value: data.pending,
+      label: "Waiting for review", hint: data.pending ? "Open and approve" : "All caught up",
+      onClick: () => onOpenRecords("Pending"),
+    },
+    {
+      key: "rejected", tone: "red", icon: <XCircle size={20} />, value: data.rejected,
+      label: "Rejected records", hint: data.rejected ? "Waiting on the analyst to correct" : "None open",
+      onClick: () => onOpenRecords("Rejected"),
+    },
+    {
+      key: "plans", tone: "blue", icon: <Calendar size={20} />, value: data.missingPlans.length,
+      label: "Weekly plans missing", hint: data.analystCount ? `${data.analystCount - data.missingPlans.length} of ${data.analystCount} analysts submitted` : "No analysts yet",
+      onClick: () => onOpenTab("weekly"),
+    },
+    {
+      key: "today", tone: "green", icon: <FileText size={20} />, value: data.today,
+      label: "Logs today", hint: "See all records",
+      onClick: () => onOpenRecords("All"),
+    },
+  ];
+
+  const hBar = (rows: { name: string; value: number }[], color: string) => (
+    rows.length === 0 ? <p className="ov-empty">No logs in this period.</p> : (
+      <ResponsiveContainer width="100%" height={Math.max(rows.length * 34, 120)}>
+        <BarChart data={rows} layout="vertical" margin={{ left: 8, right: 24 }}>
+          <XAxis type="number" hide allowDecimals={false} />
+          <YAxis dataKey="name" type="category" fontSize={12} width={130} tickLine={false} axisLine={false} />
+          <Tooltip cursor={{ fill: "var(--surface-3)" }} />
+          <Bar dataKey="value" name="Logs" fill={color} radius={[0, 4, 4, 0]} barSize={18} />
+        </BarChart>
+      </ResponsiveContainer>
+    )
+  );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      <div className="metrics-row">
-        <div className="metric-card shadow-sm">
-          <span className="metric-label">Total Records</span>
-          <span className="metric-value">{records.length}</span>
+    <div className="ov">
+      <section>
+        <h2 className="ov-heading">Needs attention</h2>
+        <div className="ov-attention">
+          {attention.map((a) => (
+            <button key={a.key} type="button" className={`ov-card ov-${a.tone} ${a.value ? "has" : ""}`} onClick={a.onClick}>
+              <span className="ov-card-icon">{a.icon}</span>
+              <span className="ov-card-value">{a.value}</span>
+              <span className="ov-card-label">{a.label}</span>
+              <span className="ov-card-hint">{a.hint} <ChevronRight size={14} /></span>
+            </button>
+          ))}
         </div>
-        <div className="metric-card shadow-sm">
-          <span className="metric-label">Avg. Logs / Day</span>
-          <span className="metric-value" style={{ color: 'var(--secondary)' }}>
-            {(records.length / 14).toFixed(1)}
-          </span>
-        </div>
-        <div className="metric-card shadow-sm">
-          <span className="metric-label">Active Instruments</span>
-          <span className="metric-value" style={{ color: 'var(--tertiary)' }}>
-            {new Set(records.map(r => r.instrumentName)).size}
-          </span>
-        </div>
-        <div className="metric-card shadow-sm">
-          <span className="metric-label">Top Instrument</span>
-          <span className="metric-value" style={{ fontSize: 18, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {stats.instrumentData[0]?.name || "N/A"}
-          </span>
-        </div>
-      </div>
+        {data.missingPlans.length > 0 && (
+          <p className="ov-missing"><strong>No weekly plan yet:</strong> {data.missingPlans.map((p) => p.fullName || p.username).join(", ")}</p>
+        )}
+      </section>
 
-      <div className="insights-grid">
-      <div className="chart-card">
-        <div className="chart-header">
-          <h3>Record Distribution</h3>
-          <p>Analytical vs Sample Preparation</p>
+      <section>
+        <div className="ov-section-head">
+          <h2 className="ov-heading">Activity</h2>
+          <div className="um-chips" role="group" aria-label="Period">
+            {[7, 14, 30, 90].map((d) => (
+              <button key={d} type="button" className={`um-chip ${days === d ? "active" : ""}`} onClick={() => setDays(d)}>{d} days</button>
+            ))}
+          </div>
         </div>
-        <div className="chart-container-inner">
-          <ResponsiveContainer width="100%" height={240}>
-            <PieChart>
-              <Pie
-                data={stats.scopeData}
-                cx="50%"
-                cy="50%"
-                innerRadius={60}
-                outerRadius={80}
-                paddingAngle={5}
-                dataKey="value"
-              >
-                {stats.scopeData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.color} />
-                ))}
-              </Pie>
-              <Tooltip />
-              <Legend verticalAlign="bottom" height={36}/>
-            </PieChart>
-          </ResponsiveContainer>
+        <div className="um-stats">
+          <div className="um-stat"><span className="um-stat-icon"><FileText size={18} /></span><span className="um-stat-value">{data.inRange}</span><span className="um-stat-label">Logs</span></div>
+          <div className="um-stat"><span className="um-stat-icon"><TrendingUp size={18} /></span><span className="um-stat-value">{data.perDayAvg.toFixed(1)}</span><span className="um-stat-label">Per day</span></div>
+          <div className="um-stat"><span className="um-stat-icon"><Microscope size={18} /></span><span className="um-stat-value">{data.activeInstruments}</span><span className="um-stat-label">Instruments used</span></div>
+          <div className="um-stat"><span className="um-stat-icon"><Users size={18} /></span><span className="um-stat-value">{data.activeAnalysts}</span><span className="um-stat-label">Active analysts</span></div>
         </div>
-      </div>
 
-      <div className="chart-card">
-        <div className="chart-header">
-          <h3>Activity Trend</h3>
-          <p>Daily submissions (last 14 days)</p>
+        <div className="insights-grid">
+          <div className="chart-card ov-wide">
+            <div className="chart-header"><h3>Logs per day</h3><p>Last {days} days</p></div>
+            <div className="chart-container-inner">
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={data.trend}>
+                  <defs>
+                    <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="var(--primary)" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="date" fontSize={11} tickLine={false} axisLine={false} minTickGap={16} />
+                  <YAxis fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} width={28} />
+                  <Tooltip />
+                  <Area type="monotone" dataKey="count" name="Logs" stroke="var(--primary)" fillOpacity={1} fill="url(#colorCount)" strokeWidth={2} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+          <div className="chart-card">
+            <div className="chart-header"><h3>Most used instruments</h3><p>Logs per instrument</p></div>
+            <div className="chart-container-inner">{hBar(data.byInstrument, "var(--secondary)")}</div>
+          </div>
+          <div className="chart-card">
+            <div className="chart-header"><h3>Most active analysts</h3><p>Logs per analyst</p></div>
+            <div className="chart-container-inner">{hBar(data.byAnalyst, "var(--primary)")}</div>
+          </div>
+          <div className="chart-card ov-wide">
+            <div className="chart-header"><h3>Log types</h3><p>What kind of work was logged</p></div>
+            <div className="chart-container-inner">{hBar(data.byType, "var(--tertiary)")}</div>
+          </div>
         </div>
-        <div className="chart-container-inner">
-          <ResponsiveContainer width="100%" height={240}>
-            <AreaChart data={stats.activityTrendData}>
-              <defs>
-                <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor="var(--primary)" stopOpacity={0}/>
-                </linearGradient>
-              </defs>
-              <XAxis dataKey="date" fontSize={11} tickLine={false} axisLine={false} />
-              <YAxis fontSize={11} tickLine={false} axisLine={false} />
-              <Tooltip />
-              <Area type="monotone" dataKey="count" stroke="var(--primary)" fillOpacity={1} fill="url(#colorCount)" strokeWidth={2} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      <div className="chart-card">
-        <div className="chart-header">
-          <h3>Log Types</h3>
-          <p>Volume by activity category</p>
-        </div>
-        <div className="chart-container-inner">
-          <ResponsiveContainer width="100%" height={240}>
-            <BarChart data={stats.activityTypeData} layout="vertical">
-              <XAxis type="number" hide />
-              <YAxis dataKey="name" type="category" fontSize={11} width={100} tickLine={false} axisLine={false} />
-              <Tooltip />
-              <Bar dataKey="value" fill="var(--tertiary)" radius={[0, 4, 4, 0]} barSize={20} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      <div className="chart-card">
-        <div className="chart-header">
-          <h3>Top Instruments</h3>
-          <p>Most used equipment</p>
-        </div>
-        <div className="chart-container-inner">
-          <ResponsiveContainer width="100%" height={240}>
-            <BarChart data={stats.instrumentData}>
-              <XAxis dataKey="name" fontSize={10} interval={0} tick={false} />
-              <YAxis fontSize={11} tickLine={false} axisLine={false} />
-              <Tooltip />
-              <Bar dataKey="value" fill="var(--secondary)" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
+      </section>
     </div>
-  </div>
   );
 }
 
@@ -416,8 +367,13 @@ function InsightsTab() {
    Tab 1 — Records
    ════════════════════════════════════════════════════════════════════════════ */
 
-function RecordsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmin: boolean; forms: FormDef[] }) {
-  void user;
+function RecordsTab({ user, isAdmin, forms, onPendingChange, initialStatus = "All" }: {
+  initialStatus?: RecordsStatus;
+  user: AppUser | null;
+  isAdmin: boolean;
+  forms: FormDef[];
+  onPendingChange: (count: number) => void;
+}) {
   const [records, setRecords] = useState<LogbookRecord[]>([]);
   const [query, setQuery] = useState("");
   const [analystFilter, setAnalystFilter] = useState("All");
@@ -430,22 +386,19 @@ function RecordsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmin: b
   const [viewMode, setViewMode] = useState<"table" | "cards">("table");
   const [scope, setScope] = useState<"All" | "Instrument" | "Sample">("Instrument");
   const [amendTarget, setAmendTarget] = useState<LogbookRecord | null>(null);
-  const [integrity, setIntegrity] = useState<{ state: "idle" | "checking" | "ok" | "bad" | "error"; checked?: number; firstBad?: string | null }>({ state: "idle" });
+  const [reviewTarget, setReviewTarget] = useState<LogbookRecord | null>(null);
+  const [statusFilter, setStatusFilter] = useState<RecordsStatus>(initialStatus);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [bulkState, setBulkState] = useState<{ busy: boolean; message: string }>({ busy: false, message: "" });
+  const [integrity, setIntegrity] = useState<{
+    state: "idle" | "checking" | "ok" | "bad" | "error";
+    checked?: number;
+    firstBad?: string | null;
+    reviews?: { ok: boolean; checked: number; firstBad: string | null } | null;
+  }>({ state: "idle" });
 
-  // ids of records that have been superseded by a later amendment
-  const latestActiveIds = useMemo(() => {
-    const latestActiveIds = new Set<string>();
-    const byRoot = new Map<string, LogbookRecord>();
-    for (const rec of records) {
-      const rootId = rec.amends || rec.id;
-      const existing = byRoot.get(rootId);
-      if (!existing || new Date(rec.createdAt).getTime() > new Date(existing.createdAt).getTime()) {
-        byRoot.set(rootId, rec);
-      }
-    }
-    for (const rec of byRoot.values()) latestActiveIds.add(rec.id);
-    return latestActiveIds;
-  }, [records]);
+  const latestActiveIds = useMemo(() => currentVersionIds(records), [records]);
 
   async function verifyIntegrity() {
     setIntegrity({ state: "checking" });
@@ -453,7 +406,8 @@ function RecordsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmin: b
       const r = await fetch("/api/logbook/verify");
       const d = await r.json();
       if (!r.ok) { setIntegrity({ state: "error" }); return; }
-      setIntegrity({ state: d.ok ? "ok" : "bad", checked: d.checked, firstBad: d.firstBad });
+      const reviewsOk = !d.reviews || d.reviews.ok;
+      setIntegrity({ state: d.ok && reviewsOk ? "ok" : "bad", checked: d.checked, firstBad: d.firstBad, reviews: d.reviews });
     } catch {
       setIntegrity({ state: "error" });
     }
@@ -538,17 +492,20 @@ function RecordsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmin: b
     return Array.from(new Set(records.map((rec) => rec.activityType).filter(Boolean))).sort((a, b) => a.localeCompare(b));
   }, [records]);
 
+  const scopeMatch = useCallback((rec: LogbookRecord) => scope === "All"
+    || (scope === "Sample" ? isSampleRecord(rec) : !isSampleRecord(rec)), [scope]);
+
   const filtered = useMemo(() => {
     const search = query.trim().toLowerCase();
     return records.filter((rec) => {
-      const recordDate = rec.date || rec.createdAt.slice(0, 10);
-      const matchScope = scope === "All"
-        || (scope === "Sample" ? isSampleRecord(rec) : !isSampleRecord(rec));
+      const recordDate = rec.date || toISODate(new Date(rec.createdAt));
+      const matchScope = scopeMatch(rec);
       const matchAnalyst = analystFilter === "All" || rec.analyst === analystFilter;
       const matchInstrument = instrumentFilter === "All" || rec.instrumentName === instrumentFilter;
       const matchActivity = activityFilter === "All" || rec.activityType === activityFilter;
       const matchDateFrom = !dateFrom || recordDate >= dateFrom;
       const matchDateTo = !dateTo || recordDate <= dateTo;
+      const matchStatus = statusFilter === "All" || (rec.status === statusFilter && latestActiveIds.has(rec.id));
       const matchSearch = !search || [
         rec.instrumentName,
         rec.instrumentId,
@@ -563,9 +520,63 @@ function RecordsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmin: b
         rec.location,
       ]
         .join(" ").toLowerCase().includes(search);
-      return matchScope && matchAnalyst && matchInstrument && matchActivity && matchDateFrom && matchDateTo && matchSearch;
+      return matchScope && matchAnalyst && matchInstrument && matchActivity && matchDateFrom && matchDateTo && matchStatus && matchSearch;
     });
-  }, [records, scope, query, analystFilter, instrumentFilter, activityFilter, dateFrom, dateTo]);
+  }, [records, scopeMatch, query, analystFilter, instrumentFilter, activityFilter, dateFrom, dateTo, statusFilter, latestActiveIds]);
+
+  const pendingCount = records.filter((r) => r.status === "Pending" && latestActiveIds.has(r.id)).length;
+
+  useEffect(() => {
+    if (!loading) onPendingChange(pendingCount);
+  }, [loading, pendingCount, onPendingChange]);
+
+  // Only pending current versions someone else submitted can be bulk approved.
+  function canBulkApprove(rec: LogbookRecord) {
+    return rec.status === "Pending" && latestActiveIds.has(rec.id) && rec.submittedBy !== user?.id;
+  }
+
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  // selections hidden by a filter change are ignored
+  const visibleSelected = filtered.filter((r) => selectedIds.has(r.id)).map((r) => r.id);
+
+  async function approveSelected() {
+    const ids = visibleSelected;
+    if (ids.length === 0) return;
+    if (!confirm(`Approve ${ids.length} record${ids.length === 1 ? "" : "s"}?`)) return;
+    setBulkState({ busy: true, message: "" });
+    try {
+      const r = await fetch("/api/logbook/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recordIds: ids, decision: "Approved" }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "Approval failed.");
+      const failed: { error: string }[] = d.failed || [];
+      setBulkState({
+        busy: false,
+        message: failed.length
+          ? `Approved ${d.reviews.length}. ${failed.length} not approved: ${failed[0].error}`
+          : `Approved ${d.reviews.length} record${d.reviews.length === 1 ? "" : "s"}.`,
+      });
+      setSelectedIds(new Set());
+      await loadRecords();
+    } catch (e) {
+      setBulkState({ busy: false, message: e instanceof Error ? e.message : "Approval failed." });
+    }
+  }
+
+  function resetFilters() {
+    setQuery(""); setAnalystFilter("All"); setInstrumentFilter("All"); setActivityFilter("All");
+    setDateFrom(""); setDateTo(""); setStatusFilter("All");
+  }
 
   const instrumentCount = records.filter((r) => !isSampleRecord(r)).length;
   const sampleCount = records.filter((r) => isSampleRecord(r)).length;
@@ -673,18 +684,51 @@ function RecordsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmin: b
     XLSX.writeFile(wb, exportFileName("xlsx"));
   }
 
+  const activeFilterCount = [analystFilter !== "All", instrumentFilter !== "All", activityFilter !== "All", !!(dateFrom || dateTo)].filter(Boolean).length;
+  const showFilters = filtersOpen || activeFilterCount > 0;
+  const selectablePending = filtered.filter(canBulkApprove);
+  const statusCount = (st: RecordsStatus) => st === "All"
+    ? records.filter((r) => scopeMatch(r)).length
+    : records.filter((r) => scopeMatch(r) && r.status === st && latestActiveIds.has(r.id)).length;
+
+  function presetDays(n: number | null) {
+    if (n === null) { setDateFrom(""); setDateTo(""); return; }
+    const d = new Date();
+    d.setDate(d.getDate() - (n - 1));
+    setDateFrom(toISODate(d));
+    setDateTo(toISODate(new Date()));
+  }
+  const presetActive = (n: number) => {
+    const d = new Date(); d.setDate(d.getDate() - (n - 1));
+    return dateFrom === toISODate(d) && dateTo === toISODate(new Date());
+  };
+
   return (
     <>
-      <div className="scope-switch">
-        <button type="button" className={`scope-switch-btn ${scope === "Instrument" ? "active" : ""}`} onClick={() => setScope("Instrument")}>
-          <Microscope size={16} /> <span>Instrument</span> <span className="scope-count">{instrumentCount}</span>
-        </button>
-        <button type="button" className={`scope-switch-btn ${scope === "Sample" ? "active" : ""}`} onClick={() => setScope("Sample")}>
-          <Activity size={16} /> <span>Sample Preparation</span> <span className="scope-count">{sampleCount}</span>
-        </button>
-        <button type="button" className={`scope-switch-btn ${scope === "All" ? "active" : ""}`} onClick={() => setScope("All")}>
-          <FileText size={16} /> <span>All</span> <span className="scope-count">{records.length}</span>
-        </button>
+      <div className="rec-top">
+        <div className="scope-switch">
+          <button type="button" className={`scope-switch-btn ${scope === "Instrument" ? "active" : ""}`} onClick={() => setScope("Instrument")}>
+            <Microscope size={16} /> <span>Instrument</span> <span className="scope-count">{instrumentCount}</span>
+          </button>
+          <button type="button" className={`scope-switch-btn ${scope === "Sample" ? "active" : ""}`} onClick={() => setScope("Sample")}>
+            <Activity size={16} /> <span>Sample Preparation</span> <span className="scope-count">{sampleCount}</span>
+          </button>
+          <button type="button" className={`scope-switch-btn ${scope === "All" ? "active" : ""}`} onClick={() => setScope("All")}>
+            <FileText size={16} /> <span>All</span> <span className="scope-count">{records.length}</span>
+          </button>
+        </div>
+        <div className="rec-status" role="group" aria-label="Review status">
+          {([
+            ["Pending", "Needs review", <Clock key="i" size={14} />],
+            ["Rejected", "Rejected", <XCircle key="i" size={14} />],
+            ["Approved", "Approved", <CheckCircle2 key="i" size={14} />],
+            ["All", "Any status", null],
+          ] as [RecordsStatus, string, React.ReactNode][]).map(([st, label, icon]) => (
+            <button key={st} type="button" className={`rec-status-btn rec-status-${st.toLowerCase()} ${statusFilter === st ? "active" : ""}`} onClick={() => setStatusFilter(st)}>
+              {icon}<span>{label}</span><span className="rec-status-count">{statusCount(st)}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="toolbar-modern">
@@ -692,101 +736,138 @@ function RecordsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmin: b
           <div className="search-box-modern">
             <Search size={18} className="search-icon" />
             <input
-              placeholder="Search by analyst, instrument, sample ID, method, log type..."
+              placeholder="Search analyst, instrument, sample ID, method…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
             {query && <button className="clear-search" onClick={() => setQuery("")} aria-label="Clear search"><X size={14} /></button>}
           </div>
           <div className="toolbar-actions-modern">
+            <button className={`btn btn-sm btn-icon-gap ${showFilters ? "btn-tonal" : "btn-outline"}`} type="button" onClick={() => setFiltersOpen((v) => !v)} aria-expanded={showFilters}>
+              <Filter size={15} /> <span>Filters</span>{activeFilterCount > 0 && <span className="count-badge">{activeFilterCount}</span>}
+            </button>
             <div className="btn-group shadow-sm">
-              <button className={`view-toggle-btn ${viewMode === "table" ? "active" : ""}`} onClick={() => setViewMode("table")} title="Table view">
+              <button className={`view-toggle-btn ${viewMode === "table" ? "active" : ""}`} onClick={() => setViewMode("table")} title="Table view" aria-label="Table view">
                 <TableIcon size={16} />
               </button>
-              <button className={`view-toggle-btn ${viewMode === "cards" ? "active" : ""}`} onClick={() => setViewMode("cards")} title="Card view">
+              <button className={`view-toggle-btn ${viewMode === "cards" ? "active" : ""}`} onClick={() => setViewMode("cards")} title="Card view" aria-label="Card view">
                 <LayoutGrid size={16} />
               </button>
             </div>
-            
-            <div className="toolbar-separator" />
-            
-            <div style={{ display: "flex", gap: 8 }}>
-              <button className="btn btn-outline btn-sm btn-icon-gap" onClick={exportCsv} disabled={filtered.length === 0} title="Export to CSV">
-                <FileOutput size={16} /> <span>CSV</span>
-              </button>
-              <button className="btn btn-outline btn-sm btn-icon-gap" onClick={exportXlsx} disabled={filtered.length === 0} title="Export to Excel">
-                <FileSpreadsheet size={16} /> <span>Excel</span>
-              </button>
-              <button className="btn btn-outline btn-sm btn-icon-gap" onClick={() => printRecordSheet(filtered, forms, scope === "All" ? "All records" : scope === "Sample" ? "Sample preparation" : "Instrument")} disabled={filtered.length === 0} title="Print / save as PDF">
-                <Printer size={16} /> <span>Print</span>
-              </button>
-            </div>
-
-            <button className="btn btn-ghost btn-sm btn-icon-only" onClick={loadRecords} title="Refresh records">
+            <details className="rec-menu">
+              <summary className="btn btn-outline btn-sm btn-icon-gap" aria-disabled={filtered.length === 0}>
+                <Download size={15} /> <span>Export</span> <ChevronDown size={14} />
+              </summary>
+              <div className="rec-menu-list" onClick={(e) => (e.currentTarget.parentElement as HTMLDetailsElement).removeAttribute("open")}>
+                <button type="button" disabled={filtered.length === 0} onClick={exportXlsx}><FileSpreadsheet size={15} /> Excel (.xlsx)</button>
+                <button type="button" disabled={filtered.length === 0} onClick={exportCsv}><FileOutput size={15} /> CSV</button>
+                <button type="button" disabled={filtered.length === 0} onClick={() => printRecordSheet(filtered, forms, scope === "All" ? "All records" : scope === "Sample" ? "Sample preparation" : "Instrument")}><Printer size={15} /> Print / PDF</button>
+                <span className="rec-menu-note">Exports the {filtered.length} record{filtered.length === 1 ? "" : "s"} shown</span>
+              </div>
+            </details>
+            <button className="btn btn-ghost btn-sm btn-icon-only" onClick={loadRecords} title="Refresh records" aria-label="Refresh records">
               <RefreshCw size={16} className={loading ? "spin" : ""} />
             </button>
           </div>
         </div>
 
-        <div className="filter-shelf shadow-sm">
-          <div className="filter-shelf-header">
-            <div className="filter-shelf-label"><Filter size={14} /> <span>Advanced Filtering</span></div>
-            {(query || analystFilter !== "All" || instrumentFilter !== "All" || activityFilter !== "All" || dateFrom || dateTo) && (
-              <button className="btn-text-only btn-sm" onClick={() => { setQuery(""); setAnalystFilter("All"); setInstrumentFilter("All"); setActivityFilter("All"); setDateFrom(""); setDateTo(""); }}>
-                Reset Filters
-              </button>
-            )}
-          </div>
-          <div className="filter-shelf-grid">
-            <div className="filter-item">
-              <label>Analyst</label>
-              <select value={analystFilter} onChange={(e) => setAnalystFilter(e.target.value)}>
-                <option value="All">All Analysts</option>
-                {analysts.map((a) => <option key={a} value={a}>{a}</option>)}
-              </select>
-            </div>
-            <div className="filter-item">
-              <label>Instrument</label>
-              <select value={instrumentFilter} onChange={(e) => setInstrumentFilter(e.target.value)}>
-                <option value="All">All Instruments</option>
-                {instruments.map((i) => <option key={i} value={i}>{i}</option>)}
-              </select>
-            </div>
-            <div className="filter-item">
-              <label>Log Type</label>
-              <select value={activityFilter} onChange={(e) => setActivityFilter(e.target.value)}>
-                <option value="All">All Log Types</option>
-                {logTypes.map((t) => (
-                  <option key={t} value={t}>{LOG_TYPES.find(lt => lt.id === t)?.label || t}</option>
+        {showFilters && (
+          <div className="filter-shelf shadow-sm">
+            <div className="filter-shelf-header">
+              <div className="um-chips" role="group" aria-label="Date range">
+                {([[1, "Today"], [7, "7 days"], [30, "30 days"]] as [number, string][]).map(([n, label]) => (
+                  <button key={n} type="button" className={`um-chip ${presetActive(n) ? "active" : ""}`} onClick={() => presetDays(n)}>{label}</button>
                 ))}
-              </select>
+                <button type="button" className={`um-chip ${!dateFrom && !dateTo ? "active" : ""}`} onClick={() => presetDays(null)}>Any date</button>
+              </div>
+              {(activeFilterCount > 0 || query || statusFilter !== "All") && (
+                <button className="btn-text-only btn-sm" onClick={resetFilters}>Clear all</button>
+              )}
             </div>
-            <div className="filter-item">
-              <label>Date Range</label>
-              <div className="filter-date-range">
-                <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} placeholder="From" />
-                <span className="filter-date-sep">to</span>
-                <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} placeholder="To" />
+            <div className="filter-shelf-grid">
+              <div className="filter-item">
+                <label>Analyst</label>
+                <select value={analystFilter} onChange={(e) => setAnalystFilter(e.target.value)}>
+                  <option value="All">All analysts</option>
+                  {analysts.map((a) => <option key={a} value={a}>{a}</option>)}
+                </select>
+              </div>
+              <div className="filter-item">
+                <label>Instrument</label>
+                <select value={instrumentFilter} onChange={(e) => setInstrumentFilter(e.target.value)}>
+                  <option value="All">All instruments</option>
+                  {instruments.map((i) => <option key={i} value={i}>{i}</option>)}
+                </select>
+              </div>
+              <div className="filter-item">
+                <label>Log type</label>
+                <select value={activityFilter} onChange={(e) => setActivityFilter(e.target.value)}>
+                  <option value="All">All log types</option>
+                  {logTypes.map((t) => (
+                    <option key={t} value={t}>{LOG_TYPES.find(lt => lt.id === t)?.label || t}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="filter-item">
+                <label>From – to</label>
+                <div className="filter-date-range">
+                  <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} aria-label="From date" />
+                  <span className="filter-date-sep">to</span>
+                  <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} aria-label="To date" />
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
 
       <div className="results-count-strip">
         <span className="count-label">Showing <strong>{filtered.length}</strong> of {records.length} records</span>
+        {isAdmin && viewMode === "table" && (selectablePending.length > 0 || visibleSelected.length > 0 || bulkState.message) && (
+          <span className="bulk-strip">
+            {visibleSelected.length > 0 ? (
+              <>
+                <button className="btn btn-primary btn-sm btn-icon-gap" type="button" onClick={approveSelected} disabled={bulkState.busy}>
+                  {bulkState.busy ? <RefreshCw size={15} className="spin" /> : <CheckCircle2 size={15} />} Approve {visibleSelected.length} selected
+                </button>
+                <button className="btn-text-only btn-sm" type="button" onClick={() => setSelectedIds(new Set())} disabled={bulkState.busy}>Clear</button>
+              </>
+            ) : selectablePending.length > 0 && (
+              <button className="btn btn-outline btn-sm btn-icon-gap" type="button" onClick={() => setSelectedIds(new Set(selectablePending.map((r) => r.id)))}>
+                <CheckCircle2 size={15} /> Select all {selectablePending.length} pending
+              </button>
+            )}
+            {bulkState.message && <span className="bulk-message">{bulkState.message}</span>}
+          </span>
+        )}
         <span className="integrity-strip">
-          <button className="btn btn-outline btn-sm btn-icon-gap" type="button" onClick={verifyIntegrity} disabled={integrity.state === "checking"} title="Recompute the tamper-evidence hash chain">
+          <button className="btn btn-ghost btn-sm btn-icon-gap" type="button" onClick={verifyIntegrity} disabled={integrity.state === "checking"} title="Recompute the tamper-evidence hash chain">
             <ShieldCheck size={15} /> <span>{integrity.state === "checking" ? "Verifying…" : "Verify integrity"}</span>
           </button>
-          {integrity.state === "ok" && <span className="integrity-badge ok"><CheckCircle2 size={14} /> Intact · {integrity.checked} records sealed</span>}
-          {integrity.state === "bad" && <span className="integrity-badge bad"><AlertTriangle size={14} /> Tampering detected near {integrity.firstBad?.slice(0, 8)}</span>}
+          {integrity.state === "ok" && (
+            <span className="integrity-badge ok">
+              <CheckCircle2 size={14} /> Intact · {integrity.checked} records{integrity.reviews ? `, ${integrity.reviews.checked} reviews` : ""} sealed
+            </span>
+          )}
+          {integrity.state === "bad" && (
+            <span className="integrity-badge bad">
+              <AlertTriangle size={14} />{" "}
+              {integrity.firstBad
+                ? `Record tampering detected near ${integrity.firstBad.slice(0, 8)}`
+                : `Review tampering detected near ${integrity.reviews?.firstBad?.slice(0, 8)}`}
+            </span>
+          )}
           {integrity.state === "error" && <span className="integrity-badge bad"><AlertTriangle size={14} /> Check failed</span>}
         </span>
       </div>
 
+      {!loading && statusFilter === "Pending" && filtered.length === 0 && (
+        <div className="notice notice-success um-notice"><CheckCircle2 size={18} /><span>Nothing is waiting for review{scope !== "All" ? " in this section" : ""}.</span></div>
+      )}
+
       {viewMode === "table" ? (
-        <RecordsTable records={filtered} loading={loading} forms={forms} onAmend={isAdmin ? setAmendTarget : undefined} latestActiveIds={latestActiveIds} />
+        <RecordsTable records={filtered} loading={loading} forms={forms} onAmend={isAdmin ? setAmendTarget : undefined} onReview={isAdmin ? setReviewTarget : undefined} latestActiveIds={latestActiveIds}
+          selection={isAdmin ? { ids: selectedIds, toggle: toggleSelected, canSelect: canBulkApprove } : undefined} />
       ) : (
       <div className="records-panel-modern">
         {loading && [1, 2, 3].map((i) => <div key={i} className="skeleton record-skeleton" style={{ height: 80, borderRadius: 12 }} />)}
@@ -795,7 +876,7 @@ function RecordsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmin: b
             <div className="empty-icon-wrap"><Search size={40} /></div>
             <h3>No records found</h3>
             <p>Adjust your filters or search terms to find what you&apos;re looking for.</p>
-            <button className="btn btn-outline btn-sm" onClick={() => { setQuery(""); setAnalystFilter("All"); setScope("All"); }}>Clear search</button>
+            <button className="btn btn-outline btn-sm" onClick={() => { resetFilters(); setScope("All"); }}>Clear search</button>
           </div>
         )}
         {filtered.map((rec) => {
@@ -818,8 +899,10 @@ function RecordsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmin: b
                     <span className={`log-type-tag log-type-${rec.activityType.toLowerCase()}`}>
                       <Tag size={10} /> {logTypeLabel}
                     </span>
-                    {rec.amends && <span className="record-flag correction" title={rec.amendmentReason}><Pencil size={10} /> Correction</span>}
-                    {!latestActiveIds.has(rec.id) && <span className="record-flag superseded"><History size={10} /> Correction</span>}
+                    {rec.amends && <span className="record-flag correction" title={correctionTitle(rec)}><Pencil size={10} /> Correction</span>}
+                    {latestActiveIds.has(rec.id)
+                      ? <span className={`log-status-badge ${rec.status.toLowerCase()}`}>{rec.status}</span>
+                      : <span className="record-flag superseded" title="A newer correction replaces this version"><History size={10} /> Superseded</span>}
                   </div>
                   <div className="record-meta-modern">
                     <span title="Analyst"><User size={12} /> {rec.analyst}</span>
@@ -831,6 +914,16 @@ function RecordsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmin: b
               </div>
               <div className="record-header-right">
                 {isAdmin && (
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-sm btn-icon-only"
+                    onClick={(e) => { e.stopPropagation(); setReviewTarget(rec); }}
+                    title={rec.reviews.length ? `Review (${rec.reviews.length} so far)` : "Review — approve, reject or comment"}
+                  >
+                    <MessageSquare size={14} />
+                  </button>
+                )}
+                {isAdmin && latestActiveIds.has(rec.id) && (
                   <button
                     type="button"
                     className="btn btn-outline btn-sm btn-icon-only"
@@ -892,6 +985,7 @@ function RecordsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmin: b
                     <div className="v-content">
                       <SignatureReview signature={signature} />
                       <span className="v-subtext">{signatureSummary(rec.analystSignature)}</span>
+                      {rec.amends && <span className="v-subtext">Original entry signature · corrected by {rec.submitterName || "admin"}</span>}
                     </div>
                   </div>
                   <div className="verification-item">
@@ -912,6 +1006,7 @@ function RecordsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmin: b
                     </div>
                   </div>
                 )}
+                {rec.reviews.length > 0 && <ReviewHistory reviews={rec.reviews} />}
               </div>
             )}
           </article>
@@ -926,6 +1021,16 @@ function RecordsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmin: b
           form={forms.find((f) => f.activityType === amendTarget.activityType)}
           onCancel={() => setAmendTarget(null)}
           onSubmit={submitAmendment}
+        />
+      )}
+      {reviewTarget && (
+        <ReviewModal
+          record={reviewTarget}
+          forms={forms}
+          isCurrent={latestActiveIds.has(reviewTarget.id)}
+          isOwn={!!user && reviewTarget.submittedBy === user.id}
+          onCancel={() => setReviewTarget(null)}
+          onDone={async () => { setReviewTarget(null); await loadRecords(); }}
         />
       )}
     </>
@@ -973,6 +1078,14 @@ function escHtml(value: string): string {
 // bordered table matching the paper logbook — instrument header, entries, and a
 // review/approval sign-off block. Self-contained HTML so it ignores the app's
 // screen styling and CSP.
+function reviewCell(rec: LogbookRecord) {
+  const last = [...rec.reviews].reverse().find((r) => r.decision !== "Comment");
+  if (!last) return "Pending";
+  const when = new Date(last.createdAt).toLocaleDateString();
+  const note = last.comment ? `<div class="muted">${escHtml(last.comment)}</div>` : "";
+  return `<strong>${escHtml(last.decision)}</strong><div>${escHtml(last.reviewerName)}, ${escHtml(when)}</div>${note}`;
+}
+
 function printRecordSheet(records: LogbookRecord[], forms: FormDef[], scopeLabel: string) {
   if (records.length === 0) return;
 
@@ -1007,6 +1120,7 @@ function printRecordSheet(records: LogbookRecord[], forms: FormDef[], scopeLabel
       ...fields.map((f) => `<th>${escHtml(f.label)}</th>`),
       "<th>Analyst</th>",
       "<th>Signature</th>",
+      "<th>Review</th>",
     ].join("");
 
     const bodyRows = rows.map((rec, i) => {
@@ -1019,7 +1133,8 @@ function printRecordSheet(records: LogbookRecord[], forms: FormDef[], scopeLabel
         showInstrument ? `<td>${escHtml(rec.instrumentName || "—")}</td>` : "",
         ...fields.map((f) => `<td>${escHtml(fieldValue(rec, f) || "—")}</td>`),
         `<td>${escHtml(rec.analyst || sig.signedBy || "—")}</td>`,
-        `<td class="sig-cell">${sigCell}</td>`,
+        `<td class="sig-cell">${sigCell}${rec.amends ? `<div class="muted">Corrected by ${escHtml(rec.submitterName || "admin")}: ${escHtml(rec.amendmentReason)}</div>` : ""}</td>`,
+        `<td>${reviewCell(rec)}</td>`,
       ].join("");
       return `<tr>${cells}</tr>`;
     }).join("");
@@ -1063,6 +1178,7 @@ function printRecordSheet(records: LogbookRecord[], forms: FormDef[], scopeLabel
     tr { break-inside: avoid; }
     img.sig { height: 26px; max-width: 120px; }
     .sig-cell { min-width: 90px; }
+    td .muted { color: #666; font-size: 9px; margin-top: 2px; }
     .signoff { display: flex; gap: 48px; margin-top: 30px; }
     .signoff .line { flex: 1; border-top: 1px solid #111; padding-top: 5px; font-size: 10px; color: #555; }
     .foot { margin-top: 20px; padding-top: 8px; border-top: 1px solid #ccc; color: #888; font-size: 9px; display: flex; justify-content: space-between; }
@@ -1105,11 +1221,19 @@ function printRecordSheet(records: LogbookRecord[], forms: FormDef[], scopeLabel
   win.onload = () => setTimeout(() => win.print(), 250);
 }
 
-function RecordsTable({ records, loading, forms, onAmend, latestActiveIds }: {
+type Selection = {
+  ids: Set<string>;
+  toggle: (id: string) => void;
+  canSelect: (rec: LogbookRecord) => boolean;
+};
+
+function RecordsTable({ records, loading, forms, onAmend, onReview, latestActiveIds, selection }: {
   records: LogbookRecord[];
   loading: boolean;
   forms: FormDef[];
   onAmend?: (rec: LogbookRecord) => void;
+  onReview?: (rec: LogbookRecord) => void;
+  selection?: Selection;
   latestActiveIds: Set<string>;
 }) {
   const [selectedType, setSelectedType] = useState<string | null>(null);
@@ -1165,16 +1289,18 @@ function RecordsTable({ records, loading, forms, onAmend, latestActiveIds }: {
           );
         })}
       </div>
-      {activeType && <LogTypeTable activityType={activeType} records={groups.get(activeType)!} form={forms.find((f) => f.activityType === activeType)} onAmend={onAmend} latestActiveIds={latestActiveIds} />}
+      {activeType && <LogTypeTable activityType={activeType} records={groups.get(activeType)!} form={forms.find((f) => f.activityType === activeType)} onAmend={onAmend} onReview={onReview} latestActiveIds={latestActiveIds} selection={selection} />}
     </div>
   );
 }
 
-function LogTypeTable({ activityType, records, form, onAmend, latestActiveIds }: {
+function LogTypeTable({ activityType, records, form, onAmend, onReview, latestActiveIds, selection }: {
   activityType: string;
   records: LogbookRecord[];
   form: FormDef | undefined;
   onAmend?: (rec: LogbookRecord) => void;
+  onReview?: (rec: LogbookRecord) => void;
+  selection?: Selection;
   latestActiveIds: Set<string>;
 }) {
   void activityType;
@@ -1214,12 +1340,29 @@ function LogTypeTable({ activityType, records, form, onAmend, latestActiveIds }:
     }
   }
 
+  const selectable = selection ? threadedRecords.filter(selection.canSelect) : [];
+
   return (
     <section>
       <div className="table-scroll spreadsheet-container shadow-sm">
         <table className="doc-entry-table spreadsheet-table">
           <thead>
             <tr>
+              {selection && (
+                <th style={{ width: 32, textAlign: "center" }}>
+                  <input
+                    type="checkbox"
+                    aria-label="Select all pending"
+                    checked={selectable.length > 0 && selectable.every((r) => selection.ids.has(r.id))}
+                    disabled={selectable.length === 0}
+                    onChange={(e) => {
+                      for (const r of selectable) {
+                        if (selection.ids.has(r.id) !== e.target.checked) selection.toggle(r.id);
+                      }
+                    }}
+                  />
+                </th>
+              )}
               <th className="doc-rowno-head">No.</th>
               {!isSample && <th style={{ minWidth: 150 }}>Instrument</th>}
               {!isSample && <th style={{ minWidth: 110 }}>ID</th>}
@@ -1227,6 +1370,7 @@ function LogTypeTable({ activityType, records, form, onAmend, latestActiveIds }:
                 <th key={f.key} style={{ minWidth: colMinWidth(f) }}>{f.label}</th>
               ))}
               <th style={{ minWidth: 120 }}>Signature</th>
+              <th style={{ minWidth: 130, textAlign: "center" }}>Review</th>
               {onAmend && <th style={{ minWidth: 110, textAlign: "center" }}>Amend</th>}
             </tr>
           </thead>
@@ -1235,6 +1379,18 @@ function LogTypeTable({ activityType, records, form, onAmend, latestActiveIds }:
               const signature = parseAnalystSignature(rec.analystSignature);
               return (
                 <tr key={rec.id}>
+                  {selection && (
+                    <td className="doc-cell" style={{ textAlign: "center" }}>
+                      {selection.canSelect(rec) && (
+                        <input
+                          type="checkbox"
+                          aria-label="Select for approval"
+                          checked={selection.ids.has(rec.id)}
+                          onChange={() => selection.toggle(rec.id)}
+                        />
+                      )}
+                    </td>
+                  )}
                   <td className="doc-rowno">{idx + 1}</td>
                   {!isSample && <td className="doc-cell" style={{ fontWeight: 700, color: "var(--primary)" }}>{rec.instrumentName || "—"}</td>}
                   {!isSample && <td className="doc-cell mono" style={{ fontSize: 12 }}>{rec.instrumentId || "—"}</td>}
@@ -1256,14 +1412,33 @@ function LogTypeTable({ activityType, records, form, onAmend, latestActiveIds }:
                     ) : (
                       <span style={{ color: "var(--muted)", fontSize: 11 }}>{signature.typed || "—"}</span>
                     )}
+                    {rec.amends && <div className="sig-corrected-by">Corrected by {rec.submitterName || "admin"}</div>}
+                  </td>
+                  <td className="doc-cell" style={{ textAlign: "center", whiteSpace: "nowrap" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "center" }}>
+                      {latestActiveIds.has(rec.id)
+                        ? <span className={`log-status-badge ${rec.status.toLowerCase()}`} title={lastReviewTitle(rec)}>{rec.status}</span>
+                        : <span className="record-flag superseded" title="A newer correction replaces this version"><History size={10} /> Superseded</span>}
+                      {onReview && (
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-sm btn-icon-gap"
+                          style={{ fontSize: 11, padding: "2px 6px" }}
+                          onClick={() => onReview(rec)}
+                          title="Approve, reject or comment"
+                        >
+                          <MessageSquare size={12} />{rec.reviews.length > 0 && <span>{rec.reviews.length}</span>}
+                        </button>
+                      )}
+                    </div>
                   </td>
                   {onAmend && (
                     <td className="doc-cell" style={{ textAlign: "center", whiteSpace: "nowrap" }}>
                       {!latestActiveIds.has(rec.id) ? (
-                        <span className="record-flag superseded" title={rec.amendmentReason || "Has newer correction"}><History size={10} /> Correction</span>
+                        <span className="record-flag superseded" title={correctionTitle(rec)}><History size={10} /> Superseded</span>
                       ) : rec.amends ? (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
-                          <span className="record-flag correction" title={rec.amendmentReason}><Pencil size={10} /> Correction</span>
+                          <span className="record-flag correction" title={correctionTitle(rec)}><Pencil size={10} /> Correction</span>
                           <button
                             type="button"
                             className="btn btn-outline btn-sm"
@@ -1303,28 +1478,26 @@ function AmendModal({ record, form, onCancel, onSubmit }: {
   onSubmit: (values: Record<string, string>, reason: string) => Promise<void>;
 }) {
   const fields = (form?.fields || []).filter((f) => f.key !== "instrumentUsed");
-  const [values, setValues] = useState<Record<string, string>>(() => {
+  const [initial] = useState<Record<string, string>>(() => {
     const v: Record<string, string> = {};
     for (const f of fields) v[f.key] = fieldValue(record, f);
     return v;
   });
+  const [values, setValues] = useState(initial);
+  const changed = fields.some((f) => (values[f.key] ?? "") !== (initial[f.key] ?? ""));
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   async function save() {
-    if (!reason.trim()) { 
-      setError("Please enter a reason for this correction."); 
-      alert("Please enter a reason for this correction.");
-      return; 
-    }
+    if (!changed) { setError("Change at least one value to issue a correction."); return; }
+    if (!reason.trim()) { setError("Please enter a reason for this correction."); return; }
     setSaving(true); setError("");
     try {
       await onSubmit(values, reason.trim());
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Amendment failed.";
       setError(msg);
-      alert("Error: " + msg);
       setSaving(false);
     }
   }
@@ -1340,7 +1513,13 @@ function AmendModal({ record, form, onCancel, onSubmit }: {
       <div className="modal-body" style={{ display: "grid", gap: 12 }}>
         <p style={{ fontSize: 13, color: "var(--muted)", margin: 0 }}>
           The original record stays locked. This saves a linked correction stamped with your name, the time, and the reason below.
+          The correction starts as <strong>Pending</strong> and needs its own review.
         </p>
+        {record.status === "Approved" && (
+          <div className="notice notice-warning">
+            This record is already approved. Saving a correction replaces the approved version, and the correction has to be approved again.
+          </div>
+        )}
         {fields.map((f) => (
           <div className="field-modern" key={f.key}>
             <label>{f.label}</label>
@@ -1363,9 +1542,133 @@ function AmendModal({ record, form, onCancel, onSubmit }: {
       </div>
       <div className="modal-footer" style={{ justifyContent: "flex-end", gap: 10 }}>
         <button className="btn btn-outline" type="button" onClick={onCancel} disabled={saving}>Cancel</button>
-        <button className="btn btn-primary btn-icon-gap" type="button" onClick={save} disabled={saving}>
+        <button className="btn btn-primary btn-icon-gap" type="button" onClick={save} disabled={saving || !changed}>
           {saving ? <><RefreshCw size={16} className="spin" /> Saving…</> : <><CheckCircle2 size={16} /> Save correction</>}
         </button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function correctionTitle(rec: LogbookRecord) {
+  const by = rec.submitterName ? ` — by ${rec.submitterName}` : "";
+  return `${rec.amendmentReason || "Correction"}${by}, ${new Date(rec.createdAt).toLocaleString()}`;
+}
+
+function lastReviewTitle(rec: LogbookRecord) {
+  const last = [...rec.reviews].reverse().find((r) => r.decision !== "Comment");
+  if (!last) return "Not reviewed yet";
+  return `${last.decision} by ${last.reviewerName}, ${new Date(last.createdAt).toLocaleString()}${last.comment ? ` — ${last.comment}` : ""}`;
+}
+
+function ReviewHistory({ reviews }: { reviews: LogbookRecord["reviews"] }) {
+  return (
+    <div className="review-history">
+      <p className="remarks-label-modern">Review history</p>
+      <ol>
+        {reviews.map((r) => (
+          <li key={r.id} className={`review-entry ${r.decision.toLowerCase()}`}>
+            <div className="review-entry-head">
+              {r.decision === "Comment"
+                ? <span className="review-entry-kind"><MessageSquare size={12} /> Comment</span>
+                : <span className={`log-status-badge ${r.decision.toLowerCase()}`}>{r.decision}</span>}
+              <strong>{r.reviewerName || "Unknown"}</strong>
+              <span className="review-entry-time">{new Date(r.createdAt).toLocaleString()}</span>
+              {!r.hashMatches && <span className="integrity-badge bad" title="The record's seal no longer matches what was reviewed"><AlertTriangle size={12} /> Content changed</span>}
+            </div>
+            {r.comment && <p className="review-entry-text">{r.comment}</p>}
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+function ReviewModal({ record, forms, isCurrent, isOwn, onCancel, onDone }: {
+  record: LogbookRecord;
+  forms: FormDef[];
+  isCurrent: boolean;
+  isOwn: boolean;
+  onCancel: () => void;
+  onDone: () => Promise<void>;
+}) {
+  const [comment, setComment] = useState("");
+  const [saving, setSaving] = useState<ReviewDecision | null>(null);
+  const [error, setError] = useState("");
+  const canDecide = isCurrent && !isOwn;
+  const logType = LOG_TYPES.find((t) => t.id === record.activityType)?.label || record.activityType;
+
+  async function submit(decision: ReviewDecision) {
+    if (decision !== "Approved" && !comment.trim()) {
+      setError(decision === "Rejected" ? "Enter a reason for rejecting this record." : "Write a comment first.");
+      return;
+    }
+    setSaving(decision); setError("");
+    try {
+      const r = await fetch("/api/logbook/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recordId: record.id, decision, comment: comment.trim() }),
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        throw new Error(d.error || "Review failed.");
+      }
+      await onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Review failed.");
+      setSaving(null);
+    }
+  }
+
+  return (
+    <ModalShell open onClose={onCancel} className="modal shadow-3 modal-w-xl" labelledBy="review-record-title">
+      <div className="modal-header">
+        <h2 className="modal-title" id="review-record-title">
+          <MessageSquare size={16} aria-hidden="true" /> Review record
+        </h2>
+        <button className="btn btn-ghost btn-sm" type="button" onClick={onCancel} aria-label="Close">✕</button>
+      </div>
+      <div className="modal-body" style={{ display: "grid", gap: 12 }}>
+        <div className="review-summary">
+          <span><strong>{record.instrumentName || "—"}</strong> · {logType}</span>
+          <span>{record.analyst || "—"} · {record.date || record.createdAt.slice(0, 10)}{record.sampleId ? ` · ${record.sampleId}` : ""}</span>
+          <span>
+            Status: {isCurrent
+              ? <span className={`log-status-badge ${record.status.toLowerCase()}`}>{record.status}</span>
+              : <span className="record-flag superseded"><History size={10} /> Superseded</span>}
+            {record.amends && <span className="record-flag correction" title={correctionTitle(record)} style={{ marginLeft: 6 }}><Pencil size={10} /> Correction</span>}
+          </span>
+        </div>
+        {record.reviews.length > 0
+          ? <ReviewHistory reviews={record.reviews} />
+          : <p style={{ fontSize: 13, color: "var(--muted)", margin: 0 }}>No reviews yet.</p>}
+        {!isCurrent && <div className="notice notice-warning">A newer correction replaces this version. You can comment, but approve or reject the latest version.</div>}
+        {isCurrent && isOwn && <div className="notice notice-warning">You submitted this record, so another admin has to approve or reject it.</div>}
+        <div className="field-modern">
+          <label htmlFor="review-comment">Comment {canDecide && <span style={{ fontWeight: 400, color: "var(--muted)" }}>(required to reject)</span>}</label>
+          <textarea id="review-comment" value={comment} rows={3} maxLength={2000} placeholder="Visible to the analyst" onChange={(e) => setComment(e.target.value)} />
+        </div>
+        {error && <div className="notice notice-warning" role="alert">{error}</div>}
+      </div>
+      <div className="modal-footer" style={{ justifyContent: "flex-end", gap: 10, flexWrap: "wrap" }}>
+        <button className="btn btn-ghost btn-icon-gap" type="button" onClick={() => printRecordSheet([record], forms, "Single record")} style={{ marginRight: "auto" }}>
+          <Printer size={16} /> Print
+        </button>
+        <button className="btn btn-outline" type="button" onClick={onCancel} disabled={!!saving}>Cancel</button>
+        <button className="btn btn-outline btn-icon-gap" type="button" onClick={() => submit("Comment")} disabled={!!saving}>
+          {saving === "Comment" ? <RefreshCw size={16} className="spin" /> : <MessageSquare size={16} />} Comment
+        </button>
+        {canDecide && (
+          <>
+            <button className="btn btn-outline btn-danger btn-icon-gap" type="button" onClick={() => submit("Rejected")} disabled={!!saving}>
+              {saving === "Rejected" ? <RefreshCw size={16} className="spin" /> : <XCircle size={16} />} Reject
+            </button>
+            <button className="btn btn-primary btn-icon-gap" type="button" onClick={() => submit("Approved")} disabled={!!saving}>
+              {saving === "Approved" ? <RefreshCw size={16} className="spin" /> : <CheckCircle2 size={16} />} Approve
+            </button>
+          </>
+        )}
       </div>
     </ModalShell>
   );
@@ -1377,7 +1680,7 @@ function AmendModal({ record, form, onCancel, onSubmit }: {
 
 const EMPTY_TEMPLATE = {
   categoryId: "", instrumentName: "", instrumentModel: "", serialNumber: "",
-  manufacturer: "Thermo Scientific", installationDate: "", instrumentId: "",
+  manufacturer: "", installationDate: "", instrumentId: "",
   laboratoryName: "", department: "", location: "", desk: "", 
   logbookStartDate: "", logbookEndDate: "", methodUsed: "", displayOrder: 0,
   metadata: {} as Record<string, unknown>,
@@ -1396,6 +1699,9 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
   const [deleting, setDeleting] = useState<string | null>(null);
   const [notice, setNotice]     = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [instrTab, setInstrTab] = useState<"basic" | "content">("basic");
+  const [instrQuery, setInstrQuery] = useState("");
+  const [catFilter, setCatFilter] = useState("all");
+  const clearNotice = useCallback(() => setNotice(null), []);
 
   // All forms with scope "instrument" can be used as a General Information form.
   const instrumentForms = forms.filter((f) => f.scope === "instrument");
@@ -1403,6 +1709,10 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
 
   // Category management
   const [catModal, setCatModal] = useState(false);
+  const [catNotice, setCatNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const clearCatNotice = useCallback(() => setCatNotice(null), []);
+  const [formError, setFormError] = useState("");
+  const [formSnapshot, setFormSnapshot] = useState("");
   const [catBusy, setCatBusy]   = useState(false);
   const [newCatName, setNewCatName] = useState("");
   const [catNames, setCatNames] = useState<Record<string, string>>({});
@@ -1421,13 +1731,16 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
   }
 
   function openAdd() {
-    setForm({ ...EMPTY_TEMPLATE, categoryId: categories[0]?.id || "" });
+    const next = { ...EMPTY_TEMPLATE, categoryId: (catFilter !== "all" && catFilter) || categories[0]?.id || "", displayOrder: templates.length };
+    setForm(next);
+    setFormSnapshot(JSON.stringify(next));
+    setFormError("");
     setEditing(null); setModal("add");
     setInstrTab("basic");
   }
 
   function openEdit(tpl: InstrumentTemplate) {
-    setForm({ 
+    const next = { 
       categoryId: tpl.categoryId, 
       instrumentName: tpl.instrumentName, 
       instrumentModel: tpl.instrumentModel,
@@ -1445,26 +1758,56 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
       displayOrder: tpl.displayOrder,
       metadata: tpl.metadata || {},
       infoFormId: tpl.infoFormId || "",
-    });
+    };
+    setForm(next);
+    setFormSnapshot(JSON.stringify(next));
+    setFormError("");
     setEditing(tpl); setModal("edit");
     setInstrTab("basic");
   }
 
-  async function saveTemplate() {
+  function closeInstrument() {
+    if (JSON.stringify(form) !== formSnapshot && !confirm("Discard your changes to this instrument?")) return;
+    setModal(null);
+  }
+
+  async function saveTemplate(e?: React.FormEvent) {
+    e?.preventDefault();
+    if (saving) return;
+    const missing = [
+      !form.instrumentName.trim() && "Instrument name",
+      !form.categoryId && "Category",
+      ...infoFields.filter((f) => f.required && !infoValue(f.key).trim()).map((f) => f.label),
+    ].filter(Boolean) as string[];
+    if (missing.length) {
+      setFormError(`Fill in: ${missing.join(", ")}.`);
+      if (!form.instrumentName.trim() || !form.categoryId) setInstrTab("basic"); else setInstrTab("content");
+      return;
+    }
+    setFormError("");
     setSaving(true);
-    const url = modal === "edit" ? `/api/templates?id=${editing!.id}` : "/api/templates";
-    const r = await fetch(url, { method: modal === "edit" ? "PATCH" : "POST",
-      headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
-    if (r.ok) { setNotice({ type: "success", text: modal === "edit" ? "Template updated." : "Template created." }); setModal(null); loadAll(); }
-    else       { setNotice({ type: "error", text: "Save failed. Check all fields." }); }
+    // Drop blank extra fields so they don't clutter the record.
+    const cleanForm = { ...form, metadata: { ...form.metadata, customFields: customFields.filter((f) => f.label.trim() || f.value.trim()) } };
+    try {
+      const url = modal === "edit" ? `/api/templates?id=${editing!.id}` : "/api/templates";
+      const r = await fetch(url, { method: modal === "edit" ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify(cleanForm) });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) { setNotice({ type: "success", text: `${form.instrumentName.trim()} ${modal === "edit" ? "saved" : "added"}.` }); setModal(null); loadAll(); }
+      else setFormError(d.error || "Couldn't save. Check the fields and try again.");
+    } catch {
+      setFormError("Network error — nothing was saved.");
+    }
     setSaving(false);
   }
 
-  async function deleteTemplate(id: string) {
-    if (!confirm("Delete this instrument template? This cannot be undone.")) return;
-    setDeleting(id);
-    const r = await fetch(`/api/templates?id=${id}`, { method: "DELETE" });
-    if (r.ok) { setNotice({ type: "success", text: "Template deleted." }); loadAll(); }
+  async function deleteTemplate(tpl: InstrumentTemplate) {
+    if (!confirm(`Delete "${tpl.instrumentName}"? Analysts will no longer be able to pick it. Existing records are kept.`)) return;
+    setDeleting(tpl.id);
+    const r = await fetch(`/api/templates?id=${tpl.id}`, { method: "DELETE" });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok) { setNotice({ type: "success", text: `${tpl.instrumentName} deleted.` }); loadAll(); }
+    else setNotice({ type: "error", text: d.error || "Delete failed." });
     setDeleting(null);
   }
 
@@ -1539,7 +1882,7 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
     : [];
 
   function addCustomField() {
-    updateValue("customFields", [...customFields, { id: Date.now().toString(), label: "New Field", value: "" }]);
+    updateValue("customFields", [...customFields, { id: crypto.randomUUID(), label: "", value: "" }]);
   }
 
   function updateCustomField(index: number, key: "label" | "value", val: string) {
@@ -1564,6 +1907,7 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
   function openCategories() {
     setCatNames(Object.fromEntries(categories.map((c) => [c.id, c.name])));
     setNewCatName("");
+    setCatNotice(null);
     setCatModal(true);
   }
 
@@ -1582,9 +1926,9 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, displayOrder: categories.length }),
     });
-    const d = await r.json();
-    if (r.ok) { setNewCatName(""); await reloadCats(); }
-    else setNotice({ type: "error", text: d.error || "Could not add category." });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok) { setNewCatName(""); setCatNotice({ type: "success", text: `Added “${name}”.` }); await reloadCats(); }
+    else setCatNotice({ type: "error", text: d.error || "Could not add category." });
     setCatBusy(false);
   }
 
@@ -1597,9 +1941,10 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name }),
     });
-    const d = await r.json();
-    if (r.ok) { setNotice({ type: "success", text: "Category renamed." }); await reloadCats(); }
-    else setNotice({ type: "error", text: d.error || "Rename failed." });
+    const d = await r.json().catch(() => ({}));
+    // Instrument rows show the category name, so refresh them too.
+    if (r.ok) { setCatNotice({ type: "success", text: `Renamed to “${name}”.` }); await Promise.all([reloadCats(), loadAll()]); }
+    else setCatNotice({ type: "error", text: d.error || "Rename failed." });
     setCatBusy(false);
   }
 
@@ -1625,114 +1970,134 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
   async function removeCategory(id: string) {
     const count = templates.filter((t) => t.categoryId === id).length;
     if (count > 0) {
-      setNotice({ type: "error", text: `Category is used by ${count} instrument${count === 1 ? "" : "s"}. Move or delete them first.` });
+      setCatNotice({ type: "error", text: `This category has ${count} instrument${count === 1 ? "" : "s"}. Move or delete them first.` });
       return;
     }
-    if (!confirm("Delete this category?")) return;
+    if (!confirm(`Delete the category “${categories.find((c) => c.id === id)?.name}”?`)) return;
     setCatBusy(true);
     const r = await fetch(`/api/templates/categories?id=${encodeURIComponent(id)}`, { method: "DELETE" });
-    const d = await r.json();
-    if (r.ok) { setNotice({ type: "success", text: "Category deleted." }); await reloadCats(); }
-    else setNotice({ type: "error", text: d.error || "Delete failed." });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok) { setCatNotice({ type: "success", text: "Category deleted." }); await reloadCats(); }
+    else setCatNotice({ type: "error", text: d.error || "Delete failed." });
     setCatBusy(false);
   }
 
+  const q = instrQuery.trim().toLowerCase();
+  const filteredTemplates = templates.filter((t) =>
+    (catFilter === "all" || t.categoryId === catFilter) &&
+    (!q || [t.instrumentName, t.instrumentModel, t.instrumentId, t.serialNumber, t.location, t.manufacturer].some((v) => (v || "").toLowerCase().includes(q))));
+  const canReorder = !q && catFilter === "all";
+
   return (
     <div className="panel-modern">
-      {notice && (
-        <div className={`notice notice-${notice.type} shadow-sm`} style={{ marginBottom: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {notice.type === 'success' ? <CheckCircle2 size={18} /> : <XCircle size={18} />}
-            <span>{notice.text}</span>
-          </div>
-          <button style={{ float: "right", background: "none", border: "none", cursor: "pointer", fontWeight: 700 }} onClick={() => setNotice(null)}>✕</button>
-        </div>
-      )}
+      <TabNotice notice={notice} onClose={clearNotice} />
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, gap: 16, flexWrap: "wrap" }}>
+      <div className="um-head">
         <div>
-          <h2 style={{ fontSize: 18, fontWeight: 800 }}>Laboratory Instruments</h2>
-          <p style={{ fontSize: 14, color: "var(--muted)", marginTop: 4 }}>
-            Manage the equipment templates available for analyst data entry.
-          </p>
+          <h2 className="um-title">Instruments</h2>
+          <p className="um-sub">The equipment analysts can choose when they log work.</p>
         </div>
         {isAdmin && (
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <button className="btn btn-outline btn-sm btn-icon-gap" type="button" onClick={openCategories}>
-              <Tag size={16} /> <span>Manage Categories</span>
+              <Tag size={16} /> <span>Categories</span>
             </button>
-            <button className="btn btn-primary btn-sm btn-icon-gap" type="button" onClick={openAdd}>
-              <Plus size={16} /> <span>New Instrument</span>
+            <button className="btn btn-primary btn-sm btn-icon-gap" type="button" onClick={openAdd} disabled={categories.length === 0} title={categories.length === 0 ? "Add a category first" : undefined}>
+              <Plus size={16} /> <span>New instrument</span>
             </button>
           </div>
         )}
+      </div>
+
+      <div className="um-toolbar">
+        <div className="um-search">
+          <Search size={16} />
+          <input value={instrQuery} onChange={(e) => setInstrQuery(e.target.value)} placeholder="Search name, model, ID, serial, location…" aria-label="Search instruments" />
+          {instrQuery && <button type="button" onClick={() => setInstrQuery("")} aria-label="Clear search"><X size={14} /></button>}
+        </div>
+        <div className="um-chips" role="group" aria-label="Category">
+          <button type="button" className={`um-chip ${catFilter === "all" ? "active" : ""}`} onClick={() => setCatFilter("all")}>All ({templates.length})</button>
+          {categories.map((c) => (
+            <button key={c.id} type="button" className={`um-chip ${catFilter === c.id ? "active" : ""}`} onClick={() => setCatFilter(c.id)}>
+              {c.name} ({templates.filter((t) => t.categoryId === c.id).length})
+            </button>
+          ))}
+        </div>
       </div>
 
       {loading ? (
         <div style={{ display: "grid", gap: 10 }}>
           {[1, 2, 3, 4].map((i) => <div key={i} className="skeleton" style={{ height: 60, borderRadius: 12 }} />)}
         </div>
+      ) : filteredTemplates.length === 0 ? (
+        <div className="empty-state-modern" style={{ padding: 40 }}>
+          <div className="empty-icon-wrap"><Microscope size={36} /></div>
+          <p>{templates.length === 0 ? "No instruments yet. Add the first one with “New instrument”." : "No instruments match your search."}</p>
+        </div>
       ) : (
-        <div className="table-scroll shadow-sm" style={{ border: '1px solid var(--outline-variant)', borderRadius: 12, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
-          <table className="data-table">
+        <div className="um-table-wrap">
+          <table className="data-table um-table">
             <thead>
               <tr>
-                <th>Category</th><th>Instrument</th><th>Model</th><th>Instrument ID</th>
-                <th>Serial No.</th><th>Location</th>
-                {isAdmin && <th style={{ width: 140 }}>Actions</th>}
+                {isAdmin && canReorder && <th className="um-col-check"><span className="sr-only">Order</span></th>}
+                <th>Instrument</th><th>Category</th><th className="um-hide-sm">ID / Serial</th><th className="um-hide-md">Location</th>
+                {isAdmin && <th className="um-col-actions"><span className="sr-only">Actions</span></th>}
               </tr>
             </thead>
             <tbody>
-              {templates.length === 0 && (
-                <tr><td colSpan={7} className="empty-state">No instrument templates found.</td></tr>
-              )}
-              {templates.map((tpl) => (
-                <tr key={tpl.id}>
-                  <td><span className={`cat-badge cat-badge-${tpl.categoryName.toLowerCase().replace(/\s+/g, "-")}`}>{tpl.categoryName}</span></td>
-                  <td style={{ fontWeight: 800, color: 'var(--primary)' }}>{tpl.instrumentName}</td>
-                  <td className="mono" style={{ fontSize: 13 }}>{tpl.instrumentModel || "—"}</td>
-                  <td className="mono" style={{ fontSize: 13 }}>{tpl.instrumentId || "—"}</td>
-                  <td className="mono" style={{ fontSize: 13 }}>{tpl.serialNumber || "—"}</td>
-                  <td style={{ fontSize: 13 }}>{tpl.location || "—"}</td>
-                  {isAdmin && (
-                    <td>
-                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                        <div style={{ display: "flex", flexDirection: "column", marginRight: 4 }}>
-                          <button className="btn btn-ghost btn-sm btn-icon-only" type="button" disabled={templates.indexOf(tpl) === 0} onClick={() => moveInstrument(templates.indexOf(tpl), -1)} title="Move up" style={{ height: 16 }}>
-                            <ChevronDown size={12} style={{ transform: "rotate(180deg)" }} />
-                          </button>
-                          <button className="btn btn-ghost btn-sm btn-icon-only" type="button" disabled={templates.indexOf(tpl) === templates.length - 1} onClick={() => moveInstrument(templates.indexOf(tpl), 1)} title="Move down" style={{ height: 16 }}>
-                            <ChevronDown size={12} />
-                          </button>
+              {filteredTemplates.map((tpl) => {
+                const idx = templates.indexOf(tpl);
+                return (
+                  <tr key={tpl.id}>
+                    {isAdmin && canReorder && (
+                      <td className="um-col-check">
+                        <div className="inst-order">
+                          <button type="button" disabled={idx === 0} onClick={() => moveInstrument(idx, -1)} title="Move up" aria-label={`Move ${tpl.instrumentName} up`}><ChevronDown size={13} style={{ transform: "rotate(180deg)" }} /></button>
+                          <button type="button" disabled={idx === templates.length - 1} onClick={() => moveInstrument(idx, 1)} title="Move down" aria-label={`Move ${tpl.instrumentName} down`}><ChevronDown size={13} /></button>
                         </div>
-                        <button className="btn btn-ghost btn-sm btn-icon-only" type="button" onClick={() => { openEdit(tpl); setInstrTab("content"); }} title="Edit General Info"><FileText size={14} /></button>
-                        <button className="btn btn-outline btn-sm" type="button" onClick={() => openEdit(tpl)} title="Edit specifications"><Edit2 size={14} /> <span>Edit</span></button>
-                        <button className="btn btn-danger btn-sm" type="button" disabled={deleting === tpl.id} onClick={() => deleteTemplate(tpl.id)} title="Delete">
-                          {deleting === tpl.id ? <span>Deleting…</span> : (<><Trash2 size={14} /> <span>Delete</span></>)}
-                        </button>
+                      </td>
+                    )}
+                    <td>
+                      <div className="um-user-text">
+                        <span className="um-user-name">{tpl.instrumentName}</span>
+                        <span className="um-user-handle">{[tpl.manufacturer, tpl.instrumentModel].filter(Boolean).join(" · ") || "—"}</span>
                       </div>
                     </td>
-                  )}
-                </tr>
-              ))}
+                    <td><span className={`cat-badge cat-badge-${tpl.categoryName.toLowerCase().replace(/\s+/g, "-")}`}>{tpl.categoryName}</span></td>
+                    <td className="um-hide-sm mono um-muted">{tpl.instrumentId || "—"}{tpl.serialNumber ? <><br />SN {tpl.serialNumber}</> : null}</td>
+                    <td className="um-hide-md um-muted">{tpl.location || "—"}</td>
+                    {isAdmin && (
+                      <td className="um-col-actions">
+                        <div className="um-row-actions">
+                          <button className="btn btn-outline btn-sm btn-icon-gap" type="button" onClick={() => openEdit(tpl)}><Pencil size={14} /> <span>Edit</span></button>
+                          <button className="btn btn-ghost btn-sm btn-icon-only um-danger" type="button" disabled={deleting === tpl.id} onClick={() => deleteTemplate(tpl)} title="Delete" aria-label={`Delete ${tpl.instrumentName}`}>
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       )}
 
       {modal && (
-        <ModalShell open onClose={() => setModal(null)} className="modal shadow-3 modal-w-2xl modal-tall" labelledBy="instrument-modal-title">
+        <ModalShell open onClose={closeInstrument} closeOnOverlayClick={false} className="modal shadow-3 modal-w-2xl modal-tall" labelledBy="instrument-modal-title">
+          <form onSubmit={saveTemplate} noValidate style={{ display: "contents" }}>
           <div className="modal-header">
-            <h2 className="modal-title" id="instrument-modal-title">{modal === "add" ? "Create New Instrument" : `Edit Instrument: ${form.instrumentName}`}</h2>
-            <button className="btn btn-ghost btn-sm" type="button" onClick={() => setModal(null)} aria-label="Close">✕</button>
+            <h2 className="modal-title" id="instrument-modal-title">{modal === "add" ? "New instrument" : `Edit ${editing?.instrumentName || form.instrumentName}`}</h2>
+            <button className="btn btn-ghost btn-sm" type="button" onClick={closeInstrument} aria-label="Close"><X size={16} /></button>
           </div>
 
           <div className="edit-mode-tabs">
-            <button className={`edit-mode-tab ${instrTab === "basic" ? "active" : ""}`} onClick={() => setInstrTab("basic")}>
-              <Settings size={16} /> <span>1. Basic Specifications</span>
+            <button type="button" className={`edit-mode-tab ${instrTab === "basic" ? "active" : ""}`} onClick={() => setInstrTab("basic")}>
+              <Settings size={16} /> <span>Details</span>
             </button>
-            <button className={`edit-mode-tab ${instrTab === "content" ? "active" : ""}`} onClick={() => setInstrTab("content")}>
-              <FileText size={16} /> <span>2. General Info Content</span>
+            <button type="button" className={`edit-mode-tab ${instrTab === "content" ? "active" : ""}`} onClick={() => setInstrTab("content")}>
+              <FileText size={16} /> <span>General information</span>
             </button>
           </div>
 
@@ -1748,25 +2113,24 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
                   <div className="modal-form-grid">
                     <div className="field">
                       <label className="field-label">Category <span className="req">*</span></label>
-                      <select value={form.categoryId} onChange={(e) => updateValue("categoryId", e.target.value)}>
+                      <select value={form.categoryId} onChange={(e) => updateValue("categoryId", e.target.value)} aria-invalid={!!formError && !form.categoryId}>
+                        {!form.categoryId && <option value="">Choose…</option>}
                         {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                       </select>
                     </div>
                     <div className="field">
                       <label className="field-label">Instrument Name <span className="req">*</span></label>
-                      <input value={form.instrumentName} onChange={(e) => updateValue("instrumentName", e.target.value)} placeholder="e.g. ICP-MS" />
+                      <input value={form.instrumentName} onChange={(e) => updateValue("instrumentName", e.target.value)} placeholder="e.g. ICP-MS" autoFocus={modal === "add"}
+                        aria-invalid={!!formError && !form.instrumentName.trim()} />
                     </div>
                     <div className="field">
                       <label className="field-label">Instrument ID</label>
                       <input value={form.instrumentId} onChange={(e) => updateValue("instrumentId", e.target.value)} placeholder="e.g. ICP-MS-001" />
+                      <span className="um-hint">Must be unique. Printed on every record for this instrument.</span>
                     </div>
                     <div className="field">
                       <label className="field-label">Primary Method Used</label>
                       <input value={form.methodUsed} onChange={(e) => updateValue("methodUsed", e.target.value)} placeholder="Default method for new records" />
-                    </div>
-                    <div className="field">
-                      <label className="field-label">Display Order</label>
-                      <input type="number" value={form.displayOrder} onChange={(e) => updateValue("displayOrder", Number(e.target.value))} />
                     </div>
                   </div>
                 </div>
@@ -1874,66 +2238,78 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
               </div>
             )}
           </div>
-          <div className="modal-footer" style={{ justifyContent: 'flex-end', gap: 10 }}>
-            <button className="btn btn-outline" type="button" onClick={() => setModal(null)}>Cancel</button>
-            <button className="btn btn-primary btn-icon-gap" type="button" disabled={saving || !form.instrumentName || !form.categoryId} onClick={saveTemplate}>
-              {saving ? "Saving…" : <><CheckCircle2 size={16} /> <span>{instrTab === "basic" ? "Save Basic Specifications" : "Save General Info"}</span></>}
-            </button>
+          <div className="modal-footer inst-foot">
+            {formError ? <span className="inst-foot-error" role="alert"><AlertTriangle size={15} /> {formError}</span> : <span />}
+            <div className="inst-foot-btns">
+              <button className="btn btn-outline" type="button" onClick={closeInstrument}>Cancel</button>
+              <button className="btn btn-primary btn-icon-gap" type="submit" disabled={saving}>
+                {saving ? "Saving…" : <><CheckCircle2 size={16} /> <span>{modal === "add" ? "Add instrument" : "Save instrument"}</span></>}
+              </button>
+            </div>
           </div>
+          </form>
         </ModalShell>
       )}
 
       {catModal && (
-        <ModalShell open onClose={() => setCatModal(false)} className="modal shadow-3 modal-w-lg" labelledBy="categories-modal-title">
+        <ModalShell open onClose={() => setCatModal(false)} className="modal shadow-3 modal-w-md" labelledBy="categories-modal-title">
           <div className="modal-header">
-            <h2 className="modal-title" id="categories-modal-title">Manage Categories</h2>
-            <button className="btn btn-ghost btn-sm" type="button" onClick={() => setCatModal(false)} aria-label="Close">✕</button>
+            <h2 className="modal-title" id="categories-modal-title">Categories</h2>
+            <button className="btn btn-ghost btn-sm" type="button" onClick={() => setCatModal(false)} aria-label="Close"><X size={16} /></button>
           </div>
-          <div className="modal-body" style={{ display: "grid", gap: 12 }}>
-            {categories.length === 0 && (
-              <p style={{ fontSize: 13, color: "var(--muted)" }}>No categories yet. Add the first one below.</p>
-            )}
-            {categories.map((c, i) => {
-              const count = templates.filter((t) => t.categoryId === c.id).length;
-              const changed = (catNames[c.id] ?? c.name).trim() !== c.name;
-              return (
-                <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={{ display: "flex", flexDirection: "column" }}>
-                    <button className="btn btn-ghost btn-sm btn-icon-only" type="button" disabled={i === 0 || catBusy} onClick={() => moveCategory(i, -1)} title="Move up" style={{ height: 18 }}>
-                      <ChevronDown size={12} style={{ transform: "rotate(180deg)" }} />
-                    </button>
-                    <button className="btn btn-ghost btn-sm btn-icon-only" type="button" disabled={i === categories.length - 1 || catBusy} onClick={() => moveCategory(i, 1)} title="Move down" style={{ height: 18 }}>
-                      <ChevronDown size={12} />
-                    </button>
-                  </div>
-                  <input
-                    value={catNames[c.id] ?? c.name}
-                    onChange={(e) => setCatNames((p) => ({ ...p, [c.id]: e.target.value }))}
-                    style={{ flex: 1 }}
-                  />
-                  <span className="toolbar-count" title="Instruments in this category">{count}</span>
-                  <button className="btn btn-outline btn-sm" type="button" disabled={!changed || catBusy} onClick={() => renameCategory(c.id)}>Save</button>
-                  <button className="btn btn-danger btn-sm btn-icon-only" type="button" disabled={catBusy} onClick={() => removeCategory(c.id)} title={count > 0 ? "In use — move instruments first" : "Delete category"}>
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              );
-            })}
-            <div style={{ display: "flex", gap: 8, marginTop: 8, paddingTop: 12, borderTop: "1px solid var(--outline-variant)" }}>
-              <input
-                value={newCatName}
-                onChange={(e) => setNewCatName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") addCategory(); }}
-                placeholder="New category name…"
-                style={{ flex: 1 }}
-              />
-              <button className="btn btn-primary btn-sm btn-icon-gap" type="button" disabled={!newCatName.trim() || catBusy} onClick={addCategory}>
-                <Plus size={14} /> <span>Add</span>
+          <div className="modal-body cat-body">
+            <p className="um-hint" style={{ marginTop: 0 }}>Groups shown in the analysts&apos; instrument list. Rename, reorder or add them here.</p>
+            <TabNotice notice={catNotice} onClose={clearCatNotice} />
+
+            <form className="cat-add" onSubmit={(e) => { e.preventDefault(); addCategory(); }}>
+              <input value={newCatName} onChange={(e) => setNewCatName(e.target.value)} placeholder="New category, e.g. Mass Spectrometry" aria-label="New category name" />
+              <button className="btn btn-primary btn-sm btn-icon-gap" type="submit" disabled={!newCatName.trim() || catBusy}>
+                <Plus size={15} /> <span>Add</span>
               </button>
-            </div>
+            </form>
+
+            {categories.length === 0 ? (
+              <div className="empty-state-modern" style={{ padding: 24 }}><p>No categories yet.</p></div>
+            ) : (
+              <ul className="cat-list">
+                {categories.map((c, i) => {
+                  const count = templates.filter((t) => t.categoryId === c.id).length;
+                  const value = catNames[c.id] ?? c.name;
+                  const changed = value.trim() !== c.name && value.trim() !== "";
+                  return (
+                    <li key={c.id} className={`cat-row ${changed ? "changed" : ""}`}>
+                      <div className="inst-order">
+                        <button type="button" disabled={i === 0 || catBusy} onClick={() => moveCategory(i, -1)} title="Move up" aria-label={`Move ${c.name} up`}><ChevronDown size={13} style={{ transform: "rotate(180deg)" }} /></button>
+                        <button type="button" disabled={i === categories.length - 1 || catBusy} onClick={() => moveCategory(i, 1)} title="Move down" aria-label={`Move ${c.name} down`}><ChevronDown size={13} /></button>
+                      </div>
+                      <input
+                        className="cat-input"
+                        value={value}
+                        aria-label={`Name of ${c.name}`}
+                        onChange={(e) => setCatNames((p) => ({ ...p, [c.id]: e.target.value }))}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") { e.preventDefault(); if (changed) renameCategory(c.id); }
+                          if (e.key === "Escape") { e.stopPropagation(); setCatNames((p) => ({ ...p, [c.id]: c.name })); }
+                        }}
+                      />
+                      <span className="cat-count" title={`${count} instrument${count === 1 ? "" : "s"}`}>{count} <Microscope size={13} /></span>
+                      {changed ? (
+                        <button className="btn btn-primary btn-sm" type="button" disabled={catBusy} onClick={() => renameCategory(c.id)}>Save</button>
+                      ) : (
+                        <button className="btn btn-ghost btn-sm btn-icon-only um-danger" type="button" disabled={catBusy || count > 0}
+                          onClick={() => removeCategory(c.id)} aria-label={`Delete ${c.name}`}
+                          title={count > 0 ? "Has instruments — move or delete them first" : "Delete category"}>
+                          <Trash2 size={15} />
+                        </button>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </div>
           <div className="modal-footer">
-            <button className="btn btn-outline" type="button" onClick={() => setCatModal(false)}>Done</button>
+            <button className="btn btn-primary" type="button" onClick={() => setCatModal(false)}>Done</button>
           </div>
         </ModalShell>
       )}
@@ -1945,432 +2321,458 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
    Tab 3 — Users
    ════════════════════════════════════════════════════════════════════════════ */
 
+type UserRoleFilter = "all" | ProfilePublic["role"];
+type UserDialog = { mode: "create" } | { mode: "edit"; profile: ProfilePublic };
+
+const USERNAME_PATTERN = /^[a-z0-9._-]{3,32}$/i;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Readable temporary passwords: no 0/O/1/l/I lookalikes.
+function generatePassword(length = 14) {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%";
+  const bytes = crypto.getRandomValues(new Uint32Array(length));
+  return Array.from(bytes, (b) => chars[b % chars.length]).join("");
+}
+
 function UsersTab({ user, isAdmin }: { user: AppUser | null; isAdmin: boolean }) {
-  const [profiles, setProfiles]         = useState<ProfilePublic[]>([]);
-  const [loading, setLoading]           = useState(true);
-  const [subTab, setSubTab]             = useState<"active" | "archive">("active");
-  const [selected, setSelected]         = useState<Set<string>>(new Set());
-  const [busy, setBusy]                 = useState(false);
-  const [notice, setNotice]             = useState<{ type: "success" | "error"; text: string } | null>(null);
-
-  // Edit modal — operates on a single selected user.
-  const [editTarget, setEditTarget]     = useState<ProfilePublic | null>(null);
-  const [editFullName, setEditFullName] = useState("");
-  const [editUsername, setEditUsername] = useState("");
-  const [editPosition, setEditPosition] = useState("");
-  const [editPassword, setEditPassword] = useState("");
-  const [editSaving, setEditSaving]     = useState(false);
-  const [showEditPw, setShowEditPw]     = useState(false);
-
-  const [createOpen, setCreateOpen]     = useState(false);
-  const [createSaving, setCreateSaving] = useState(false);
-  const [createForm, setCreateForm]     = useState({ fullName: "", email: "", username: "", position: "", password: "", role: "analyst" as ProfilePublic["role"] });
+  const [profiles, setProfiles] = useState<ProfilePublic[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [subTab, setSubTab]     = useState<"active" | "archive">("active");
+  const [query, setQuery]       = useState("");
+  const [roleFilter, setRoleFilter] = useState<UserRoleFilter>("all");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [busy, setBusy]         = useState(false);
+  const [notice, setNotice]     = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [dialog, setDialog]     = useState<UserDialog | null>(null);
 
   useEffect(() => { loadProfiles(); }, []);
 
-  // Selection is per-tab; clear it whenever the active/archive tab changes.
+  useEffect(() => {
+    if (notice?.type !== "success") return;
+    const t = setTimeout(() => setNotice(null), 4000);
+    return () => clearTimeout(t);
+  }, [notice]);
+
+  async function loadProfiles() {
+    setLoading(true);
+    try {
+      const r = await fetch("/api/users");
+      const d = await r.json();
+      setProfiles(d.profiles || []);
+      if (d.error) setNotice({ type: "error", text: d.error });
+    } catch {
+      setNotice({ type: "error", text: "Could not load users." });
+    }
+    setSelected(new Set());
+    setLoading(false);
+  }
+
   function changeTab(next: "active" | "archive") {
     if (next === subTab) return;
     setSubTab(next);
     setSelected(new Set());
   }
 
-  async function loadProfiles() {
-    setLoading(true);
-    const r = await fetch("/api/users");
-    if (r.ok) { const d = await r.json(); setProfiles(d.profiles || []); }
-    setSelected(new Set());
-    setLoading(false);
-  }
+  const isSelf = (p: ProfilePublic) => p.username === user?.username;
 
-
-  function openEdit(profile: ProfilePublic) {
-    setEditTarget(profile);
-    setEditFullName(profile.fullName);
-    setEditUsername(profile.username);
-    setEditPosition(profile.position);
-    setEditPassword("");
-    setShowEditPw(false);
-  }
-
-  async function saveEdit() {
-    if (!editTarget) return;
-    const newUsername = editUsername.trim() !== editTarget.username && editUsername.trim() ? editUsername.trim() : undefined;
-    const newFullName = editFullName.trim() !== editTarget.fullName && editFullName.trim() ? editFullName.trim() : undefined;
-    const newPosition = editPosition.trim() !== editTarget.position ? editPosition.trim() : undefined;
-    const newPassword = editPassword.trim() || undefined;
-    if (!newUsername && !newPassword && !newFullName && newPosition === undefined) { setEditTarget(null); return; }
-    setEditSaving(true);
-    const r = await fetch("/api/users", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: editTarget.username, action: "updateCredentials", newUsername, newPassword, newFullName, newPosition }),
-    });
-    const d = await r.json();
-    if (r.ok) { setNotice({ type: "success", text: "User details updated." }); setEditTarget(null); loadProfiles(); }
-    else       { setNotice({ type: "error", text: d.error || "Update failed." }); }
-    setEditSaving(false);
-  }
-
-  // ── Bulk actions ──────────────────────────────────────────────────────────
-  // All row actions are driven from the selection: the user ticks rows and the
-  // toolbar above the table applies an action to every selected account. The
-  // current user is never a valid target for archive/reset/delete.
-  async function runBulk(
+  // Runs one action against each target and reports a single summary.
+  async function runAction(
     label: string,
+    targets: string[],
     action: (username: string) => Promise<Response>,
     confirmText?: string,
   ) {
-    const targets = selectedProfiles.map((p) => p.username).filter((u) => u !== user?.username);
+    targets = targets.filter((u) => u !== user?.username);
     if (targets.length === 0) return;
     if (confirmText && !confirm(confirmText)) return;
     setBusy(true);
-    let ok = 0, fail = 0;
+    let ok = 0;
+    const errors: string[] = [];
     for (const u of targets) {
-      try { const r = await action(u); if (r.ok) ok++; else fail++; } catch { fail++; }
+      try {
+        const r = await action(u);
+        if (r.ok) ok++;
+        else errors.push(`${u}: ${(await r.json().catch(() => ({}))).error || "failed"}`);
+      } catch {
+        errors.push(`${u}: network error`);
+      }
     }
-    setNotice({
-      type: fail ? "error" : "success",
-      text: fail ? `${label}: ${ok} succeeded, ${fail} failed.` : `${label} ${ok} account${ok === 1 ? "" : "s"}.`,
-    });
+    setNotice(errors.length
+      ? { type: "error", text: `${label} ${ok} of ${targets.length}. ${errors.join("; ")}` }
+      : { type: "success", text: `${label} ${ok} account${ok === 1 ? "" : "s"}.` });
     setBusy(false);
     loadProfiles();
   }
 
-  const archiveSelected = () => runBulk(
-    "Archived",
-    (u) => fetch("/api/users", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: u, action: "archive" }) }),
-    `Archive ${selectableCount} selected account${selectableCount === 1 ? "" : "s"}? They keep their records but can no longer sign in.`,
-  );
-  const restoreSelected = () => runBulk(
-    "Restored",
-    (u) => fetch("/api/users", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: u, action: "unarchive" }) }),
-  );
-  const resetSelected = () => runBulk(
-    "Password reset for",
-    (u) => fetch("/api/users", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: u, action: "resetPassword" }) }),
-    `Reset the password to the temporary default for ${selectableCount} selected account${selectableCount === 1 ? "" : "s"}?`,
-  );
-  const deleteSelected = () => runBulk(
-    "Deleted",
+  const patch = (body: object) => fetch("/api/users", {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  const plural = (n: number) => `${n} account${n === 1 ? "" : "s"}`;
+
+  const archive = (targets: string[]) => runAction("Archived", targets,
+    (u) => patch({ username: u, action: "archive" }),
+    `Archive ${plural(targets.length)}? They keep their records but can no longer sign in.`);
+  const restore = (targets: string[]) => runAction("Restored", targets,
+    (u) => patch({ username: u, action: "unarchive" }));
+  const resetPw = (targets: string[]) => runAction("Password reset for", targets,
+    (u) => patch({ username: u, action: "resetPassword" }),
+    `Reset ${plural(targets.length)} to the shared initial password? They must choose a new one at next sign-in.`);
+  const remove = (targets: string[]) => runAction("Deleted", targets,
     (u) => fetch("/api/users", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: u }) }),
-    `Permanently remove ${selectableCount} selected account${selectableCount === 1 ? "" : "s"}? This cannot be undone.`,
-  );
+    `Permanently delete ${plural(targets.length)}? This cannot be undone.`);
 
-  async function createUser() {
-    setCreateSaving(true);
-    const r = await fetch("/api/users", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "create", ...createForm }),
-    });
-    const d = await r.json();
-    if (r.ok) {
-      setNotice({ type: "success", text: `Account "${createForm.username}" created.` });
-      setCreateOpen(false);
-      setCreateForm({ fullName: "", email: "", username: "", position: "", password: "", role: "analyst" });
-      loadProfiles();
-    } else {
-      setNotice({ type: "error", text: d.error || "Could not create the account." });
-    }
-    setCreateSaving(false);
-  }
+  const active   = profiles.filter((p) => !p.archived);
+  const archived = profiles.filter((p) => p.archived);
+  const inTab    = subTab === "active" ? active : archived;
+  const q = query.trim().toLowerCase();
+  const visible = inTab
+    .filter((p) => roleFilter === "all" || p.role === roleFilter)
+    .filter((p) => !q || [p.username, p.fullName, p.email, p.position].some((v) => v.toLowerCase().includes(q)))
+    .sort((a, b) => (a.role === b.role ? a.username.localeCompare(b.username) : a.role === "admin" ? -1 : 1));
 
-  const active           = profiles.filter((p) => !p.archived);
-  const archivedProfiles = profiles.filter((p) => p.archived);
-  const visible          = subTab === "active" ? active : archivedProfiles;
+  const selectable = visible.filter((p) => !isSelf(p));
+  const selectedNames = selectable.filter((p) => selected.has(p.username)).map((p) => p.username);
+  const allSelected = selectable.length > 0 && selectedNames.length === selectable.length;
 
-  // Self can never be a bulk target, so it is excluded from selection entirely.
-  const selectableInTab  = visible.filter((p) => p.username !== user?.username);
-  const selectedProfiles = visible.filter((p) => selected.has(p.username));
-  const selectableCount  = selectedProfiles.filter((p) => p.username !== user?.username).length;
-
-  function toggleSelect(username: string) {
-    if (username === user?.username) return;
+  function toggle(username: string) {
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(username)) next.delete(username); else next.add(username);
       return next;
     });
   }
-  function toggleSelectAll() {
-    const all = selectableInTab.map((p) => p.username);
-    const allSelected = all.length > 0 && all.every((u) => selected.has(u));
-    setSelected(allSelected ? new Set() : new Set(all));
-  }
+
+  const stats = [
+    { label: "Active", value: active.length, icon: <UserCheck size={18} /> },
+    { label: "Admins", value: active.filter((p) => p.role === "admin").length, icon: <ShieldCheck size={18} /> },
+    { label: "Analysts", value: active.filter((p) => p.role === "analyst").length, icon: <User size={18} /> },
+    { label: "Archived", value: archived.length, icon: <Archive size={18} /> },
+  ];
 
   return (
-    <div className="panel-modern">
-      {notice && (
-        <div className={`notice notice-${notice.type} shadow-sm`} style={{ marginBottom: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {notice.type === 'success' ? <CheckCircle2 size={18} /> : <XCircle size={18} />}
-            <span>{notice.text}</span>
-          </div>
-          <button style={{ float: "right", background: "none", border: "none", cursor: "pointer", fontWeight: 700 }} onClick={() => setNotice(null)}>✕</button>
-        </div>
-      )}
-
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, gap: 16, flexWrap: "wrap" }}>
+    <div className="panel-modern um">
+      <div className="um-head">
         <div>
-          <h2 style={{ fontSize: 18, fontWeight: 800 }}>User Management</h2>
-          <p style={{ fontSize: 14, color: "var(--muted)", marginTop: 4 }}>
-            Control laboratory personnel access and system privileges.
-          </p>
+          <h2 className="um-title">Users</h2>
+          <p className="um-sub">Accounts, roles and sign-in access for the lab.</p>
         </div>
         {isAdmin && (
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <button className="btn btn-primary btn-sm btn-icon-gap" type="button" onClick={() => setCreateOpen(true)}>
-              <Plus size={16} /> <span>Create User</span>
-            </button>
-          </div>
+          <button className="btn btn-primary btn-sm btn-icon-gap" type="button" onClick={() => setDialog({ mode: "create" })}>
+            <Plus size={16} /> <span>New user</span>
+          </button>
         )}
       </div>
 
-      <div className="scope-switch" role="tablist" style={{ marginBottom: 16 }}>
-        <button type="button" role="tab" aria-selected={subTab === "active"} className={`scope-switch-btn ${subTab === "active" ? "active" : ""}`} onClick={() => changeTab("active")}>
-          <UserCheck size={16} /> <span>Active</span> <span className="scope-count">{active.length}</span>
-        </button>
-        <button type="button" role="tab" aria-selected={subTab === "archive"} className={`scope-switch-btn ${subTab === "archive" ? "active" : ""}`} onClick={() => changeTab("archive")}>
-          <Archive size={16} /> <span>Archive</span> <span className="scope-count">{archivedProfiles.length}</span>
-        </button>
+      {notice && (
+        <div className={`notice notice-${notice.type} um-notice`} role="status">
+          {notice.type === "success" ? <CheckCircle2 size={18} /> : <XCircle size={18} />}
+          <span>{notice.text}</span>
+          <button className="btn btn-ghost btn-sm" type="button" onClick={() => setNotice(null)} aria-label="Dismiss"><X size={14} /></button>
+        </div>
+      )}
+
+      <div className="um-stats">
+        {stats.map((s) => (
+          <div key={s.label} className="um-stat">
+            <span className="um-stat-icon">{s.icon}</span>
+            <span className="um-stat-value">{loading ? "–" : s.value}</span>
+            <span className="um-stat-label">{s.label}</span>
+          </div>
+        ))}
       </div>
 
-      {isAdmin && selectableCount > 0 && (
-        <div
-          className="shadow-sm"
-          style={{
-            display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16,
-            flexWrap: "wrap", marginBottom: 16, padding: "12px 16px", borderRadius: 12,
-            border: "1px solid var(--outline-variant)", background: "var(--surface-2)",
-          }}
-        >
-          <span style={{ fontWeight: 700, fontSize: 14 }}>
-            <strong style={{ color: "var(--primary)" }}>{selectableCount}</strong> selected
-          </span>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      <div className="um-toolbar">
+        <div className="scope-switch" role="tablist">
+          <button type="button" role="tab" aria-selected={subTab === "active"} className={`scope-switch-btn ${subTab === "active" ? "active" : ""}`} onClick={() => changeTab("active")}>
+            <UserCheck size={16} /> <span>Active</span> <span className="scope-count">{active.length}</span>
+          </button>
+          <button type="button" role="tab" aria-selected={subTab === "archive"} className={`scope-switch-btn ${subTab === "archive" ? "active" : ""}`} onClick={() => changeTab("archive")}>
+            <Archive size={16} /> <span>Archive</span> <span className="scope-count">{archived.length}</span>
+          </button>
+        </div>
+        <div className="um-search">
+          <Search size={16} />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search name, username, email…" aria-label="Search users" />
+          {query && <button type="button" onClick={() => setQuery("")} aria-label="Clear search"><X size={14} /></button>}
+        </div>
+        <div className="um-chips" role="group" aria-label="Filter by role">
+          {(["all", "admin", "analyst"] as const).map((r) => (
+            <button key={r} type="button" className={`um-chip ${roleFilter === r ? "active" : ""}`} onClick={() => setRoleFilter(r)}>
+              {r === "all" ? "All roles" : r === "admin" ? "Admins" : "Analysts"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {isAdmin && selectedNames.length > 0 && (
+        <div className="um-bulk">
+          <span><strong>{selectedNames.length}</strong> selected</span>
+          <div className="um-bulk-actions">
             {subTab === "active" ? (
               <>
-                <button className="btn btn-outline btn-sm btn-icon-gap" type="button" disabled={busy || selectableCount !== 1} title={selectableCount !== 1 ? "Select exactly one account to edit" : "Edit"} onClick={() => openEdit(selectedProfiles.find((p) => p.username !== user?.username)!)}>
-                  <Edit2 size={14} /> <span>Edit</span>
+                <button className="btn btn-outline btn-sm btn-icon-gap" type="button" disabled={busy} onClick={() => resetPw(selectedNames)}>
+                  <KeyRound size={14} /> <span>Reset password</span>
                 </button>
-                <button className="btn btn-outline btn-sm btn-icon-gap" type="button" disabled={busy} onClick={resetSelected}>
-                  <KeyRound size={14} /> <span>Reset Password</span>
-                </button>
-                <button className="btn btn-outline btn-sm btn-icon-gap" type="button" disabled={busy} onClick={archiveSelected}>
+                <button className="btn btn-outline btn-sm btn-icon-gap" type="button" disabled={busy} onClick={() => archive(selectedNames)}>
                   <Archive size={14} /> <span>Archive</span>
-                </button>
-                <button className="btn btn-danger btn-sm btn-icon-gap" type="button" disabled={busy} onClick={deleteSelected}>
-                  <Trash2 size={14} /> <span>Delete</span>
                 </button>
               </>
             ) : (
-              <>
-                <button className="btn btn-outline btn-sm btn-icon-gap" type="button" disabled={busy} onClick={restoreSelected}>
-                  <ArchiveRestore size={14} /> <span>Restore</span>
-                </button>
-                <button className="btn btn-danger btn-sm btn-icon-gap" type="button" disabled={busy} onClick={deleteSelected}>
-                  <Trash2 size={14} /> <span>Delete</span>
-                </button>
-              </>
+              <button className="btn btn-outline btn-sm btn-icon-gap" type="button" disabled={busy} onClick={() => restore(selectedNames)}>
+                <ArchiveRestore size={14} /> <span>Restore</span>
+              </button>
             )}
+            <button className="btn btn-danger btn-sm btn-icon-gap" type="button" disabled={busy} onClick={() => remove(selectedNames)}>
+              <Trash2 size={14} /> <span>Delete</span>
+            </button>
             <button className="btn btn-ghost btn-sm" type="button" onClick={() => setSelected(new Set())}>Clear</button>
           </div>
         </div>
       )}
 
       {loading ? (
-        <div className="skeleton" style={{ height: 400, borderRadius: 12 }} />
+        <div className="skeleton" style={{ height: 360, borderRadius: 12 }} />
+      ) : visible.length === 0 ? (
+        <div className="empty-state-modern" style={{ padding: 40 }}>
+          <div className="empty-icon-wrap">{subTab === "archive" ? <Archive size={36} /> : <Users size={36} />}</div>
+          <p>{q || roleFilter !== "all" ? "No users match these filters." : subTab === "archive" ? "No archived accounts." : "No active accounts."}</p>
+        </div>
       ) : (
-        <div style={{ display: 'grid', gap: 24 }}>
-          <UsersTable
-            profiles={visible}
-            isAdmin={isAdmin}
-            currentUsername={user?.username}
-            archivedSection={subTab === "archive"}
-            selected={selected}
-            onToggle={toggleSelect}
-            onToggleAll={toggleSelectAll}
-          />
-
+        <div className="um-table-wrap">
+          <table className="data-table um-table">
+            <thead>
+              <tr>
+                {isAdmin && (
+                  <th className="um-col-check">
+                    <input type="checkbox" checked={allSelected} disabled={selectable.length === 0} aria-label="Select all"
+                      onChange={() => setSelected(allSelected ? new Set() : new Set(selectable.map((p) => p.username)))} />
+                  </th>
+                )}
+                <th>User</th>
+                <th>Role</th>
+                <th className="um-hide-sm">Position</th>
+                <th className="um-hide-md">Email</th>
+                {isAdmin && <th className="um-col-actions"><span className="sr-only">Actions</span></th>}
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((p) => {
+                const self = isSelf(p);
+                const checked = selected.has(p.username);
+                return (
+                  <tr key={p.id} className={checked ? "um-row-selected" : undefined}>
+                    {isAdmin && (
+                      <td className="um-col-check">
+                        <input type="checkbox" checked={checked} disabled={self} onChange={() => toggle(p.username)}
+                          aria-label={`Select ${p.username}`} title={self ? "You can't select your own account" : undefined} />
+                      </td>
+                    )}
+                    <td>
+                      <div className="um-user">
+                        <UserAvatar name={p.username} seed={p.id} size="sm" />
+                        <div className="um-user-text">
+                          <span className="um-user-name">{p.fullName || p.username}{self && <span className="um-you">you</span>}</span>
+                          <span className="um-user-handle">@{p.username}</span>
+                        </div>
+                      </div>
+                    </td>
+                    <td><span className={`um-role um-role-${p.role}`}>{p.role === "admin" ? <ShieldCheck size={12} /> : <User size={12} />}{p.role}</span></td>
+                    <td className="um-hide-sm um-muted">{p.position || "—"}</td>
+                    <td className="um-hide-md um-muted mono">{p.email}</td>
+                    {isAdmin && (
+                      <td className="um-col-actions">
+                        {self ? (
+                          <Link className="btn btn-ghost btn-sm" href="/settings">Settings</Link>
+                        ) : (
+                          <div className="um-row-actions">
+                            {!p.archived && (
+                              <button className="btn btn-ghost btn-sm btn-icon-only" type="button" title="Edit" aria-label={`Edit ${p.username}`} disabled={busy} onClick={() => setDialog({ mode: "edit", profile: p })}>
+                                <Pencil size={15} />
+                              </button>
+                            )}
+                            {!p.archived && (
+                              <button className="btn btn-ghost btn-sm btn-icon-only" type="button" title="Reset to initial password" aria-label={`Reset password for ${p.username}`} disabled={busy} onClick={() => resetPw([p.username])}>
+                                <KeyRound size={15} />
+                              </button>
+                            )}
+                            {p.archived ? (
+                              <button className="btn btn-ghost btn-sm btn-icon-only" type="button" title="Restore" aria-label={`Restore ${p.username}`} disabled={busy} onClick={() => restore([p.username])}>
+                                <ArchiveRestore size={15} />
+                              </button>
+                            ) : (
+                              <button className="btn btn-ghost btn-sm btn-icon-only" type="button" title="Archive" aria-label={`Archive ${p.username}`} disabled={busy} onClick={() => archive([p.username])}>
+                                <Archive size={15} />
+                              </button>
+                            )}
+                            <button className="btn btn-ghost btn-sm btn-icon-only um-danger" type="button" title="Delete" aria-label={`Delete ${p.username}`} disabled={busy} onClick={() => remove([p.username])}>
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
 
-      {editTarget && (
-        <ModalShell open onClose={() => setEditTarget(null)} className="modal shadow-3 modal-w-sm" labelledBy="edit-user-title">
-          <div className="modal-header">
-            <h2 className="modal-title" id="edit-user-title">Edit User: {editTarget.username}</h2>
-            <button className="btn btn-ghost btn-sm" type="button" onClick={() => setEditTarget(null)} aria-label="Close">✕</button>
-          </div>
-          <div className="modal-body" style={{ display: "grid", gap: 16 }}>
-            <div style={{ padding: "14px", background: "var(--surface-2)", borderRadius: 12, border: "1px solid var(--outline-variant)", fontSize: 14 }}>
-              <p style={{ color: "var(--muted)", fontSize: 11, fontWeight: 800, textTransform: "uppercase", marginBottom: 6 }}>Account Email</p>
-              <p className="mono" style={{ fontSize: 12 }}>{editTarget.email}</p>
-            </div>
-            <div className="field">
-              <label className="field-label">Full Name</label>
-              <input value={editFullName} onChange={(e) => setEditFullName(e.target.value)} placeholder="e.g. Jane Doe" />
-            </div>
-            <div className="field">
-              <label className="field-label">Username</label>
-              <input value={editUsername} onChange={(e) => setEditUsername(e.target.value)} placeholder="New login username" />
-            </div>
-            <div className="field">
-              <label className="field-label">Position</label>
-              <input value={editPosition} onChange={(e) => setEditPosition(e.target.value)} placeholder="e.g. Senior Analyst" />
-            </div>
-            <div className="field">
-              <label className="field-label">New Password <span style={{ color: "var(--muted)", fontWeight: 400, textTransform: "none" }}>(Optional)</span></label>
-              <div style={{ position: "relative" }}>
-                <input type={showEditPw ? "text" : "password"} value={editPassword} onChange={(e) => setEditPassword(e.target.value)} placeholder="Reset user's password..." style={{ paddingRight: 72 }} />
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowEditPw((p) => !p)} style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", fontSize: 12 }}>{showEditPw ? "Hide" : "Show"}</button>
-              </div>
-            </div>
-            <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>
-              Analysts will be required to change their password on next login if it is reset here.
-            </p>
-          </div>
-          <div className="modal-footer">
-            <button className="btn btn-outline" type="button" onClick={() => setEditTarget(null)}>Cancel</button>
-            <button className="btn btn-primary" type="button" disabled={editSaving} onClick={saveEdit}>
-              {editSaving ? "Saving…" : "Apply Changes"}
-            </button>
-          </div>
-        </ModalShell>
-      )}
-
-      {createOpen && (
-        <ModalShell open onClose={() => setCreateOpen(false)} className="modal shadow-3 modal-w-md" labelledBy="create-user-title">
-          <div className="modal-header">
-            <h2 className="modal-title" id="create-user-title">Create New Account</h2>
-            <button className="btn btn-ghost btn-sm" type="button" onClick={() => setCreateOpen(false)} aria-label="Close">✕</button>
-          </div>
-          <div className="modal-body" style={{ display: "grid", gap: 16 }}>
-            <div className="field">
-              <label className="field-label">Full Name <span className="req">*</span></label>
-              <input value={createForm.fullName} onChange={(e) => setCreateForm((p) => ({ ...p, fullName: e.target.value }))} placeholder="e.g. Jane Doe" />
-            </div>
-            <div className="field">
-              <label className="field-label">Email <span className="req">*</span></label>
-              <input type="email" value={createForm.email} onChange={(e) => setCreateForm((p) => ({ ...p, email: e.target.value }))} placeholder="e.g. jane@lab.local" />
-            </div>
-            <div className="field">
-              <label className="field-label">Username <span className="req">*</span></label>
-              <input value={createForm.username} onChange={(e) => setCreateForm((p) => ({ ...p, username: e.target.value }))} placeholder="Login username" />
-            </div>
-            <div className="field">
-              <label className="field-label">Position</label>
-              <input value={createForm.position} onChange={(e) => setCreateForm((p) => ({ ...p, position: e.target.value }))} placeholder="e.g. Senior Analyst" />
-            </div>
-            <div className="field">
-              <label className="field-label">Temporary Password <span className="req">*</span></label>
-              <input type="text" value={createForm.password} onChange={(e) => setCreateForm((p) => ({ ...p, password: e.target.value }))} placeholder="Min. 6 characters" />
-            </div>
-            <div className="field">
-              <label className="field-label">Role <span className="req">*</span></label>
-              <select value={createForm.role} onChange={(e) => setCreateForm((p) => ({ ...p, role: e.target.value as ProfilePublic["role"] }))}>
-                <option value="analyst">Analyst</option>
-                <option value="supervisor">Supervisor</option>
-                <option value="admin">Admin</option>
-              </select>
-            </div>
-            <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>
-              The user must change this temporary password on first login.
-            </p>
-          </div>
-          <div className="modal-footer">
-            <button className="btn btn-outline" type="button" onClick={() => setCreateOpen(false)}>Cancel</button>
-            <button
-              className="btn btn-primary btn-icon-gap"
-              type="button"
-              disabled={createSaving || !createForm.fullName || !createForm.email || !createForm.username || createForm.password.length < 6}
-              onClick={createUser}
-            >
-              {createSaving ? "Creating…" : <><Plus size={16} /> <span>Create Account</span></>}
-            </button>
-          </div>
-        </ModalShell>
+      {dialog && (
+        <UserFormDialog
+          dialog={dialog}
+          onClose={() => setDialog(null)}
+          onSaved={(text) => { setDialog(null); setNotice({ type: "success", text }); loadProfiles(); }}
+        />
       )}
     </div>
   );
 }
 
-function UsersTable({
-  profiles, isAdmin, currentUsername, archivedSection,
-  selected, onToggle, onToggleAll,
-}: {
-  profiles: ProfilePublic[];
-  isAdmin: boolean;
-  currentUsername?: string;
-  archivedSection: boolean;
-  selected: Set<string>;
-  onToggle: (username: string) => void;
-  onToggleAll: () => void;
+// One dialog for create and edit. Errors stay inside the dialog so the form
+// isn't lost behind the overlay when the server rejects something.
+function UserFormDialog({ dialog, onClose, onSaved }: {
+  dialog: UserDialog;
+  onClose: () => void;
+  onSaved: (message: string) => void;
 }) {
-  if (profiles.length === 0) {
-    return (
-      <div className="empty-state-modern" style={{ padding: 40 }}>
-        <div className="empty-icon-wrap">{archivedSection ? <Archive size={36} /> : <Users size={36} />}</div>
-        <p>{archivedSection ? "No archived accounts." : "No active accounts."}</p>
-      </div>
-    );
+  const editing = dialog.mode === "edit" ? dialog.profile : null;
+  const [fullName, setFullName] = useState(editing?.fullName ?? "");
+  const [email, setEmail]       = useState(editing?.email ?? "");
+  const [username, setUsername] = useState(editing?.username ?? "");
+  const [position, setPosition] = useState(editing?.position ?? "");
+  const [role, setRole]         = useState<ProfilePublic["role"]>(editing?.role ?? "analyst");
+  const [password, setPassword] = useState("");
+  const [showPw, setShowPw]     = useState(!editing);
+  const [saving, setSaving]     = useState(false);
+  const [error, setError]       = useState("");
+
+  const cleanUsername = username.trim().toLowerCase();
+  const pwTouched = password.length > 0;
+  const pwTooShort = pwTouched && password.length < MIN_PASSWORD_LENGTH;
+  const pwHasName = pwTouched && cleanUsername.length >= 3 && password.toLowerCase().includes(cleanUsername);
+  const usernameBad = username.trim() !== "" && !USERNAME_PATTERN.test(username.trim());
+  const emailBad = !editing && email.trim() !== "" && !EMAIL_PATTERN.test(email.trim());
+
+  const missing = !fullName.trim() || !cleanUsername || (!editing && (!email.trim() || !password));
+  const invalid = usernameBad || emailBad || pwTooShort || pwHasName;
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (missing || invalid || saving) return;
+    setError("");
+
+    let body: Record<string, unknown>;
+    if (editing) {
+      body = { action: "updateCredentials", username: editing.username };
+      if (cleanUsername !== editing.username) body.newUsername = cleanUsername;
+      if (fullName.trim() !== editing.fullName) body.newFullName = fullName.trim();
+      if (position.trim() !== editing.position) body.newPosition = position.trim();
+      if (role !== editing.role) body.newRole = role;
+      if (password) body.newPassword = password;
+      if (Object.keys(body).length === 2) { onClose(); return; }
+    } else {
+      body = { action: "create", fullName: fullName.trim(), email: email.trim(), username: cleanUsername, position: position.trim(), password, role };
+    }
+
+    setSaving(true);
+    try {
+      const r = await fetch("/api/users", {
+        method: editing ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) onSaved(editing ? `Saved changes to ${cleanUsername}.` : `Created ${cleanUsername}.`);
+      else setError(d.error || "Could not save.");
+    } catch {
+      setError("Network error — nothing was saved.");
+    }
+    setSaving(false);
   }
 
-  const selectable = profiles.filter((p) => p.username !== currentUsername);
-  const allSelected = selectable.length > 0 && selectable.every((p) => selected.has(p.username));
-
   return (
-    <div className="table-scroll shadow-sm" style={{ border: '1px solid var(--outline-variant)', borderRadius: 12, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
-      <table className="data-table">
-        <thead>
-          <tr>
-            {isAdmin && (
-              <th style={{ width: 40 }}>
-                <input type="checkbox" checked={allSelected} onChange={onToggleAll} disabled={selectable.length === 0} aria-label="Select all" style={{ cursor: "pointer" }} />
-              </th>
-            )}
-            <th>Username</th><th>Full Name</th><th>Position</th><th>Role</th><th>Email</th>
-          </tr>
-        </thead>
-        <tbody>
-          {profiles.map((p) => {
-            const isSelf = p.username === currentUsername;
-            const isChecked = selected.has(p.username);
-            return (
-              <tr
-                key={p.id}
-                style={{ background: isChecked ? "rgba(99, 102, 241, 0.10)" : archivedSection ? "var(--surface-2)" : undefined }}
-              >
-                {isAdmin && (
-                  <td>
-                    <input
-                      type="checkbox"
-                      checked={isChecked}
-                      disabled={isSelf}
-                      onChange={() => onToggle(p.username)}
-                      aria-label={`Select ${p.username}`}
-                      title={isSelf ? "You cannot select your own account" : undefined}
-                      style={{ cursor: isSelf ? "not-allowed" : "pointer" }}
-                    />
-                  </td>
-                )}
-                <td style={{ fontWeight: 800, fontFamily: "var(--font-mono)", color: 'var(--primary)' }}>
-                  {p.username}{isSelf && <span className="user-role-badge" style={{ marginLeft: 6 }}>you</span>}
-                </td>
-                <td style={{ fontWeight: 700 }}>{p.fullName || "—"}</td>
-                <td style={{ fontSize: 13, color: "var(--muted)" }}>{p.position || "—"}</td>
-                <td>
-                  {p.role !== "analyst"
-                    ? <span className="user-role-badge">{p.role}</span>
-                    : <span style={{ fontSize: 13, color: "var(--muted)" }}>analyst</span>}
-                </td>
-                <td className="mono" style={{ fontSize: 13, color: "var(--muted)" }}>{p.email}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <ModalShell open onClose={onClose} closeOnOverlayClick={false} className="modal shadow-3 modal-w-md" labelledBy="user-form-title">
+      <form onSubmit={submit} noValidate>
+        <div className="modal-header">
+          <h2 className="modal-title" id="user-form-title">{editing ? `Edit ${editing.username}` : "New user"}</h2>
+          <button className="btn btn-ghost btn-sm" type="button" onClick={onClose} aria-label="Close"><X size={16} /></button>
+        </div>
+        <div className="modal-body um-form">
+          {error && <div className="notice notice-error">{error}</div>}
+
+          <div className="um-form-grid">
+            <div className="field">
+              <label className="field-label" htmlFor="um-fullname">Full name <span className="req">*</span></label>
+              <input id="um-fullname" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Jane Doe" autoComplete="off" />
+            </div>
+            <div className="field">
+              <label className="field-label" htmlFor="um-position">Position</label>
+              <input id="um-position" value={position} onChange={(e) => setPosition(e.target.value)} placeholder="Senior Analyst" autoComplete="off" />
+            </div>
+            <div className="field">
+              <label className="field-label" htmlFor="um-username">Username <span className="req">*</span></label>
+              <input id="um-username" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="jdoe" autoComplete="off" autoCapitalize="none" spellCheck={false} aria-invalid={usernameBad} />
+              {usernameBad && <span className="um-field-error">3–32 letters, numbers, dots, dashes or underscores.</span>}
+            </div>
+            <div className="field">
+              <label className="field-label" htmlFor="um-email">Email {!editing && <span className="req">*</span>}</label>
+              <input id="um-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="jane@lab.local" autoComplete="off" readOnly={!!editing} disabled={!!editing} aria-invalid={emailBad} />
+              {emailBad && <span className="um-field-error">Enter a valid email address.</span>}
+            </div>
+          </div>
+
+          <div className="field">
+            <span className="field-label">Role</span>
+            <div className="um-role-pick" role="radiogroup" aria-label="Role">
+              {(["analyst", "admin"] as const).map((r) => (
+                <button key={r} type="button" role="radio" aria-checked={role === r} className={`um-role-option ${role === r ? "active" : ""}`} onClick={() => setRole(r)}>
+                  {r === "admin" ? <ShieldCheck size={18} /> : <User size={18} />}
+                  <span>
+                    <strong>{r === "admin" ? "Admin" : "Analyst"}</strong>
+                    <small>{r === "admin" ? "Reviews records, manages users and settings" : "Submits and views their own logs"}</small>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="field">
+            <label className="field-label" htmlFor="um-password">
+              {editing ? "New password" : "Temporary password"} {editing ? <span className="um-optional">(leave blank to keep)</span> : <span className="req">*</span>}
+            </label>
+            <div className="um-pw">
+              <input
+                id="um-password"
+                type={showPw ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
+                autoComplete="new-password"
+                spellCheck={false}
+                aria-invalid={pwTooShort || pwHasName}
+              />
+              <button type="button" className="btn btn-ghost btn-sm btn-icon-only" onClick={() => setShowPw((v) => !v)} aria-label={showPw ? "Hide password" : "Show password"} title={showPw ? "Hide" : "Show"}>
+                {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
+              <button type="button" className="btn btn-outline btn-sm btn-icon-gap" onClick={() => { setPassword(generatePassword()); setShowPw(true); }}>
+                <RefreshCw size={14} /> <span>Generate</span>
+              </button>
+            </div>
+            {pwTooShort && <span className="um-field-error">{MIN_PASSWORD_LENGTH - password.length} more character{MIN_PASSWORD_LENGTH - password.length === 1 ? "" : "s"} needed.</span>}
+            {pwHasName && <span className="um-field-error">Password must not contain the username.</span>}
+            <span className="um-hint">The user will be asked to choose their own password at next sign-in.</span>
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-outline" type="button" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary btn-icon-gap" type="submit" disabled={saving || missing || invalid}>
+            {saving ? "Saving…" : editing ? "Save changes" : <><Plus size={16} /> <span>Create user</span></>}
+          </button>
+        </div>
+      </form>
+    </ModalShell>
   );
 }
 
@@ -2397,6 +2799,12 @@ const PRESET_FIELDS: { label: string; key: string; type: FieldType; icon: React.
   { label: "Remarks", key: "remarks", type: "textarea", icon: Info },
 ];
 
+// Mirrors the server's slugKey so the key shown is the key that gets saved.
+function fieldKeyFrom(label: string) {
+  const parts = label.replace(/[^a-zA-Z0-9 _-]/g, "").trim().split(/[\s_-]+/).filter(Boolean);
+  return parts.map((p, i) => (i === 0 ? p.charAt(0).toLowerCase() + p.slice(1) : p.charAt(0).toUpperCase() + p.slice(1))).join("");
+}
+
 type FormDraft = {
   id: string;
   title: string;
@@ -2415,6 +2823,30 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
   const [notice, setNotice]   = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [scopeTab, setScopeTab] = useState<FormScope>("analytical");
   const [editTab, setEditTab] = useState<"settings" | "fields">("settings");
+  const [draftSnapshot, setDraftSnapshot] = useState("");
+  const clearNotice = useCallback(() => setNotice(null), []);
+
+  function startDraft(d: FormDraft, tab: "settings" | "fields") {
+    setDraft(d);
+    setDraftSnapshot(JSON.stringify(d));
+    setEditTab(tab);
+  }
+  function closeDraft() {
+    if (draft && JSON.stringify(draft) !== draftSnapshot && !confirm("Discard your changes to this form?")) return;
+    setDraft(null);
+  }
+
+  // Problems that would make the server silently drop or clash fields.
+  const draftProblems = (() => {
+    if (!draft) return [] as string[];
+    const out: string[] = [];
+    const keys = draft.fields.map((f) => f.key || fieldKeyFrom(f.label));
+    if (draft.fields.some((f) => !f.label.trim())) out.push("Every field needs a label.");
+    const dupes = [...new Set(keys.filter((k, i) => k && keys.indexOf(k) !== i))];
+    if (dupes.length) out.push(`Two fields share the key ${dupes.map((d) => `“${d}”`).join(", ")} — rename one.`);
+    if (draft.fields.some((f) => f.type === "select" && !(f.options ?? []).length)) out.push("Dropdown fields need at least one option.");
+    return out;
+  })();
 
   // Keep each form's original index (used as its display order) while showing
   // only the forms belonging to the selected scope tab.
@@ -2429,31 +2861,27 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
   }
 
   function openNew() {
-    setDraft({ id: "", title: "", activityType: "", scope: scopeTab, displayOrder: forms.length, fields: [], isNew: true });
-    setEditTab("settings");
+    startDraft({ id: "", title: "", activityType: "", scope: scopeTab, displayOrder: forms.length, fields: [], isNew: true }, "settings");
   }
 
   function openEdit(form: FormDef, index: number) {
-    setDraft({
+    startDraft({
       id: form.id, title: form.title, activityType: form.activityType,
       scope: form.scope, displayOrder: index,
       fields: form.fields.map((f) => ({ ...f })), isNew: false,
-    });
-    setEditTab("fields");
+    }, "fields");
   }
 
   function cloneForm(form: FormDef) {
-    setDraft({
+    startDraft({
       id: "", title: `${form.title} (Copy)`, activityType: `${form.activityType}C`,
       scope: form.scope, displayOrder: forms.length,
       fields: form.fields.map((f) => ({ ...f })), isNew: true,
-    });
-    setEditTab("settings");
-    setNotice({ type: "success", text: "Form structure cloned. Adjust settings to save." });
+    }, "settings");
   }
 
   async function saveDraft() {
-    if (!draft) return;
+    if (!draft || draftProblems.length) { setEditTab("fields"); return; }
     setSaving(true);
     const url = draft.isNew ? "/api/forms" : `/api/forms?id=${encodeURIComponent(draft.id)}`;
     const r = await fetch(url, {
@@ -2465,10 +2893,10 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
         activityType: draft.activityType,
         scope: draft.scope,
         displayOrder: draft.displayOrder,
-        fields: draft.fields,
+        fields: draft.fields.map((f) => ({ ...f, key: f.key || fieldKeyFrom(f.label) })),
       }),
     });
-    const d = await r.json();
+    const d = await r.json().catch(() => ({}));
     if (r.ok) { setNotice({ type: "success", text: draft.isNew ? "Form created." : "Form updated." }); setDraft(null); loadForms(); }
     else { setNotice({ type: "error", text: d.error || "Save failed. Check the fields." }); }
     setSaving(false);
@@ -2486,6 +2914,11 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
   // ── Field-level edits operate on the open draft ──────────────────────────────
   function updateField(i: number, patch: Partial<FormField>) {
     setDraft((p) => p && ({ ...p, fields: p.fields.map((f, idx) => (idx === i ? { ...f, ...patch } : f)) }));
+  }
+  // New fields follow their label until someone edits the key by hand. Existing
+  // keys are left alone: saved records store their values under them.
+  function updateLabel(i: number, label: string, autoKey: boolean) {
+    updateField(i, autoKey ? { label, key: fieldKeyFrom(label) } : { label });
   }
   function addField() {
     setDraft((p) => p && ({ ...p, fields: [...p.fields, { key: "", label: "", type: "text" }] }));
@@ -2509,31 +2942,21 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
 
   return (
     <div className="panel-modern">
-      {notice && (
-        <div className={`notice notice-${notice.type} shadow-sm`} style={{ marginBottom: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {notice.type === 'success' ? <CheckCircle2 size={18} /> : <XCircle size={18} />}
-            <span>{notice.text}</span>
-          </div>
-          <button style={{ float: "right", background: "none", border: "none", cursor: "pointer", fontWeight: 700 }} onClick={() => setNotice(null)}>✕</button>
-        </div>
-      )}
+      <TabNotice notice={notice} onClose={clearNotice} />
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, gap: 16, flexWrap: "wrap" }}>
+      <div className="um-head">
         <div>
-          <h2 style={{ fontSize: 18, fontWeight: 800 }}>Form Builder</h2>
-          <p style={{ fontSize: 14, color: "var(--muted)", marginTop: 4 }}>
-            Full control over the data-entry forms — add, edit, reorder, or remove fields and whole log types.
-          </p>
+          <h2 className="um-title">Forms</h2>
+          <p className="um-sub">The fields analysts fill in for each kind of log. Changes apply to new entries.</p>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
           {scopeTab === "instrument" && forms.find(f => f.id === "instrument") && (
             <button className="btn btn-outline btn-sm btn-icon-gap" type="button" onClick={() => openEdit(forms.find(f => f.id === "instrument")!, forms.findIndex(f => f.id === "instrument"))}>
-              <ShieldAlert size={16} /> <span>Modify Global Info</span>
+              <ShieldAlert size={16} /> <span>Edit default info form</span>
             </button>
           )}
           <button className="btn btn-primary btn-sm btn-icon-gap" type="button" onClick={openNew}>
-            <Plus size={16} /> <span>New Form</span>
+            <Plus size={16} /> <span>New form</span>
           </button>
         </div>
       </div>
@@ -2562,15 +2985,15 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
           {[1, 2, 3].map((i) => <div key={i} className="skeleton" style={{ height: 60, borderRadius: 12 }} />)}
         </div>
       ) : (
-        <div className="table-scroll shadow-sm" style={{ border: '1px solid var(--outline-variant)', borderRadius: 12, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
-          <table className="data-table">
+        <div className="um-table-wrap">
+          <table className="data-table um-table">
             <thead>
               <tr>
                 <th style={{ width: 56 }}>#</th>
                 <th>Form Title</th>
                 <th>Log Type</th>
                 <th>Fields</th>
-                <th style={{ width: 220 }}>Actions</th>
+                <th className="um-col-actions"><span className="sr-only">Actions</span></th>
               </tr>
             </thead>
             <tbody>
@@ -2585,13 +3008,13 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
                     {f.id === "instrument" && <span className="badge-system-default">SYSTEM DEFAULT</span>}
                   </td>
                   <td className="mono" style={{ fontSize: 13 }}>{f.activityType}</td>
-                  <td style={{ fontSize: 13 }}>{f.fields.length} fields</td>
-                  <td>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <button className="btn btn-outline btn-sm btn-icon-gap" type="button" onClick={() => openEdit(f, i)}><Edit2 size={14} /> <span>Edit</span></button>
-                      <button className="btn btn-ghost btn-sm btn-icon-gap" type="button" onClick={() => cloneForm(f)} title="Clone Form"><FileOutput size={14} /> <span>Clone</span></button>
-                      <button className="btn btn-danger btn-sm btn-icon-gap" type="button" disabled={deleting === f.id || f.id === "instrument"} onClick={() => removeForm(f.id)} title={f.id === "instrument" ? "System form cannot be deleted" : "Delete form"}>
-                        {deleting === f.id ? <span>Deleting…</span> : (<><Trash2 size={14} /> <span>Delete</span></>)}
+                  <td className="um-muted">{f.fields.length} field{f.fields.length === 1 ? "" : "s"}{f.fields.some((x) => x.required) ? ` · ${f.fields.filter((x) => x.required).length} required` : ""}</td>
+                  <td className="um-col-actions">
+                    <div className="um-row-actions">
+                      <button className="btn btn-outline btn-sm btn-icon-gap" type="button" onClick={() => openEdit(f, i)}><Pencil size={14} /> <span>Edit fields</span></button>
+                      <button className="btn btn-ghost btn-sm btn-icon-only" type="button" onClick={() => cloneForm(f)} title="Duplicate" aria-label={`Duplicate ${f.title}`}><FileOutput size={15} /></button>
+                      <button className="btn btn-ghost btn-sm btn-icon-only um-danger" type="button" disabled={deleting === f.id || f.id === "instrument"} onClick={() => removeForm(f.id)} title={f.id === "instrument" ? "The default form can't be deleted" : "Delete"} aria-label={`Delete ${f.title}`}>
+                        <Trash2 size={15} />
                       </button>
                     </div>
                   </td>
@@ -2603,18 +3026,18 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
       )}
 
       {draft && (
-        <ModalShell open onClose={() => setDraft(null)} className="modal shadow-3 modal-w-3xl modal-tall modal-tall-xl" labelledBy="form-builder-title">
+        <ModalShell open onClose={closeDraft} closeOnOverlayClick={false} className="modal shadow-3 modal-w-3xl modal-tall modal-tall-xl" labelledBy="form-builder-title">
           <div className="modal-header">
-            <h2 className="modal-title" id="form-builder-title">{draft.isNew ? "Create New Form" : `Edit Form: ${draft.title || draft.id}`}</h2>
-            <button className="btn btn-ghost btn-sm" type="button" onClick={() => setDraft(null)} aria-label="Close">✕</button>
+            <h2 className="modal-title" id="form-builder-title">{draft.isNew ? "New form" : `Edit ${draft.title || draft.id}`}</h2>
+            <button className="btn btn-ghost btn-sm" type="button" onClick={closeDraft} aria-label="Close">✕</button>
           </div>
           
           <div className="edit-mode-tabs">
             <button className={`edit-mode-tab ${editTab === "settings" ? "active" : ""}`} onClick={() => setEditTab("settings")}>
-              <Settings size={16} /> <span>1. Settings</span>
+              <Settings size={16} /> <span>1. Name &amp; type</span>
             </button>
             <button className={`edit-mode-tab ${editTab === "fields" ? "active" : ""}`} onClick={() => setEditTab("fields")}>
-              <TableIcon size={16} /> <span>2. Field Designer & Preview</span>
+              <TableIcon size={16} /> <span>2. Fields</span>{draftProblems.length > 0 && <AlertTriangle size={14} className="tone-amber" />}
             </button>
           </div>
 
@@ -2628,7 +3051,14 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
                   </div>
                   <div className="field">
                     <label className="field-label">Log Type Code <span className="req">*</span></label>
-                    <input value={draft.activityType} onChange={(e) => setDraft((p) => p && ({ ...p, activityType: e.target.value.toUpperCase() }))} placeholder="e.g. OP" style={{ textTransform: "uppercase" }} />
+                    <input value={draft.activityType} maxLength={12}
+                      onChange={(e) => setDraft((p) => p && ({ ...p, activityType: e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, "") }))}
+                      placeholder="e.g. OP" style={{ textTransform: "uppercase" }} />
+                    <span className="um-hint">
+                      {!draft.isNew && draft.activityType !== forms.find((f) => f.id === draft.id)?.activityType
+                        ? "Records already saved keep the old code and won't show under this form."
+                        : "Short unique code stored on each record, e.g. OP, CAL, MAINT."}
+                    </span>
                   </div>
                   <div className="field">
                     <label className="field-label">Scope</label>
@@ -2655,21 +3085,27 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
                 <div className="designer-panel">
                   <div className="field-designer-layout-v2">
                     <div className="field-presets-v2">
-                      <p className="sidebar-label">Presets</p>
-                      <div className="preset-grid-v2">
-                        {PRESET_FIELDS.map((preset) => (
-                          <button key={preset.key} type="button" className="btn-preset-v2" onClick={() => addPresetField(preset)} title={`Add ${preset.label} field`}>
-                            <preset.icon size={16} />
-                          </button>
-                        ))}
+                      <p className="sidebar-label">Quick add</p>
+                      <div className="fb-presets">
+                        {PRESET_FIELDS.map((preset) => {
+                          const used = draft.fields.some((f) => f.key === preset.key);
+                          return (
+                            <button key={preset.key} type="button" className="fb-preset" disabled={used} onClick={() => addPresetField(preset)} title={used ? "Already on this form" : `Add ${preset.label}`}>
+                              <preset.icon size={14} /> <span>{preset.label}</span>
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
 
                     <div className="field-editor-main">
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                         <h3 style={{ fontSize: 13, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)' }}>Field Designer</h3>
-                        <button className="btn btn-primary btn-sm btn-icon-gap" type="button" onClick={addField}><Plus size={14} /> <span>Custom Field</span></button>
+                        <button className="btn btn-primary btn-sm btn-icon-gap" type="button" onClick={addField}><Plus size={14} /> <span>Add field</span></button>
                       </div>
+                      {draftProblems.length > 0 && (
+                        <div className="wpa-missing" role="alert"><AlertTriangle size={16} /><span>{draftProblems.join(" ")}</span></div>
+                      )}
 
                       <div className="table-scroll-designer">
                         <table className="field-editor-table">
@@ -2677,7 +3113,7 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
                             <tr>
                               <th style={{ width: 40 }}></th>
                               <th>Label</th>
-                              <th>Key</th>
+                              <th title="Internal name records use to store this value">Key</th>
                               <th style={{ width: 120 }}>Type</th>
                               <th style={{ width: 60, textAlign: 'center' }}>Full</th>
                               <th style={{ width: 60, textAlign: 'center' }}>Req</th>
@@ -2692,14 +3128,17 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
                                 </td>
                               </tr>
                             )}
-                            {draft.fields.map((f, i) => (
-                              <tr key={i}>
+                            {draft.fields.map((f, i) => {
+                              const savedKeys = forms.find((x) => x.id === draft.id)?.fields.map((x) => x.key) ?? [];
+                              const autoKey = !savedKeys.includes(f.key) && (!f.key || f.key === fieldKeyFrom(f.label));
+                              return (<Fragment key={i}>
+                              <tr>
                                 <td className="field-reorder-btns">
                                   <button type="button" disabled={i === 0} onClick={() => moveField(i, -1)}><ChevronDown size={14} style={{ transform: 'rotate(180deg)' }} /></button>
                                   <button type="button" disabled={i === draft.fields.length - 1} onClick={() => moveField(i, 1)}><ChevronDown size={14} /></button>
                                 </td>
-                                <td><input className="table-input" value={f.label} onChange={(e) => updateField(i, { label: e.target.value })} placeholder="Label" /></td>
-                                <td><input className="table-input mono" value={f.key} onChange={(e) => updateField(i, { key: e.target.value })} placeholder="key" style={{ fontSize: 12 }} /></td>
+                                <td><input className="table-input" value={f.label} onChange={(e) => updateLabel(i, e.target.value, autoKey)} placeholder="e.g. Sample weight" aria-invalid={!f.label.trim()} /></td>
+                                <td><input className="table-input mono" value={f.key} onChange={(e) => updateField(i, { key: e.target.value })} placeholder="auto" style={{ fontSize: 12 }} title={savedKeys.includes(f.key) ? "Changing this hides values already saved under the old key" : undefined} /></td>
                                 <td>
                                   <select className="table-select" value={f.type} onChange={(e) => updateField(i, { type: e.target.value as FieldType })}>
                                     {FIELD_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -2712,10 +3151,25 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
                                   <input type="checkbox" checked={f.required === true} onChange={(e) => updateField(i, { required: e.target.checked })} />
                                 </td>
                                 <td>
-                                  <button className="btn-table-danger" type="button" onClick={() => removeField(i)} title="Remove field"><Trash2 size={14} /></button>
+                                  <button className="btn-table-danger" type="button" onClick={() => removeField(i)} title="Remove field" aria-label={`Remove ${f.label || "field"}`}><Trash2 size={14} /></button>
                                 </td>
                               </tr>
-                            ))}
+                              {f.type === "select" && (
+                                <tr className="fb-options-row">
+                                  <td />
+                                  <td colSpan={6}>
+                                    <label className="fb-options">
+                                      <span>Options</span>
+                                      <input className="table-input" value={(f.options ?? []).join(", ")}
+                                        onChange={(e) => updateField(i, { options: e.target.value.split(",").map((o) => o.trimStart()) })}
+                                        onBlur={() => updateField(i, { options: (f.options ?? []).map((o) => o.trim()).filter(Boolean) })}
+                                        placeholder="Comma separated, e.g. Pass, Fail, Retest" />
+                                    </label>
+                                  </td>
+                                </tr>
+                              )}
+                              </Fragment>);
+                            })}
                           </tbody>
                         </table>
                       </div>
@@ -2741,7 +3195,7 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
                             <div key={idx} className={`preview-field ${f.full ? "full" : ""}`}>
                               <label className="preview-label">{f.label || "(No Label)"} {f.required && "*"}</label>
                               <div className="preview-input-stub">
-                                {f.type === "textarea" ? "Area text..." : f.type === "select" ? "Select..." : f.placeholder || "—"}
+                                {f.type === "textarea" ? "Long text…" : f.type === "select" ? ((f.options ?? []).filter(Boolean).join(" / ") || "Choose…") : f.placeholder || "—"}
                               </div>
                             </div>
                           ))
@@ -2758,7 +3212,7 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
             <div>
               {editTab === "fields" && (
                 <button className="btn btn-ghost btn-sm btn-icon-gap" onClick={() => setEditTab("settings")}>
-                  <ArrowLeft size={16} /> <span>Back to Settings</span>
+                  <ArrowLeft size={16} /> <span>Name &amp; type</span>
                 </button>
               )}
               {editTab === "settings" && !draft.isNew && (
@@ -2768,13 +3222,13 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
               )}
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <button className="btn btn-outline btn-sm" type="button" onClick={() => setDraft(null)}>Cancel</button>
-              {editTab === "settings" ? (
+              <button className="btn btn-outline btn-sm" type="button" onClick={closeDraft}>Cancel</button>
+              {editTab === "settings" && draft.isNew ? (
                 <button className="btn btn-primary btn-sm btn-icon-gap" type="button" onClick={() => setEditTab("fields")} disabled={!draft.title.trim() || !draft.activityType.trim()}>
-                  <span>Next: Design Fields</span> <ChevronDown size={16} style={{ transform: 'rotate(-90deg)' }} />
+                  <span>Next: fields</span> <ChevronDown size={16} style={{ transform: 'rotate(-90deg)' }} />
                 </button>
               ) : (
-                <button className="btn btn-primary btn-sm btn-icon-gap" type="button" disabled={saving} onClick={saveDraft}>
+                <button className="btn btn-primary btn-sm btn-icon-gap" type="button" disabled={saving || !draft.title.trim() || !draft.activityType.trim() || draftProblems.length > 0} onClick={saveDraft} title={draftProblems[0]}>
                   {saving ? "Saving…" : draft.isNew ? <><Plus size={16} /> <span>Create Form</span></> : <><CheckCircle2 size={16} /> <span>Save Changes</span></>}
                 </button>
               )}
@@ -2821,27 +3275,8 @@ function SignatureReview({ signature }: { signature: AnalystSignaturePayload | n
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
-   Tab — Weekly Reports (read-only view of every analyst's weekly plan/report)
+   Tab — Weekly Plans (every analyst's plan vs achievement)
    ════════════════════════════════════════════════════════════════════════════ */
-
-function wpWeekRange(weekStart: string) {
-  const start = new Date(weekStart + "T00:00:00");
-  if (isNaN(start.getTime())) return weekStart;
-  const end = new Date(start);
-  end.setDate(start.getDate() + 4);
-  const fmt = (d: Date) =>
-    `${String(d.getDate()).padStart(2, "0")}-${String(d.getMonth() + 1).padStart(2, "0")}-${d.getFullYear()}`;
-  return `${fmt(start)} → ${fmt(end)}`;
-}
-
-function wpStats(plan: WeeklyPlan) {
-  const totalHours = plan.tasks.reduce((s, t) => s + (Number(t.hours) || 0), 0);
-  const totalWeight = plan.tasks.reduce((s, t) => s + taskWeight(t), 0);
-  const totalExec = plan.tasks.reduce((s, t) => s + taskAchWeight(t), 0);
-  const achievement = totalWeight > 0 ? (totalExec / totalWeight) * 100 : 0;
-  const completed = plan.tasks.filter((t) => { const w = taskWeight(t); return w > 0 && taskAchWeight(t) >= w - 1e-9; }).length;
-  return { totalHours, totalWeight, totalExec, achievement, completed, taskCount: plan.tasks.length };
-}
 
 function wpColor(pct: number) {
   return pct >= 90 ? "var(--success)" : pct >= 50 ? "var(--tertiary)" : "var(--primary)";
@@ -2849,123 +3284,166 @@ function wpColor(pct: number) {
 
 function WeeklyReportsTab() {
   const [plans, setPlans] = useState<WeeklyPlan[]>([]);
+  const [people, setPeople] = useState<ProfilePublic[]>([]);
   const [loading, setLoading] = useState(true);
-  const [weekFilter, setWeekFilter] = useState("");
+  const [week, setWeek] = useState<string>(() => mondayOf());
+  const [allWeeks, setAllWeeks] = useState(false);
+  const [who, setWho] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/weekly-plan")
-      .then((r) => (r.ok ? r.json() : { plans: [] }))
-      .then((d) => setPlans((d.plans as WeeklyPlan[]) || []))
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    Promise.all([
+      fetch("/api/weekly-plan").then((r) => (r.ok ? r.json() : { plans: [] })).catch(() => ({ plans: [] })),
+      fetch("/api/users").then((r) => (r.ok ? r.json() : { profiles: [] })).catch(() => ({ profiles: [] })),
+    ]).then(([p, u]) => {
+      const list = ((p.plans as WeeklyPlan[]) || []).filter((x) => x.tasks.length > 0);
+      setPlans(list);
+      setPeople((u.profiles as ProfilePublic[]) || []);
+      // Open on the latest week anyone has filled, if this week is still empty.
+      const thisWeek = mondayOf();
+      if (!list.some((x) => x.weekStartDate === thisWeek) && list.length) {
+        setWeek(list.map((x) => x.weekStartDate).sort().reverse()[0]);
+      }
+    }).finally(() => setLoading(false));
   }, []);
 
-  const weeks = useMemo(
-    () => [...new Set(plans.map((p) => p.weekStartDate))].sort().reverse(),
-    [plans]
-  );
+  const nameOf = (username: string) => people.find((p) => p.username === username)?.fullName || username;
+  const analysts = people.filter((p) => !p.archived && p.role === "analyst");
+  const everyone = [...new Set([...analysts.map((p) => p.username), ...plans.map((p) => p.username)])].sort();
 
-  const rows = useMemo(() => {
-    let p = plans.filter((x) => x.tasks.length > 0);
-    if (weekFilter) p = p.filter((x) => x.weekStartDate === weekFilter);
-    return p.sort(
-      (a, b) => b.weekStartDate.localeCompare(a.weekStartDate) || a.username.localeCompare(b.username)
-    );
-  }, [plans, weekFilter]);
+  const rows = plans
+    .filter((p) => allWeeks || p.weekStartDate === week)
+    .filter((p) => !who || p.username === who)
+    .sort((a, b) => b.weekStartDate.localeCompare(a.weekStartDate) || nameOf(a.username).localeCompare(nameOf(b.username)));
 
-  // Export the visible reports: a summary sheet plus a detail sheet with every
-  // task. xlsx is loaded lazily to keep it out of the initial bundle.
-  async function exportXlsx() {
-    if (rows.length === 0) return;
+  const weekPlans = plans.filter((p) => p.weekStartDate === week);
+  const missing = analysts.filter((a) => !weekPlans.some((p) => p.username === a.username));
+  const avg = rows.length ? rows.reduce((s, p) => s + planStats(p.tasks).achievement, 0) / rows.length : 0;
+  const hours = rows.reduce((s, p) => s + planStats(p.tasks).totalHours, 0);
+
+  async function exportRows(list: WeeklyPlan[], tag: string) {
+    if (list.length === 0) return;
     const XLSX = await import("xlsx");
-    const summary: (string | number)[][] = [
-      ["Analyst", "Week", "Tasks", "Completed", "Total Hours", "Achievement %", "Last Updated"],
-      ...rows.map((p) => {
-        const s = wpStats(p);
-        return [
-          p.username, wpWeekRange(p.weekStartDate), s.taskCount, s.completed, s.totalHours,
-          Number(s.achievement.toFixed(1)), p.updatedAt ? new Date(p.updatedAt).toLocaleString() : "",
-        ];
-      }),
-    ];
-    const detail: (string | number)[][] = [
-      ["Analyst", "Week", "No.", "Date", "Hours", "Main Task", "Weight", "Ach. Weight", "Achievement %", "Comment / Issues"],
-    ];
-    for (const p of rows) {
-      const tw = p.tasks.reduce((s, t) => s + taskWeight(t), 0);
-      p.tasks.forEach((t, i) => {
-        const aw = taskAchWeight(t);
-        detail.push([
-          p.username, wpWeekRange(p.weekStartDate), i + 1, t.date || "", Number(t.hours) || 0,
-          t.activity || "", Number(taskWeight(t).toFixed(3)), Number(aw.toFixed(3)),
-          Number((tw > 0 ? (aw / tw) * 100 : 0).toFixed(1)), t.comment || "",
-        ]);
-      });
-    }
     const wb = XLSX.utils.book_new();
-    const sumWs = XLSX.utils.aoa_to_sheet(summary);
-    sumWs["!cols"] = [{ wch: 16 }, { wch: 24 }, { wch: 7 }, { wch: 10 }, { wch: 11 }, { wch: 14 }, { wch: 22 }];
-    XLSX.utils.book_append_sheet(wb, sumWs, "Summary");
-    const detWs = XLSX.utils.aoa_to_sheet(detail);
-    detWs["!cols"] = [{ wch: 16 }, { wch: 24 }, { wch: 5 }, { wch: 12 }, { wch: 7 }, { wch: 40 }, { wch: 9 }, { wch: 11 }, { wch: 14 }, { wch: 32 }];
-    XLSX.utils.book_append_sheet(wb, detWs, "Task Detail");
-    const tag = weekFilter || "all";
-    XLSX.writeFile(wb, `weekly_reports_${tag}.xlsx`);
+    const used = new Set<string>();
+    if (list.length > 1) {
+      const { summary, detail } = summarySheets(XLSX, list, nameOf);
+      XLSX.utils.book_append_sheet(wb, summary, sheetName("Summary", used));
+      XLSX.utils.book_append_sheet(wb, detail, sheetName("All tasks", used));
+    }
+    for (const p of list) {
+      XLSX.utils.book_append_sheet(wb, templateSheet(XLSX, p, nameOf(p.username)), sheetName(`${p.username} ${p.weekStartDate}`, used));
+    }
+    XLSX.writeFile(wb, `weekly_plans_${fileSafe(tag)}.xlsx`);
   }
 
-  if (loading) return <div style={{ textAlign: "center", padding: 48, color: "var(--muted)" }}>Loading weekly reports…</div>;
+  if (loading) return <div className="skeleton" style={{ height: 360, borderRadius: 12 }} />;
+
+  const exportTag = `${who || "all"}_${allWeeks ? "all-weeks" : week}`;
 
   return (
     <div className="wp-admin">
       <div className="wp-admin-head">
         <div>
-          <h2 className="wp-admin-title">Weekly Reports</h2>
-          <p className="wp-admin-sub">Plan-vs-achievement submitted by each analyst</p>
+          <h2 className="wp-admin-title">Weekly Plans</h2>
+          <p className="wp-admin-sub">What each analyst planned and how much they achieved.</p>
         </div>
-        <div style={{ display: "flex", alignItems: "flex-end", gap: 12 }}>
-          <label className="wp-week-picker">
-            <span>Week</span>
-            <select className="input-modern" value={weekFilter} onChange={(e) => setWeekFilter(e.target.value)} style={{ minWidth: 200 }}>
-              <option value="">All weeks</option>
-              {weeks.map((w) => <option key={w} value={w}>{wpWeekRange(w)}</option>)}
-            </select>
+        <button className="btn btn-primary btn-sm btn-icon-gap" onClick={() => exportRows(rows, exportTag)} disabled={rows.length === 0}>
+          <FileSpreadsheet size={16} /> <span>Export {rows.length > 0 ? `(${rows.length})` : ""}</span>
+        </button>
+      </div>
+
+      <div className="wpa-toolbar">
+        <div className={`wp-weeknav ${allWeeks ? "is-off" : ""}`} role="group" aria-label="Week">
+          <button type="button" className="wp-weeknav-btn" disabled={allWeeks} onClick={() => setWeek(addWeeks(week, -1))} aria-label="Previous week"><ChevronLeft size={18} /></button>
+          <label className="wp-weeknav-label">
+            <Calendar size={16} />
+            <span><small>Week of</small>{weekLabel(week)}</span>
+            <input type="date" value={week} disabled={allWeeks} aria-label="Pick a week" onChange={(e) => e.target.value && setWeek(mondayOf(e.target.value))} />
           </label>
-          <button className="btn btn-outline btn-sm" onClick={exportXlsx} disabled={rows.length === 0}>
-            <FileSpreadsheet size={16} /> Export
-          </button>
+          <button type="button" className="wp-weeknav-btn" disabled={allWeeks} onClick={() => setWeek(addWeeks(week, 1))} aria-label="Next week"><ChevronRight size={18} /></button>
+        </div>
+        <label className="wpa-check">
+          <input type="checkbox" checked={allWeeks} onChange={(e) => setAllWeeks(e.target.checked)} /> All weeks
+        </label>
+        <select className="input-modern wpa-select" value={who} onChange={(e) => setWho(e.target.value)} aria-label="Analyst">
+          <option value="">Everyone</option>
+          {everyone.map((u) => <option key={u} value={u}>{nameOf(u)}{nameOf(u) !== u ? ` (${u})` : ""}</option>)}
+        </select>
+      </div>
+
+      <div className="um-stats">
+        {!allWeeks && !who && (
+          <div className="um-stat">
+            <span className="um-stat-icon"><UserCheck size={18} /></span>
+            <span className="um-stat-value">{analysts.length - missing.length}<small className="wpa-of">/{analysts.length}</small></span>
+            <span className="um-stat-label">Submitted</span>
+          </div>
+        )}
+        <div className="um-stat">
+          <span className="um-stat-icon"><TrendingUp size={18} /></span>
+          <span className="um-stat-value" style={{ color: rows.length ? wpColor(avg) : undefined }}>{rows.length ? `${avg.toFixed(0)}%` : "—"}</span>
+          <span className="um-stat-label">Avg achievement</span>
+        </div>
+        <div className="um-stat">
+          <span className="um-stat-icon"><Clock size={18} /></span>
+          <span className="um-stat-value">{hours}</span>
+          <span className="um-stat-label">Planned hours</span>
+        </div>
+        <div className="um-stat">
+          <span className="um-stat-icon"><FileText size={18} /></span>
+          <span className="um-stat-value">{rows.length}</span>
+          <span className="um-stat-label">Plans shown</span>
         </div>
       </div>
 
+      {!allWeeks && !who && missing.length > 0 && (
+        <div className="wpa-missing">
+          <AlertTriangle size={16} />
+          <span><strong>No plan yet:</strong> {missing.map((m) => m.fullName || m.username).join(", ")}</span>
+        </div>
+      )}
+
       {rows.length === 0 ? (
-        <div className="empty-state-modern">No weekly reports submitted yet.</div>
+        <div className="empty-state-modern" style={{ padding: 40 }}>
+          <div className="empty-icon-wrap"><Calendar size={36} /></div>
+          <p>{allWeeks ? "No weekly plans saved yet." : `No plans for ${weekLabel(week)}.`}</p>
+        </div>
       ) : (
         <div className="wp-admin-list">
           {rows.map((plan) => {
-            const s = wpStats(plan);
+            const s = planStats(plan.tasks);
+            const rating = performanceRating(s.achievement, s.taskCount > 0);
             const color = wpColor(s.achievement);
             const key = `${plan.username}:${plan.weekStartDate}`;
             const open = expanded === key;
             return (
               <div key={key} className={`wp-admin-card ${open ? "open" : ""}`}>
-                <button type="button" className="wp-admin-row" onClick={() => setExpanded(open ? null : key)}>
-                  <ChevronRight size={16} className={`wp-admin-caret ${open ? "open" : ""}`} />
-                  <div className="wp-admin-who">
-                    <strong>{plan.username}</strong>
-                    <span>{wpWeekRange(plan.weekStartDate)}</span>
-                  </div>
-                  <div className="wp-admin-meta">
-                    <span><Calendar size={13} /> {s.taskCount} tasks</span>
-                    <span><Clock size={13} /> {s.totalHours} hrs</span>
-                    <span><CheckCircle2 size={13} /> {s.completed}/{s.taskCount} done</span>
-                  </div>
-                  <div className="wp-admin-ach">
-                    <div className="wp-progress" style={{ width: 110 }}>
-                      <span style={{ width: `${Math.min(s.achievement, 100)}%`, background: color }} />
+                <div className="wp-admin-row-wrap">
+                  <button type="button" className="wp-admin-row" onClick={() => setExpanded(open ? null : key)} aria-expanded={open}>
+                    <ChevronRight size={16} className={`wp-admin-caret ${open ? "open" : ""}`} />
+                    <UserAvatar name={plan.username} seed={people.find((p) => p.username === plan.username)?.id} size="sm" />
+                    <div className="wp-admin-who">
+                      <strong>{nameOf(plan.username)}</strong>
+                      <span>{allWeeks ? weekLabel(plan.weekStartDate) : `@${plan.username}`}</span>
                     </div>
-                    <strong style={{ color }}><TrendingUp size={14} /> {s.achievement.toFixed(1)}%</strong>
-                  </div>
-                </button>
+                    <div className="wp-admin-meta">
+                      <span><Clock size={13} /> {s.totalHours} h</span>
+                      <span><CheckCircle2 size={13} /> {s.completed}/{s.taskCount} done</span>
+                      <span className={`wpa-rating wpa-rating-${rating.tone}`}>{rating.label}</span>
+                    </div>
+                    <div className="wp-admin-ach">
+                      <div className="wp-progress" style={{ width: 110 }}>
+                        <span style={{ width: `${Math.min(s.achievement, 100)}%`, background: color }} />
+                      </div>
+                      <strong style={{ color }}>{s.achievement.toFixed(1)}%</strong>
+                    </div>
+                  </button>
+                  <button type="button" className="btn btn-ghost btn-sm btn-icon-only" title="Export this plan (official template)" aria-label="Export this plan"
+                    onClick={() => exportRows([plan], `${plan.username}_${plan.weekStartDate}`)}>
+                    <Download size={15} />
+                  </button>
+                </div>
 
                 {open && (
                   <div className="wp-admin-detail">
@@ -3015,12 +3493,12 @@ function WeeklyReportsTab() {
                           <td className="wp-calc" style={{ color: wpColor(s.achievement) }}>{s.achievement.toFixed(1)}%</td>
                           <td />
                           <td className="wp-calc">{s.totalWeight.toFixed(3)}</td>
-                          <td className="wp-calc wp-calc-strong">{s.totalExec.toFixed(3)}</td>
+                          <td className="wp-calc wp-calc-strong">{s.totalAchWeight.toFixed(3)}</td>
                         </tr>
                       </tfoot>
                     </table>
                     {plan.updatedAt && (
-                      <p className="wp-admin-updated">Last updated {new Date(plan.updatedAt).toLocaleString()}</p>
+                      <p className="wp-admin-updated">Last saved {new Date(plan.updatedAt).toLocaleString()}</p>
                     )}
                   </div>
                 )}
@@ -3032,4 +3510,3 @@ function WeeklyReportsTab() {
     </div>
   );
 }
-
