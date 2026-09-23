@@ -28,7 +28,7 @@ import { MIN_PASSWORD_LENGTH } from "@/lib/password";
 import { ModalShell } from "@/components/ModalShell";
 import { AppHeader } from "@/components/AppHeader";
 import { parseAnalystSignature, signatureSummary, type AnalystSignaturePayload } from "@/lib/signature";
-import { taskWeight, taskAchWeight, toISODate, mondayOf, addWeeks, weekLabel, planStats, performanceRating, type WeeklyPlan } from "@/lib/weekly-plan";
+import { taskWeight, taskAchWeight, toISODate, mondayOf, addWeeks, weekLabel, planStats, type WeeklyPlan } from "@/lib/weekly-plan";
 import { templateSheet, summarySheets, sheetName, fileSafe } from "@/lib/weekly-export";
 
 type Tab = "instruments" | "records" | "insights" | "users" | "forms" | "weekly";
@@ -3451,7 +3451,7 @@ function WeeklyReportsTab() {
   const rows = plans
     .filter((p) => allWeeks || p.weekStartDate === week)
     .filter((p) => !who || p.username === who)
-    .sort((a, b) => b.weekStartDate.localeCompare(a.weekStartDate) || nameOf(a.username).localeCompare(nameOf(b.username)));
+    .sort((a, b) => b.weekStartDate.localeCompare(a.weekStartDate) || (b.updatedAt || "").localeCompare(a.updatedAt || ""));
 
   const weekPlans = plans.filter((p) => p.weekStartDate === week);
   const missing = analysts.filter((a) => !weekPlans.some((p) => p.username === a.username));
@@ -3550,7 +3550,6 @@ function WeeklyReportsTab() {
         <div className="wp-admin-list">
           {rows.map((plan) => {
             const s = planStats(plan.tasks);
-            const rating = performanceRating(s.achievement, s.taskCount > 0);
             const color = wpColor(s.achievement);
             const key = `${plan.username}:${plan.weekStartDate}`;
             const open = expanded === key;
@@ -3567,7 +3566,6 @@ function WeeklyReportsTab() {
                     <div className="wp-admin-meta">
                       <span><Clock size={13} /> {s.totalHours} h</span>
                       <span><CheckCircle2 size={13} /> {s.completed}/{s.taskCount} done</span>
-                      <span className={`wpa-rating wpa-rating-${rating.tone}`}>{rating.label}</span>
                     </div>
                     <div className="wp-admin-ach">
                       <div className="wp-progress" style={{ width: 110 }}>
