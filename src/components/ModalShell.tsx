@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 // One accessible wrapper for every dialog in the app. Before this, each modal
 // was a bare div: no role, closable only by mouse, and focus stayed behind it on
@@ -102,9 +103,11 @@ export function ModalShell({
     };
   }, [open]);
 
-  if (!open) return null;
+  if (!open || typeof document === "undefined") return null;
 
-  return (
+  // Portal to <body>: a parent with backdrop-filter or transform (the sticky
+  // header has one) would otherwise pin the fixed overlay to itself.
+  return createPortal(
     <div
       className={overlayClassName}
       onClick={closeOnOverlayClick ? (e) => e.target === e.currentTarget && onClose() : undefined}
@@ -120,6 +123,7 @@ export function ModalShell({
       >
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

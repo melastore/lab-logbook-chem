@@ -4299,9 +4299,10 @@ button:disabled {
 }
 
 /* One swipeable row on phones instead of a tall stack of buttons. */
-@media (max-width: 640px) {
+@media (max-width: 900px) {
   .form-tabs {
     flex-wrap: nowrap;
+    max-width: calc(100% + 32px);
     overflow-x: auto;
     gap: 6px;
     margin: 0 -16px 14px;
