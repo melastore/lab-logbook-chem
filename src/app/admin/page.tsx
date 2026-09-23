@@ -2845,6 +2845,20 @@ const PRESET_FIELDS: { label: string; key: string; type: FieldType; icon: React.
   { label: "Remarks", key: "remarks", type: "textarea", icon: Info },
 ];
 
+// General Info forms fill instrument columns, so offer those instead.
+const INSTRUMENT_PRESET_FIELDS: typeof PRESET_FIELDS = [
+  { label: "Manufacturer", key: "manufacturer", type: "text", icon: Settings },
+  { label: "Model", key: "instrumentModel", type: "text", icon: Microscope },
+  { label: "Serial Number", key: "serialNumber", type: "text", icon: Hash },
+  { label: "Installation Date", key: "installationDate", type: "date", icon: Calendar },
+  { label: "Laboratory", key: "laboratoryName", type: "text", icon: LayoutGrid },
+  { label: "Department", key: "department", type: "text", icon: Users },
+  { label: "Location", key: "location", type: "text", icon: Tag },
+  { label: "Desk", key: "desk", type: "text", icon: Tag },
+  { label: "Logbook Start", key: "logbookStartDate", type: "date", icon: Calendar },
+  { label: "Logbook End", key: "logbookEndDate", type: "date", icon: Calendar },
+];
+
 // Mirrors the server's slugKey so the key shown is the key that gets saved.
 function fieldKeyFrom(label: string) {
   const parts = label.replace(/[^a-zA-Z0-9 _-]/g, "").trim().split(/[\s_-]+/).filter(Boolean);
@@ -2870,11 +2884,16 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
   const [scopeTab, setScopeTab] = useState<FormScope>("analytical");
   const [editTab, setEditTab] = useState<"settings" | "fields">("settings");
   const [draftSnapshot, setDraftSnapshot] = useState("");
+  const [draftError, setDraftError] = useState("");
+  const [expanded, setExpanded] = useState<number | null>(null);
+  const [reordering, setReordering] = useState(false);
   const clearNotice = useCallback(() => setNotice(null), []);
 
   function startDraft(d: FormDraft, tab: "settings" | "fields") {
     setDraft(d);
     setDraftSnapshot(JSON.stringify(d));
+    setDraftError("");
+    setExpanded(null);
     setEditTab(tab);
   }
   function closeDraft() {
@@ -2886,11 +2905,13 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
   const draftProblems = (() => {
     if (!draft) return [] as string[];
     const out: string[] = [];
-    const keys = draft.fields.map((f) => f.key || fieldKeyFrom(f.label));
+    // Same normalising the server does, so "Sample wt" and "sampleWt" count as one key.
+    const keys = draft.fields.map((f) => fieldKeyFrom(f.key || f.label));
     if (draft.fields.some((f) => !f.label.trim())) out.push("Every field needs a label.");
     const dupes = [...new Set(keys.filter((k, i) => k && keys.indexOf(k) !== i))];
     if (dupes.length) out.push(`Two fields share the key ${dupes.map((d) => `“${d}”`).join(", ")} — rename one.`);
-    if (draft.fields.some((f) => f.type === "select" && !(f.options ?? []).length)) out.push("Dropdown fields need at least one option.");
+    if (draft.fields.some((f) => f.type === "select" && !(f.options ?? []).some((o) => o.trim()))) out.push("Dropdown fields need at least one option.");
+    if (draft.fields.some((f) => f.label.trim() && !fieldKeyFrom(f.key || f.label))) out.push("Field keys need at least one letter or number.");
     return out;
   })();
 
@@ -2901,9 +2922,36 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
 
   async function loadForms() {
     setLoading(true);
-    const r = await fetch("/api/forms");
-    if (r.ok) { const d = await r.json(); setForms(d.forms || []); }
+    try {
+      const r = await fetch("/api/forms");
+      if (r.ok) { const d = await r.json(); setForms(d.forms || []); }
+    } catch {
+      setNotice({ type: "error", text: "Couldn't reload forms. Refresh the page." });
+    }
     setLoading(false);
+  }
+
+  // Codes must be unique and at most 12 chars.
+  function freeCode(base: string) {
+    const stem = base.slice(0, 10) || "LOG";
+    const used = new Set(forms.map((f) => f.activityType.toUpperCase()));
+    for (let n = 2; ; n++) if (!used.has(`${stem}${n}`)) return `${stem}${n}`;
+  }
+
+  // Swap with the neighbour in the same scope, then renumber every form so the
+  // stored order matches what's on screen.
+  async function moveForm(pos: number, dir: -1 | 1) {
+    const a = scopedForms[pos], b = scopedForms[pos + dir];
+    if (!a || !b || reordering) return;
+    const next = [...forms];
+    [next[a.i], next[b.i]] = [next[b.i], next[a.i]];
+    setForms(next);
+    setReordering(true);
+    const results = await Promise.all(next.map((f, i) => fetch(`/api/forms?id=${encodeURIComponent(f.id)}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ displayOrder: i }),
+    }).then((r) => r.ok, () => false)));
+    if (results.some((ok) => !ok)) { setNotice({ type: "error", text: "Couldn't save the new order." }); await loadForms(); }
+    setReordering(false);
   }
 
   function openNew() {
@@ -2920,40 +2968,52 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
 
   function cloneForm(form: FormDef) {
     startDraft({
-      id: "", title: `${form.title} (Copy)`, activityType: `${form.activityType}C`,
+      id: "", title: `${form.title} (Copy)`, activityType: freeCode(form.activityType),
       scope: form.scope, displayOrder: forms.length,
       fields: form.fields.map((f) => ({ ...f })), isNew: true,
     }, "settings");
   }
 
   async function saveDraft() {
-    if (!draft || draftProblems.length) { setEditTab("fields"); return; }
+    if (!draft || saving) return;
+    if (draftProblems.length) { setEditTab("fields"); return; }
     setSaving(true);
+    setDraftError("");
     const url = draft.isNew ? "/api/forms" : `/api/forms?id=${encodeURIComponent(draft.id)}`;
-    const r = await fetch(url, {
-      method: draft.isNew ? "POST" : "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: draft.id || undefined,
-        title: draft.title,
-        activityType: draft.activityType,
-        scope: draft.scope,
-        displayOrder: draft.displayOrder,
-        fields: draft.fields.map((f) => ({ ...f, key: f.key || fieldKeyFrom(f.label) })),
-      }),
-    });
-    const d = await r.json().catch(() => ({}));
-    if (r.ok) { setNotice({ type: "success", text: draft.isNew ? "Form created." : "Form updated." }); setDraft(null); loadForms(); }
-    else { setNotice({ type: "error", text: d.error || "Save failed. Check the fields." }); }
+    try {
+      const r = await fetch(url, {
+        method: draft.isNew ? "POST" : "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: draft.id || undefined,
+          title: draft.title,
+          activityType: draft.activityType,
+          scope: draft.scope,
+          displayOrder: draft.displayOrder,
+          fields: draft.fields.map((f) => ({ ...f, key: fieldKeyFrom(f.key || f.label), options: f.options?.map((o) => o.trim()).filter(Boolean) })),
+        }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) { setNotice({ type: "success", text: draft.isNew ? `${draft.title} created.` : `${draft.title} saved.` }); setDraft(null); loadForms(); }
+      else setDraftError(d.error || "Save failed. Check the fields.");
+    } catch {
+      setDraftError("Network error. Nothing was saved.");
+    }
     setSaving(false);
   }
 
   async function removeForm(id: string) {
     if (!confirm("Delete this form? Existing records keep their data, but this log type will no longer be available for new entries.")) return;
     setDeleting(id);
-    const r = await fetch(`/api/forms?id=${encodeURIComponent(id)}`, { method: "DELETE" });
-    if (r.ok) { setNotice({ type: "success", text: "Form deleted." }); setDraft(null); loadForms(); }
-    else { const d = await r.json(); setNotice({ type: "error", text: d.error || "Delete failed." }); }
+    try {
+      const r = await fetch(`/api/forms?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) { setNotice({ type: "success", text: "Form deleted." }); setDraft(null); loadForms(); }
+      else if (draft) setDraftError(d.error || "Delete failed.");
+      else setNotice({ type: "error", text: d.error || "Delete failed." });
+    } catch {
+      setNotice({ type: "error", text: "Network error. Nothing was deleted." });
+    }
     setDeleting(null);
   }
 
@@ -2968,12 +3028,25 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
   }
   function addField() {
     setDraft((p) => p && ({ ...p, fields: [...p.fields, { key: "", label: "", type: "text" }] }));
+    setExpanded(null);
+  }
+  function duplicateField(i: number) {
+    setDraft((p) => {
+      if (!p) return p;
+      const src = p.fields[i];
+      const copy = { ...src, label: `${src.label} copy`, key: fieldKeyFrom(`${src.label} copy`), options: src.options && [...src.options] };
+      return { ...p, fields: [...p.fields.slice(0, i + 1), copy, ...p.fields.slice(i + 1)] };
+    });
   }
   function addPresetField(preset: typeof PRESET_FIELDS[0]) {
     setDraft((p) => p && ({ ...p, fields: [...p.fields, { key: preset.key, label: preset.label, type: preset.type }] }));
   }
   function removeField(i: number) {
+    const f = draft?.fields[i];
+    const saved = forms.find((x) => x.id === draft?.id)?.fields.some((x) => x.key === f?.key);
+    if (saved && !confirm(`Remove “${f?.label}”? Old records keep the value, but it won't show on this form.`)) return;
     setDraft((p) => p && ({ ...p, fields: p.fields.filter((_, idx) => idx !== i) }));
+    setExpanded(null);
   }
   function moveField(i: number, dir: -1 | 1) {
     setDraft((p) => {
@@ -2984,7 +3057,10 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
       [fields[i], fields[j]] = [fields[j], fields[i]];
       return { ...p, fields };
     });
+    setExpanded((e) => (e === i ? i + dir : e === i + dir ? i : e));
   }
+
+  const presets = draft?.scope === "instrument" ? INSTRUMENT_PRESET_FIELDS : PRESET_FIELDS;
 
   return (
     <div className="panel-modern">
@@ -3035,7 +3111,7 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
           <table className="data-table um-table">
             <thead>
               <tr>
-                <th style={{ width: 56 }}>#</th>
+                <th style={{ width: 56 }}><span className="sr-only">Order</span></th>
                 <th>Form Title</th>
                 <th>Log Type</th>
                 <th>Fields</th>
@@ -3046,9 +3122,14 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
               {scopedForms.length === 0 && (
                 <tr><td colSpan={5} className="empty-state">No forms in this group yet. Use “New Form” to add one.</td></tr>
               )}
-              {scopedForms.map(({ f, i }) => (
+              {scopedForms.map(({ f, i }, pos) => (
                 <tr key={f.id} className={f.id === "instrument" ? "row-highlight" : ""}>
-                  <td className="mono" style={{ color: "var(--muted)" }}>{i + 1}</td>
+                  <td>
+                    <div className="inst-order">
+                      <button type="button" disabled={pos === 0 || reordering} onClick={() => moveForm(pos, -1)} title="Move up" aria-label={`Move ${f.title} up`}><ChevronDown size={13} style={{ transform: "rotate(180deg)" }} /></button>
+                      <button type="button" disabled={pos === scopedForms.length - 1 || reordering} onClick={() => moveForm(pos, 1)} title="Move down" aria-label={`Move ${f.title} down`}><ChevronDown size={13} /></button>
+                    </div>
+                  </td>
                   <td style={{ fontWeight: 800, color: 'var(--primary)' }}>
                     {f.title}
                     {f.id === "instrument" && <span className="badge-system-default">SYSTEM DEFAULT</span>}
@@ -3114,10 +3195,6 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
                       <option value="instrument">Instrument metadata</option>
                     </select>
                   </div>
-                  <div className="field">
-                    <label className="field-label">Display Order</label>
-                    <input type="number" value={draft.displayOrder} onChange={(e) => setDraft((p) => p && ({ ...p, displayOrder: Number(e.target.value) || 0 }))} />
-                  </div>
                 </div>
                 {draft.id === "instrument" && (
                   <div className="notice notice-info" style={{ marginTop: 24 }}>
@@ -3133,7 +3210,7 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
                     <div className="field-presets-v2">
                       <p className="sidebar-label">Quick add</p>
                       <div className="fb-presets">
-                        {PRESET_FIELDS.map((preset) => {
+                        {presets.map((preset) => {
                           const used = draft.fields.some((f) => f.key === preset.key);
                           return (
                             <button key={preset.key} type="button" className="fb-preset" disabled={used} onClick={() => addPresetField(preset)} title={used ? "Already on this form" : `Add ${preset.label}`}>
@@ -3163,14 +3240,14 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
                               <th style={{ width: 120 }}>Type</th>
                               <th style={{ width: 60, textAlign: 'center' }}>Full</th>
                               <th style={{ width: 60, textAlign: 'center' }}>Req</th>
-                              <th style={{ width: 40 }}></th>
+                              <th style={{ width: 104 }}></th>
                             </tr>
                           </thead>
                           <tbody>
                             {draft.fields.length === 0 && (
                               <tr>
                                 <td colSpan={7} style={{ padding: 40, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
-                                  Use presets or “Custom Field” to build structure.
+                                  No fields yet. Pick one from Quick add or press “Add field”.
                                 </td>
                               </tr>
                             )}
@@ -3183,8 +3260,8 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
                                   <button type="button" disabled={i === 0} onClick={() => moveField(i, -1)}><ChevronDown size={14} style={{ transform: 'rotate(180deg)' }} /></button>
                                   <button type="button" disabled={i === draft.fields.length - 1} onClick={() => moveField(i, 1)}><ChevronDown size={14} /></button>
                                 </td>
-                                <td><input className="table-input" value={f.label} onChange={(e) => updateLabel(i, e.target.value, autoKey)} placeholder="e.g. Sample weight" aria-invalid={!f.label.trim()} /></td>
-                                <td><input className="table-input mono" value={f.key} onChange={(e) => updateField(i, { key: e.target.value })} placeholder="auto" style={{ fontSize: 12 }} title={savedKeys.includes(f.key) ? "Changing this hides values already saved under the old key" : undefined} /></td>
+                                <td><input className="table-input" value={f.label} onChange={(e) => updateLabel(i, e.target.value, autoKey)} placeholder="e.g. Sample weight" aria-invalid={!f.label.trim()} autoFocus={!f.label && i === draft.fields.length - 1} /></td>
+                                <td><input className="table-input mono" value={f.key} onChange={(e) => updateField(i, { key: e.target.value })} onBlur={() => f.key && updateField(i, { key: fieldKeyFrom(f.key) })} placeholder="auto" style={{ fontSize: 12 }} title={savedKeys.includes(f.key) ? "Changing this hides values already saved under the old key" : undefined} /></td>
                                 <td>
                                   <select className="table-select" value={f.type} onChange={(e) => updateField(i, { type: e.target.value as FieldType })}>
                                     {FIELD_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -3197,20 +3274,33 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
                                   <input type="checkbox" checked={f.required === true} onChange={(e) => updateField(i, { required: e.target.checked })} />
                                 </td>
                                 <td>
-                                  <button className="btn-table-danger" type="button" onClick={() => removeField(i)} title="Remove field" aria-label={`Remove ${f.label || "field"}`}><Trash2 size={14} /></button>
+                                  <div className="fb-row-actions">
+                                    <button className="btn-table-icon" type="button" onClick={() => setExpanded(expanded === i ? null : i)} title="More settings" aria-label={`More settings for ${f.label || "field"}`} aria-expanded={expanded === i}><Settings size={14} /></button>
+                                    <button className="btn-table-icon" type="button" onClick={() => duplicateField(i)} title="Duplicate field" aria-label={`Duplicate ${f.label || "field"}`}><FileOutput size={14} /></button>
+                                    <button className="btn-table-danger" type="button" onClick={() => removeField(i)} title="Remove field" aria-label={`Remove ${f.label || "field"}`}><Trash2 size={14} /></button>
+                                  </div>
                                 </td>
                               </tr>
-                              {f.type === "select" && (
+                              {(f.type === "select" || expanded === i) && (
                                 <tr className="fb-options-row">
                                   <td />
                                   <td colSpan={6}>
-                                    <label className="fb-options">
-                                      <span>Options</span>
-                                      <input className="table-input" value={(f.options ?? []).join(", ")}
-                                        onChange={(e) => updateField(i, { options: e.target.value.split(",").map((o) => o.trimStart()) })}
-                                        onBlur={() => updateField(i, { options: (f.options ?? []).map((o) => o.trim()).filter(Boolean) })}
-                                        placeholder="Comma separated, e.g. Pass, Fail, Retest" />
-                                    </label>
+                                    {f.type === "select" && (
+                                      <label className="fb-options">
+                                        <span>Options</span>
+                                        <input className="table-input" value={(f.options ?? []).join(", ")}
+                                          onChange={(e) => updateField(i, { options: e.target.value.split(",").map((o) => o.trimStart()) })}
+                                          onBlur={() => updateField(i, { options: (f.options ?? []).map((o) => o.trim()).filter(Boolean) })}
+                                          placeholder="Comma separated, e.g. Pass, Fail, Retest" aria-invalid={!(f.options ?? []).some((o) => o.trim())} />
+                                      </label>
+                                    )}
+                                    {expanded === i && (
+                                      <label className="fb-options">
+                                        <span>Hint</span>
+                                        <input className="table-input" value={f.placeholder ?? ""} onChange={(e) => updateField(i, { placeholder: e.target.value })}
+                                          placeholder="Grey text shown in the empty box, e.g. mg/L" />
+                                      </label>
+                                    )}
                                   </td>
                                 </tr>
                               )}
@@ -3254,6 +3344,7 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
             )}
           </div>
 
+          {draftError && <div className="wpa-missing" role="alert" style={{ margin: "0 20px 12px" }}><AlertTriangle size={16} /><span>{draftError}</span></div>}
           <div className="modal-footer" style={{ justifyContent: "space-between" }}>
             <div>
               {editTab === "fields" && (

@@ -9692,6 +9692,11 @@ button:disabled {
 .fb-options-row td { padding-top: 0 !important; border-top: 0 !important; }
 .fb-options { display: flex; align-items: center; gap: 10px; font-size: 12px; font-weight: 700; color: var(--muted); }
 .fb-options input { flex: 1; }
+.fb-options + .fb-options { margin-top: 6px; }
+.fb-options > span { min-width: 56px; }
+.fb-row-actions { display: flex; gap: 2px; justify-content: flex-end; }
+.btn-table-icon { display: grid; place-items: center; width: 32px; height: 32px; background: none; border: 0; color: var(--muted); border-radius: 6px; cursor: pointer; }
+.btn-table-icon:hover, .btn-table-icon[aria-expanded="true"] { background: var(--surface-3); color: var(--on-surface); }
 .table-input[aria-invalid="true"] { border-color: var(--error); }
 
 @media (max-width: 900px) { .ov-attention { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
