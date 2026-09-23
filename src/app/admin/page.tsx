@@ -1678,6 +1678,17 @@ function ReviewModal({ record, forms, isCurrent, isOwn, onCancel, onDone }: {
    Tab 2 — Instrument Templates
    ════════════════════════════════════════════════════════════════════════════ */
 
+function templateToForm(tpl: InstrumentTemplate): typeof EMPTY_TEMPLATE {
+  return {
+    categoryId: tpl.categoryId, instrumentName: tpl.instrumentName, instrumentModel: tpl.instrumentModel,
+    serialNumber: tpl.serialNumber, manufacturer: tpl.manufacturer, installationDate: tpl.installationDate,
+    instrumentId: tpl.instrumentId, laboratoryName: tpl.laboratoryName, department: tpl.department,
+    location: tpl.location, desk: tpl.desk, logbookStartDate: tpl.logbookStartDate,
+    logbookEndDate: tpl.logbookEndDate, methodUsed: tpl.methodUsed, displayOrder: tpl.displayOrder,
+    metadata: structuredClone(tpl.metadata || {}), infoFormId: tpl.infoFormId || "",
+  };
+}
+
 const EMPTY_TEMPLATE = {
   categoryId: "", instrumentName: "", instrumentModel: "", serialNumber: "",
   manufacturer: "", installationDate: "", instrumentId: "",
@@ -1701,6 +1712,7 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
   const [instrTab, setInstrTab] = useState<"basic" | "content">("basic");
   const [instrQuery, setInstrQuery] = useState("");
   const [catFilter, setCatFilter] = useState("all");
+  const [loadError, setLoadError] = useState("");
   const clearNotice = useCallback(() => setNotice(null), []);
 
   // All forms with scope "instrument" can be used as a General Information form.
@@ -1721,12 +1733,17 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
 
   async function loadAll() {
     setLoading(true);
-    const [catR, tplR] = await Promise.all([
-      fetch("/api/templates/categories").then((r) => r.json()),
-      fetch("/api/templates").then((r) => r.json()),
-    ]);
-    setCategories(catR.categories || []);
-    setTemplates(tplR.templates || []);
+    try {
+      const [catR, tplR] = await Promise.all([
+        fetch("/api/templates/categories").then((r) => r.json()),
+        fetch("/api/templates").then((r) => r.json()),
+      ]);
+      setCategories(catR.categories || []);
+      setTemplates(tplR.templates || []);
+      setLoadError("");
+    } catch {
+      setLoadError("Couldn't load instruments. Check your connection.");
+    }
     setLoading(false);
   }
 
@@ -1740,29 +1757,25 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
   }
 
   function openEdit(tpl: InstrumentTemplate) {
-    const next = { 
-      categoryId: tpl.categoryId, 
-      instrumentName: tpl.instrumentName, 
-      instrumentModel: tpl.instrumentModel,
-      serialNumber: tpl.serialNumber, 
-      manufacturer: tpl.manufacturer, 
-      installationDate: tpl.installationDate,
-      instrumentId: tpl.instrumentId, 
-      laboratoryName: tpl.laboratoryName, 
-      department: tpl.department,
-      location: tpl.location, 
-      desk: tpl.desk,
-      logbookStartDate: tpl.logbookStartDate,
-      logbookEndDate: tpl.logbookEndDate,
-      methodUsed: tpl.methodUsed, 
-      displayOrder: tpl.displayOrder,
-      metadata: tpl.metadata || {},
-      infoFormId: tpl.infoFormId || "",
-    };
+    const next = templateToForm(tpl);
     setForm(next);
     setFormSnapshot(JSON.stringify(next));
     setFormError("");
     setEditing(tpl); setModal("edit");
+    setInstrTab("basic");
+  }
+
+  // Same setup as an existing instrument; ID and serial are cleared since they must differ.
+  function openDuplicate(tpl: InstrumentTemplate) {
+    setForm({
+      ...templateToForm(tpl),
+      instrumentName: `${tpl.instrumentName} (copy)`,
+      instrumentId: "", serialNumber: "",
+      displayOrder: templates.length,
+    });
+    setFormSnapshot("");
+    setFormError("");
+    setEditing(null); setModal("add");
     setInstrTab("basic");
   }
 
@@ -1782,6 +1795,11 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
     if (missing.length) {
       setFormError(`Fill in: ${missing.join(", ")}.`);
       if (!form.instrumentName.trim() || !form.categoryId) setInstrTab("basic"); else setInstrTab("content");
+      return;
+    }
+    if (form.logbookStartDate && form.logbookEndDate && form.logbookEndDate < form.logbookStartDate) {
+      setFormError("Logbook end date is before the start date.");
+      setInstrTab("content");
       return;
     }
     setFormError("");
@@ -1804,16 +1822,27 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
   async function deleteTemplate(tpl: InstrumentTemplate) {
     if (!confirm(`Delete "${tpl.instrumentName}"? Analysts will no longer be able to pick it. Existing records are kept.`)) return;
     setDeleting(tpl.id);
-    const r = await fetch(`/api/templates?id=${tpl.id}`, { method: "DELETE" });
-    const d = await r.json().catch(() => ({}));
-    if (r.ok) { setNotice({ type: "success", text: `${tpl.instrumentName} deleted.` }); loadAll(); }
-    else setNotice({ type: "error", text: d.error || "Delete failed." });
+    try {
+      const r = await fetch(`/api/templates?id=${encodeURIComponent(tpl.id)}`, { method: "DELETE" });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) { setNotice({ type: "success", text: `${tpl.instrumentName} deleted.` }); loadAll(); }
+      else setNotice({ type: "error", text: d.error || "Delete failed." });
+    } catch {
+      setNotice({ type: "error", text: "Network error. Nothing was deleted." });
+    }
     setDeleting(null);
   }
 
+  // The list is grouped by category, so moves only happen inside a category.
+  function canMove(index: number, dir: -1 | 1) {
+    const other = templates[index + dir];
+    return !!other && other.categoryId === templates[index].categoryId;
+  }
+
   async function moveInstrument(index: number, dir: -1 | 1) {
+    if (!canMove(index, dir)) return;
     const j = index + dir;
-    if (j < 0 || j >= templates.length) return;
+    const previous = templates;
     const reordered = [...templates];
     [reordered[index], reordered[j]] = [reordered[j], reordered[index]];
 
@@ -1823,13 +1852,18 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
     setTemplates(normalised);
 
     // Persist the new displayOrder in the background; no full reload needed.
-    await Promise.all(
+    const results = await Promise.all(
       reordered
-        .map((t, i) => (t.displayOrder === i ? null : fetch(`/api/templates?id=${t.id}`, {
+        .map((t, i) => (t.displayOrder === i ? null : fetch(`/api/templates?id=${encodeURIComponent(t.id)}`, {
           method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ displayOrder: i }),
-        })))
-        .filter((p): p is Promise<Response> => p !== null)
+        }).then((r) => r.ok, () => false)))
+        .filter((p): p is Promise<boolean> => p !== null)
     );
+    if (results.some((ok) => !ok)) {
+      setTemplates(previous);
+      setNotice({ type: "error", text: "Couldn't save the new order." });
+      loadAll();
+    }
   }
 
   function updateValue(key: string, val: unknown) {
@@ -1862,20 +1896,23 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
   function renderFieldInput(f: FormField) {
     const value = infoValue(f.key);
     const onChange = (v: string) => updateValue(f.key, v);
+    const invalid = !!formError && !!f.required && !value.trim();
     if (f.type === "textarea") {
-      return <textarea value={value} onChange={(e) => onChange(e.target.value)} placeholder={f.placeholder} rows={3} />;
+      return <textarea value={value} onChange={(e) => onChange(e.target.value)} placeholder={f.placeholder} rows={3} aria-invalid={invalid} />;
     }
     if (f.type === "select") {
       return (
-        <select value={value} onChange={(e) => onChange(e.target.value)}>
+        <select value={value} onChange={(e) => onChange(e.target.value)} aria-invalid={invalid}>
           <option value="">—</option>
           {(f.options ?? []).map((o) => <option key={o} value={o}>{o}</option>)}
         </select>
       );
     }
     const htmlType = f.type === "date" ? "date" : f.type === "time" ? "time" : f.type === "number" ? "number" : "text";
-    return <input type={htmlType} value={value} onChange={(e) => onChange(e.target.value)} placeholder={f.placeholder} />;
+    return <input type={htmlType} value={value} onChange={(e) => onChange(e.target.value)} placeholder={f.placeholder} aria-invalid={invalid} />;
   }
+
+  const infoMissing = infoFields.filter((f) => f.required && !infoValue(f.key).trim()).length;
 
   const customFields = Array.isArray((form.metadata as Record<string, unknown>)?.customFields)
     ? (form.metadata as Record<string, unknown>).customFields as {id: string, label: string, value: string}[]
@@ -1956,14 +1993,16 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
     const reordered = [...categories];
     [reordered[index], reordered[j]] = [reordered[j], reordered[index]];
     setCatBusy(true);
-    await Promise.all(
+    const results = await Promise.all(
       reordered
         .map((c, i) => (c.displayOrder === i ? null : fetch(`/api/templates/categories?id=${encodeURIComponent(c.id)}`, {
           method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ displayOrder: i }),
-        })))
-        .filter((p): p is Promise<Response> => p !== null)
+        }).then((r) => r.ok, () => false)))
+        .filter((p): p is Promise<boolean> => p !== null)
     );
-    await reloadCats();
+    if (results.some((ok) => !ok)) setCatNotice({ type: "error", text: "Couldn't save the new order." });
+    // Instrument list is grouped by category order.
+    await Promise.all([reloadCats(), loadAll()]);
     setCatBusy(false);
   }
 
@@ -2029,6 +2068,11 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
         <div style={{ display: "grid", gap: 10 }}>
           {[1, 2, 3, 4].map((i) => <div key={i} className="skeleton" style={{ height: 60, borderRadius: 12 }} />)}
         </div>
+      ) : loadError ? (
+        <div className="empty-state-modern" style={{ padding: 40 }}>
+          <p>{loadError}</p>
+          <button className="btn btn-outline btn-sm btn-icon-gap" type="button" onClick={loadAll}><RefreshCw size={14} /> <span>Try again</span></button>
+        </div>
       ) : filteredTemplates.length === 0 ? (
         <div className="empty-state-modern" style={{ padding: 40 }}>
           <div className="empty-icon-wrap"><Microscope size={36} /></div>
@@ -2052,8 +2096,8 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
                     {isAdmin && canReorder && (
                       <td className="um-col-check">
                         <div className="inst-order">
-                          <button type="button" disabled={idx === 0} onClick={() => moveInstrument(idx, -1)} title="Move up" aria-label={`Move ${tpl.instrumentName} up`}><ChevronDown size={13} style={{ transform: "rotate(180deg)" }} /></button>
-                          <button type="button" disabled={idx === templates.length - 1} onClick={() => moveInstrument(idx, 1)} title="Move down" aria-label={`Move ${tpl.instrumentName} down`}><ChevronDown size={13} /></button>
+                          <button type="button" disabled={!canMove(idx, -1)} onClick={() => moveInstrument(idx, -1)} title="Move up" aria-label={`Move ${tpl.instrumentName} up`}><ChevronDown size={13} style={{ transform: "rotate(180deg)" }} /></button>
+                          <button type="button" disabled={!canMove(idx, 1)} onClick={() => moveInstrument(idx, 1)} title="Move down" aria-label={`Move ${tpl.instrumentName} down`}><ChevronDown size={13} /></button>
                         </div>
                       </td>
                     )}
@@ -2070,6 +2114,7 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
                       <td className="um-col-actions">
                         <div className="um-row-actions">
                           <button className="btn btn-outline btn-sm btn-icon-gap" type="button" onClick={() => openEdit(tpl)}><Pencil size={14} /> <span>Edit</span></button>
+                          <button className="btn btn-ghost btn-sm btn-icon-only" type="button" onClick={() => openDuplicate(tpl)} title="Duplicate" aria-label={`Duplicate ${tpl.instrumentName}`}><FileOutput size={15} /></button>
                           <button className="btn btn-ghost btn-sm btn-icon-only um-danger" type="button" disabled={deleting === tpl.id} onClick={() => deleteTemplate(tpl)} title="Delete" aria-label={`Delete ${tpl.instrumentName}`}>
                             <Trash2 size={15} />
                           </button>
@@ -2098,6 +2143,7 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
             </button>
             <button type="button" className={`edit-mode-tab ${instrTab === "content" ? "active" : ""}`} onClick={() => setInstrTab("content")}>
               <FileText size={16} /> <span>General information</span>
+              {!!formError && infoMissing > 0 && <AlertTriangle size={14} className="tone-amber" aria-label={`${infoMissing} required missing`} />}
             </button>
           </div>
 
