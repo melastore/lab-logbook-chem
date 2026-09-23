@@ -10164,8 +10164,6 @@ button:disabled {
   .um-table { min-width: 0; }
   .um-table th, .um-table td { padding: 10px 8px; }
   .um-table th:first-child, .um-table td:first-child { padding-left: 12px; }
-  .um-row-actions .btn span:not(.count-badge) { display: none; }
-  .um-row-actions .btn:not(.btn-icon-only) { padding: 0 10px; min-height: 36px; }
 }
 
 /* In-app confirm dialog */
@@ -10180,4 +10178,20 @@ button:disabled {
 @media (max-width: 480px) {
   .confirm-actions { flex-direction: column-reverse; }
   .confirm-actions .btn { width: 100%; justify-content: center; }
+}
+
+/* Row actions: one quiet style, icon + label on desktop, icon only when narrow. */
+.um-table { min-width: 0; }
+.um-row-actions { gap: 4px; }
+.um-row-actions .btn {
+  height: 32px; padding: 0 10px; gap: 6px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--on-surface-variant); font-size: 13px; font-weight: 600; box-shadow: none;
+}
+.um-row-actions .btn:hover:not(:disabled) { background: var(--surface-3); color: var(--on-surface); }
+.um-row-actions .btn.um-primary { color: var(--primary); }
+.um-row-actions .btn.um-primary:hover:not(:disabled) { background: var(--primary-container); color: var(--on-primary-container); }
+.um-row-actions .btn.um-danger:hover:not(:disabled) { background: var(--error-container); color: var(--error); }
+@media (max-width: 1100px) {
+  .um-row-actions .btn span:not(.count-badge) { display: none; }
+  .um-row-actions .btn { width: 34px; padding: 0; justify-content: center; }
 }

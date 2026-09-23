@@ -2115,10 +2115,10 @@ function InstrumentsTab({ user, isAdmin, forms }: { user: AppUser | null; isAdmi
                     {isAdmin && (
                       <td className="um-col-actions">
                         <div className="um-row-actions">
-                          <button className="btn btn-outline btn-sm btn-icon-gap" type="button" onClick={() => openEdit(tpl)}><Pencil size={14} /> <span>Edit</span></button>
-                          <button className="btn btn-ghost btn-sm btn-icon-only" type="button" onClick={() => openDuplicate(tpl)} title="Duplicate" aria-label={`Duplicate ${tpl.instrumentName}`}><FileOutput size={15} /></button>
-                          <button className="btn btn-ghost btn-sm btn-icon-only um-danger" type="button" disabled={deleting === tpl.id} onClick={() => deleteTemplate(tpl)} title="Delete" aria-label={`Delete ${tpl.instrumentName}`}>
-                            <Trash2 size={15} />
+                          <button className="btn btn-ghost btn-sm btn-icon-gap um-primary" type="button" title="Edit" aria-label={`Edit ${tpl.instrumentName}`} onClick={() => openEdit(tpl)}><Pencil size={15} /><span>Edit</span></button>
+                          <button className="btn btn-ghost btn-sm btn-icon-gap" type="button" onClick={() => openDuplicate(tpl)} title="Duplicate" aria-label={`Duplicate ${tpl.instrumentName}`}><FileOutput size={15} /><span>Duplicate</span></button>
+                          <button className="btn btn-ghost btn-sm btn-icon-gap um-danger" type="button" disabled={deleting === tpl.id} onClick={() => deleteTemplate(tpl)} title="Delete" aria-label={`Delete ${tpl.instrumentName}`}>
+                            <Trash2 size={15} /><span>Delete</span>
                           </button>
                         </div>
                       </td>
@@ -2640,26 +2640,26 @@ function UsersTab({ user, isAdmin }: { user: AppUser | null; isAdmin: boolean })
                         ) : (
                           <div className="um-row-actions">
                             {!p.archived && (
-                              <button className="btn btn-ghost btn-sm btn-icon-only" type="button" title="Edit" aria-label={`Edit ${p.username}`} disabled={busy} onClick={() => setDialog({ mode: "edit", profile: p })}>
-                                <Pencil size={15} />
+                              <button className="btn btn-ghost btn-sm btn-icon-gap um-primary" type="button" title="Edit" aria-label={`Edit ${p.username}`} disabled={busy} onClick={() => setDialog({ mode: "edit", profile: p })}>
+                                <Pencil size={15} /><span>Edit</span>
                               </button>
                             )}
                             {!p.archived && (
-                              <button className="btn btn-ghost btn-sm btn-icon-only" type="button" title="Reset to initial password" aria-label={`Reset password for ${p.username}`} disabled={busy} onClick={() => resetPw([p.username])}>
-                                <KeyRound size={15} />
+                              <button className="btn btn-ghost btn-sm btn-icon-gap" type="button" title="Reset to initial password" aria-label={`Reset password for ${p.username}`} disabled={busy} onClick={() => resetPw([p.username])}>
+                                <KeyRound size={15} /><span>Password</span>
                               </button>
                             )}
                             {p.archived ? (
-                              <button className="btn btn-ghost btn-sm btn-icon-only" type="button" title="Restore" aria-label={`Restore ${p.username}`} disabled={busy} onClick={() => restore([p.username])}>
-                                <ArchiveRestore size={15} />
+                              <button className="btn btn-ghost btn-sm btn-icon-gap" type="button" title="Restore" aria-label={`Restore ${p.username}`} disabled={busy} onClick={() => restore([p.username])}>
+                                <ArchiveRestore size={15} /><span>Restore</span>
                               </button>
                             ) : (
-                              <button className="btn btn-ghost btn-sm btn-icon-only" type="button" title="Archive" aria-label={`Archive ${p.username}`} disabled={busy} onClick={() => archive([p.username])}>
-                                <Archive size={15} />
+                              <button className="btn btn-ghost btn-sm btn-icon-gap" type="button" title="Archive" aria-label={`Archive ${p.username}`} disabled={busy} onClick={() => archive([p.username])}>
+                                <Archive size={15} /><span>Archive</span>
                               </button>
                             )}
-                            <button className="btn btn-ghost btn-sm btn-icon-only um-danger" type="button" title="Delete" aria-label={`Delete ${p.username}`} disabled={busy} onClick={() => remove([p.username])}>
-                              <Trash2 size={15} />
+                            <button className="btn btn-ghost btn-sm btn-icon-gap um-danger" type="button" title="Delete" aria-label={`Delete ${p.username}`} disabled={busy} onClick={() => remove([p.username])}>
+                              <Trash2 size={15} /><span>Delete</span>
                             </button>
                           </div>
                         )}
@@ -3146,10 +3146,10 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
                   <td className="um-muted um-hide-sm">{f.fields.length} field{f.fields.length === 1 ? "" : "s"}{f.fields.some((x) => x.required) ? ` · ${f.fields.filter((x) => x.required).length} required` : ""}</td>
                   <td className="um-col-actions">
                     <div className="um-row-actions">
-                      <button className="btn btn-outline btn-sm btn-icon-gap" type="button" onClick={() => openEdit(f, i)}><Pencil size={14} /> <span>Edit fields</span></button>
-                      <button className="btn btn-ghost btn-sm btn-icon-only" type="button" onClick={() => cloneForm(f)} title="Duplicate" aria-label={`Duplicate ${f.title}`}><FileOutput size={15} /></button>
-                      <button className="btn btn-ghost btn-sm btn-icon-only um-danger" type="button" disabled={deleting === f.id || f.id === "instrument"} onClick={() => removeForm(f.id)} title={f.id === "instrument" ? "The default form can't be deleted" : "Delete"} aria-label={`Delete ${f.title}`}>
-                        <Trash2 size={15} />
+                      <button className="btn btn-ghost btn-sm btn-icon-gap um-primary" type="button" title="Edit" aria-label={`Edit ${f.title}`} onClick={() => openEdit(f, i)}><Pencil size={15} /><span>Edit</span></button>
+                      <button className="btn btn-ghost btn-sm btn-icon-gap" type="button" onClick={() => cloneForm(f)} title="Duplicate" aria-label={`Duplicate ${f.title}`}><FileOutput size={15} /><span>Duplicate</span></button>
+                      <button className="btn btn-ghost btn-sm btn-icon-gap um-danger" type="button" disabled={deleting === f.id || f.id === "instrument"} onClick={() => removeForm(f.id)} title={f.id === "instrument" ? "The default form can't be deleted" : "Delete"} aria-label={`Delete ${f.title}`}>
+                        <Trash2 size={15} /><span>Delete</span>
                       </button>
                     </div>
                   </td>
