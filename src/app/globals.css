@@ -10164,5 +10164,4 @@ button:disabled {
   .um-table th:first-child, .um-table td:first-child { padding-left: 12px; }
   .um-row-actions .btn span:not(.count-badge) { display: none; }
   .um-row-actions .btn { padding: 0 10px; min-height: 36px; }
-  .wpa-missing-toggle { margin-left: auto; }
 }

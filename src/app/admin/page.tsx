@@ -3423,7 +3423,6 @@ function WeeklyReportsTab() {
   const [plans, setPlans] = useState<WeeklyPlan[]>([]);
   const [people, setPeople] = useState<ProfilePublic[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showMissing, setShowMissing] = useState(false);
   const [week, setWeek] = useState<string>(() => mondayOf());
   const [allWeeks, setAllWeeks] = useState(false);
   const [who, setWho] = useState("");
@@ -3535,18 +3534,6 @@ function WeeklyReportsTab() {
         </div>
       </div>
 
-      {!allWeeks && !who && missing.length > 0 && (
-        <div className="wpa-missing">
-          <AlertTriangle size={16} />
-          <span>
-            <strong>{missing.length} without a plan{showMissing ? ":" : ""}</strong>
-            {showMissing && ` ${missing.map((m) => m.fullName || m.username).sort((a, b) => a.localeCompare(b)).join(", ")}`}
-          </span>
-          <button type="button" className="btn btn-ghost btn-sm wpa-missing-toggle" onClick={() => setShowMissing((v) => !v)}>
-            {showMissing ? "Hide" : "Show names"}
-          </button>
-        </div>
-      )}
 
       {rows.length === 0 ? (
         <div className="empty-state-modern" style={{ padding: 40 }}>
