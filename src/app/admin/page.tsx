@@ -1435,7 +1435,7 @@ function LogTypeTable({ activityType, records, form, onAmend, onReview, latestAc
                   {onAmend && (
                     <td className="doc-cell" style={{ textAlign: "center", whiteSpace: "nowrap" }}>
                       {!latestActiveIds.has(rec.id) ? (
-                        <span className="record-flag superseded" title={correctionTitle(rec)}><History size={10} /> Superseded</span>
+                        <span style={{ color: "var(--muted)" }} title={correctionTitle(rec)}>—</span>
                       ) : rec.amends ? (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
                           <span className="record-flag correction" title={correctionTitle(rec)}><Pencil size={10} /> Correction</span>

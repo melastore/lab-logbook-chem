@@ -1237,8 +1237,9 @@ function mapRecord(row: LogbookRow): LogbookRecord {
     methodUsed: row.method_used || "",
     sampleId: row.sample_id || "",
     measuredValue: row.measured_value || "",
-    startTime: row.start_time || "",
-    endTime: row.end_time || "",
+    // Postgres returns "HH:MM:SS"; the forms work in minutes.
+    startTime: (row.start_time || "").slice(0, 5),
+    endTime: (row.end_time || "").slice(0, 5),
     metadata: row.metadata || {},
     remarks: row.remarks || "",
     analystSignature: row.analyst_signature || "",
