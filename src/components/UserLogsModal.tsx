@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
-import { RefreshCw, XCircle, Info, ShieldCheck, ChevronDown, Calendar } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { RefreshCw, XCircle, Info, ShieldCheck, ChevronDown, Calendar, Search, X, MessageSquare } from "lucide-react";
 import type { LogbookRecord } from "@/lib/logbook";
 import { ModalShell } from "./ModalShell";
 
 // recordDate is an occasional alias for the record date.
 type LogRecord = LogbookRecord & { recordDate?: string };
+
+const STATUSES = ["All", "Pending", "Approved", "Rejected"] as const;
+type StatusFilter = typeof STATUSES[number];
 
 type UserLogsModalProps = {
   name: string;
@@ -20,6 +23,9 @@ export function UserLogsModal({ name, open, onClose, headerAvatar }: UserLogsMod
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [errorLogs, setErrorLogs] = useState<string | null>(null);
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("All");
+  const [query, setQuery] = useState("");
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     if (!open) return;
@@ -27,6 +33,8 @@ export function UserLogsModal({ name, open, onClose, headerAvatar }: UserLogsMod
 
     (async () => {
       setExpandedRowId(null);
+      setStatusFilter("All");
+      setQuery("");
       setLoadingLogs(true);
       setErrorLogs(null);
       try {
@@ -49,7 +57,19 @@ export function UserLogsModal({ name, open, onClose, headerAvatar }: UserLogsMod
     return () => {
       cancelled = true;
     };
-  }, [open, name]);
+  }, [open, name, reload]);
+
+  const counts = useMemo(() => {
+    const c: Record<StatusFilter, number> = { All: userLogs.length, Pending: 0, Approved: 0, Rejected: 0 };
+    for (const l of userLogs) c[(l.status || "Pending") as Exclude<StatusFilter, "All">]++;
+    return c;
+  }, [userLogs]);
+
+  const q = query.trim().toLowerCase();
+  const visible = userLogs.filter((l) =>
+    (statusFilter === "All" || (l.status || "Pending") === statusFilter) &&
+    (!q || [l.instrumentName, l.instrumentId, l.activityType, l.sampleId, l.date, l.methodUsed, l.remarks]
+      .some((v) => (v || "").toLowerCase().includes(q))));
 
   return (
     <ModalShell
@@ -63,8 +83,8 @@ export function UserLogsModal({ name, open, onClose, headerAvatar }: UserLogsMod
         <div className="avatar-logs-header-left">
           {headerAvatar}
           <div>
-            <h3 id="user-logs-title">{name}&apos;s Audit Entries</h3>
-            <p>Logbook records submitted by this analyst</p>
+            <h3 id="user-logs-title">{name}&apos;s logs</h3>
+            <p>{loadingLogs ? "Loading…" : `${userLogs.length} record${userLogs.length === 1 ? "" : "s"}, newest first`}</p>
           </div>
         </div>
         <button type="button" className="avatar-logs-close-btn" onClick={onClose} aria-label="Close">
@@ -82,20 +102,41 @@ export function UserLogsModal({ name, open, onClose, headerAvatar }: UserLogsMod
           <div className="avatar-logs-error" role="alert">
             <XCircle size={24} style={{ color: "var(--error)" }} />
             <p>{errorLogs}</p>
+            <button type="button" className="btn btn-outline btn-sm" onClick={() => setReload((n) => n + 1)}>Try again</button>
           </div>
         ) : userLogs.length === 0 ? (
           <div className="avatar-logs-empty">
             <Info size={24} />
-            <p>No log records registered for this analyst.</p>
-            <p className="field-hint">Compliance Note: Submitted log entries are secured under cryptographic chains.</p>
+            <p>No logs yet.</p>
           </div>
         ) : (
+          <>
+          <div className="ul-toolbar">
+            <div className="um-search">
+              <Search size={16} />
+              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search instrument, sample, date…" aria-label="Search logs" />
+              {query && <button type="button" onClick={() => setQuery("")} aria-label="Clear search"><X size={14} /></button>}
+            </div>
+            <div className="um-chips" role="group" aria-label="Status">
+              {STATUSES.map((s) => (
+                <button key={s} type="button" className={`um-chip ${statusFilter === s ? "active" : ""}`} onClick={() => setStatusFilter(s)}>
+                  {s} ({counts[s]})
+                </button>
+              ))}
+            </div>
+          </div>
+          {visible.length === 0 ? (
+            <div className="avatar-logs-empty"><Info size={24} /><p>Nothing matches.</p></div>
+          ) : (
           <div className="avatar-logs-list">
-            {userLogs.map((log, index) => {
+            {visible.map((log) => {
               const expanded = expandedRowId === log.id;
               const details = buildRecordDetails(log);
               const status = log.status || "Pending";
               const recordDate = log.date || log.recordDate || "No date";
+              const rejection = status === "Rejected"
+                ? [...(log.reviews ?? [])].reverse().find((r) => r.decision === "Rejected")?.comment
+                : "";
 
               return (
                 <div key={log.id} className={`avatar-log-card ${expanded ? "expanded" : ""}`}>
@@ -105,16 +146,19 @@ export function UserLogsModal({ name, open, onClose, headerAvatar }: UserLogsMod
                     onClick={() => setExpandedRowId(expanded ? null : log.id)}
                     aria-expanded={expanded}
                   >
-                    <span className="avatar-log-index">{index + 1}</span>
                     <span className="avatar-log-summary-main">
                       <span className="avatar-log-summary-top">
                         <span className="log-instrument-badge">{log.instrumentName || "Instrument"}</span>
                         <span className="avatar-log-activity">{log.activityType || "—"}</span>
+                        {log.amends && <span className="avatar-log-activity">Correction</span>}
                       </span>
                       <span className="avatar-log-summary-sub">
                         <Calendar size={12} /> {recordDate}
-                        {log.instrumentId ? ` · ID ${log.instrumentId}` : ""}
+                        {log.sampleId ? ` · ${log.sampleId}` : log.instrumentId ? ` · ID ${log.instrumentId}` : ""}
                       </span>
+                      {rejection && (
+                        <span className="ul-reject-note"><MessageSquare size={12} /> {rejection}</span>
+                      )}
                     </span>
                     <span className={`log-status-badge ${status.toLowerCase()}`}>{status}</span>
                     <ChevronDown size={18} className={`avatar-log-chevron ${expanded ? "rotated" : ""}`} />
@@ -156,6 +200,8 @@ export function UserLogsModal({ name, open, onClose, headerAvatar }: UserLogsMod
               );
             })}
           </div>
+          )}
+          </>
         )}
       </div>
 
@@ -202,7 +248,14 @@ function buildRecordDetails(log: LogRecord): RecordDetail[] {
   // Every dynamic / custom Form Builder field lives in metadata.
   if (log.metadata && typeof log.metadata === "object") {
     for (const [k, v] of Object.entries(log.metadata)) {
-      if (v === undefined || v === null || String(v).trim() === "") continue;
+      // Instrument extras are copied in as [{label, value}]; show them as pairs.
+      if (Array.isArray(v)) {
+        for (const item of v) {
+          if (item && typeof item === "object" && "label" in item) push(String(item.label), (item as { value?: unknown }).value);
+        }
+        continue;
+      }
+      if (v === undefined || v === null || typeof v === "object" || String(v).trim() === "") continue;
       push(formatKey(k), v);
     }
   }
