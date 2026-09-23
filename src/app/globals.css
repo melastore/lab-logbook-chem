@@ -9550,7 +9550,7 @@ button:disabled {
 .um-danger:hover:not(:disabled) { color: var(--error); background: var(--error-container); }
 
 .um-form { display: grid; gap: 16px; }
-.um-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.um-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .um-form-grid .field, .um-form .field { margin: 0; }
 .um-field-error { display: block; margin-top: 6px; font-size: 12px; color: var(--error); }
 .um-hint { display: block; margin-top: 6px; font-size: 12px; color: var(--muted); }
@@ -9558,7 +9558,7 @@ button:disabled {
 .um-form input[aria-invalid="true"] { border-color: var(--error); }
 .um-pw { display: flex; gap: 6px; align-items: center; }
 .um-pw input { flex: 1; min-width: 0; font-family: var(--font-mono); }
-.um-role-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.um-role-pick { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .um-role-option {
   display: flex; align-items: flex-start; gap: 10px; text-align: left; padding: 12px; border-radius: 12px; cursor: pointer;
   border: 1.5px solid var(--outline-variant); background: var(--surface-1); color: var(--on-surface); font: inherit;
@@ -10195,3 +10195,8 @@ button:disabled {
   .um-row-actions .btn span:not(.count-badge) { display: none; }
   .um-row-actions .btn { width: 34px; padding: 0; justify-content: center; }
 }
+
+/* Grid cells in dialogs may shrink below an input's default width, so a
+   two-column form never pushes the dialog into sideways scrolling. */
+.modal .field, .modal-form-grid > *, .um-form-grid > * { min-width: 0; }
+.modal .field input, .modal .field select, .modal .field textarea { max-width: 100%; }
