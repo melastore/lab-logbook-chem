@@ -9,13 +9,20 @@ import {
 import type { AppUser } from "@/lib/logbook";
 import {
   WEEKLY_HOURS, taskWeight, taskAchWeight, mondayOf, addWeeks, weekLabel, weekRangeDMY,
-  planStats, performanceRating,
+  planStats, performanceRating, parseISODate, toISODate,
   type WeeklyTask, type WeeklyPlan,
 } from "@/lib/weekly-plan";
 import { templateSheet, summarySheets, sheetName, fileSafe } from "@/lib/weekly-export";
 
 const weekRange = (weekStart: string) => weekRangeDMY(weekStart);
 const AUTOSAVE_MS = 2500;
+
+function addDays(iso: string, n: number) {
+  const d = parseISODate(iso);
+  if (!d) return iso;
+  d.setDate(d.getDate() + n);
+  return toISODate(d);
+}
 
 function newTask(date: string, index: number): WeeklyTask {
   return { id: crypto.randomUUID(), date, hours: 0, activity: "", achWeight: 0, achFormula: `=H${13 + index}*0/100`, comment: "" };
@@ -80,7 +87,19 @@ export default function WeeklyPlanPage() {
       .catch(() => setLoadedWeek(`${user.username}:${weekStartDate}`));
   }, [user, weekStartDate]);
 
-  const addTask = () => setTasks((t) => [...t, newTask(weekStartDate, t.length)]);
+  // Each new row starts the day after the last one, stopping at Friday.
+  const addTask = () => setTasks((t) => {
+    const last = parseISODate(t[t.length - 1]?.date || "");
+    const friday = addDays(weekStartDate, 4);
+    let date = weekStartDate;
+    if (last) {
+      last.setDate(last.getDate() + 1);
+      date = toISODate(last);
+      if (date > friday) date = friday;
+      if (date < weekStartDate) date = weekStartDate;
+    }
+    return [...t, newTask(date, t.length)];
+  });
   const removeTask = (id: string) => setTasks((t) => t.filter((x) => x.id !== id));
   const updateTask = (id: string, field: keyof WeeklyTask, value: string | number) => {
     setSaveError("");
