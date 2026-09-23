@@ -478,7 +478,6 @@ export default function AnalystEntryPage() {
                               <ChevronRight size={13} />
                               <span className="nav-instrument-text">
                                 <span>{tpl.instrumentName}</span>
-                                {tpl.instrumentId && <small>{tpl.instrumentId}</small>}
                               </span>
                             </button>
                           ))}
