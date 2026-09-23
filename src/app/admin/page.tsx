@@ -15,7 +15,7 @@ import {
   Plus, Trash2, ShieldAlert, Tag, Table as TableIcon, LayoutGrid,
   FileSpreadsheet, Archive, ArchiveRestore, KeyRound, UserCheck,
   ShieldCheck, AlertTriangle, Pencil, History, TrendingUp, ChevronRight, Printer,
-  MessageSquare, Eye, EyeOff, ChevronLeft
+  MessageSquare, Eye, EyeOff, ChevronLeft, Inbox
 } from "lucide-react";
 import type { AppUser, InstrumentCategory, InstrumentTemplate, LogbookRecord, ProfilePublic, ReviewDecision } from "@/lib/logbook";
 import { LOG_TYPES, currentVersionIds } from "@/lib/logbook";
@@ -27,8 +27,10 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { MIN_PASSWORD_LENGTH } from "@/lib/password";
 import { ModalShell } from "@/components/ModalShell";
 import { ConfirmHost, askConfirm, type ConfirmOptions } from "@/components/ConfirmDialog";
+import { VersionHistory } from "@/components/VersionHistory";
+import { displayFields, recordChanges, recordValue, versionChain } from "@/lib/record-diff";
 import { AppHeader } from "@/components/AppHeader";
-import { parseAnalystSignature, signatureSummary, type AnalystSignaturePayload } from "@/lib/signature";
+import { parseAnalystSignature, signatureSummary } from "@/lib/signature";
 import { taskWeight, taskAchWeight, toISODate, mondayOf, addWeeks, weekLabel, planStats, type WeeklyPlan } from "@/lib/weekly-plan";
 import { templateSheet, summarySheets, sheetName, fileSafe } from "@/lib/weekly-export";
 
@@ -43,11 +45,6 @@ const TAB_LABELS: Record<Tab, string> = {
   users: "Users",
 };
 
-function formatRunTime(start: string, end: string) {
-  if (!start && !end) return "";
-  if (!start || !end) return start || end;
-  return `${start}-${end}`;
-}
 
 // Sample-preparation activity types (everything else is an analytical instrument log).
 const SAMPLE_TYPES = new Set(["PREP", "REAG"]);
@@ -384,8 +381,8 @@ function RecordsTab({ user, isAdmin, forms, onPendingChange, initialStatus = "Al
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [loading, setLoading] = useState(true);
-  const [toggledIds, setToggledIds] = useState<Set<string>>(new Set());
-  const [viewMode, setViewMode] = useState<"table" | "cards">("table");
+  const [viewMode, setViewMode] = useState<"review" | "table">("review");
+  const [showOld, setShowOld] = useState(false);
   const [scope, setScope] = useState<"All" | "Instrument" | "Sample">("Instrument");
   const [amendTarget, setAmendTarget] = useState<LogbookRecord | null>(null);
   const [reviewTarget, setReviewTarget] = useState<LogbookRecord | null>(null);
@@ -413,18 +410,6 @@ function RecordsTab({ user, isAdmin, forms, onPendingChange, initialStatus = "Al
     } catch {
       setIntegrity({ state: "error" });
     }
-  }
-
-  function isExpanded(rec: LogbookRecord): boolean {
-    return toggledIds.has(rec.id);
-  }
-
-  function toggleCard(id: string) {
-    setToggledIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
   }
 
   useEffect(() => { loadRecords(); }, []);
@@ -508,6 +493,8 @@ function RecordsTab({ user, isAdmin, forms, onPendingChange, initialStatus = "Al
       const matchDateFrom = !dateFrom || recordDate >= dateFrom;
       const matchDateTo = !dateTo || recordDate <= dateTo;
       const matchStatus = statusFilter === "All" || (rec.status === statusFilter && latestActiveIds.has(rec.id));
+      // Old versions live inside their record; only auditors need them as rows.
+      if (!showOld && !latestActiveIds.has(rec.id)) return false;
       const matchSearch = !search || [
         rec.instrumentName,
         rec.instrumentId,
@@ -524,7 +511,7 @@ function RecordsTab({ user, isAdmin, forms, onPendingChange, initialStatus = "Al
         .join(" ").toLowerCase().includes(search);
       return matchScope && matchAnalyst && matchInstrument && matchActivity && matchDateFrom && matchDateTo && matchStatus && matchSearch;
     });
-  }, [records, scopeMatch, query, analystFilter, instrumentFilter, activityFilter, dateFrom, dateTo, statusFilter, latestActiveIds]);
+  }, [records, scopeMatch, query, analystFilter, instrumentFilter, activityFilter, dateFrom, dateTo, statusFilter, latestActiveIds, showOld]);
 
   const pendingCount = records.filter((r) => r.status === "Pending" && latestActiveIds.has(r.id)).length;
 
@@ -749,11 +736,11 @@ function RecordsTab({ user, isAdmin, forms, onPendingChange, initialStatus = "Al
               <Filter size={15} /> <span>Filters</span>{activeFilterCount > 0 && <span className="count-badge">{activeFilterCount}</span>}
             </button>
             <div className="btn-group shadow-sm">
-              <button className={`view-toggle-btn ${viewMode === "table" ? "active" : ""}`} onClick={() => setViewMode("table")} title="Table view" aria-label="Table view">
-                <TableIcon size={16} />
+              <button className={`view-toggle-btn ${viewMode === "review" ? "active" : ""}`} onClick={() => setViewMode("review")} title="Review view" aria-label="Review view">
+                <Inbox size={16} />
               </button>
-              <button className={`view-toggle-btn ${viewMode === "cards" ? "active" : ""}`} onClick={() => setViewMode("cards")} title="Card view" aria-label="Card view">
-                <LayoutGrid size={16} />
+              <button className={`view-toggle-btn ${viewMode === "table" ? "active" : ""}`} onClick={() => setViewMode("table")} title="Logbook table" aria-label="Logbook table">
+                <TableIcon size={16} />
               </button>
             </div>
             <details className="rec-menu">
@@ -819,6 +806,10 @@ function RecordsTab({ user, isAdmin, forms, onPendingChange, initialStatus = "Al
                 </div>
               </div>
             </div>
+            <label className="rec-old-toggle">
+              <input type="checkbox" checked={showOld} onChange={(e) => setShowOld(e.target.checked)} />
+              <span>Also list old versions of corrected records</span>
+            </label>
           </div>
         )}
       </div>
@@ -871,150 +862,8 @@ function RecordsTab({ user, isAdmin, forms, onPendingChange, initialStatus = "Al
         <RecordsTable records={filtered} loading={loading} forms={forms} onAmend={isAdmin ? setAmendTarget : undefined} onReview={isAdmin ? setReviewTarget : undefined} latestActiveIds={latestActiveIds}
           selection={isAdmin ? { ids: selectedIds, toggle: toggleSelected, canSelect: canBulkApprove } : undefined} />
       ) : (
-      <div className="records-panel-modern">
-        {loading && [1, 2, 3].map((i) => <div key={i} className="skeleton record-skeleton" style={{ height: 80, borderRadius: 12 }} />)}
-        {!loading && filtered.length === 0 && (
-          <div className="empty-state-modern">
-            <div className="empty-icon-wrap"><Search size={40} /></div>
-            <h3>No records found</h3>
-            <p>Adjust your filters or search terms to find what you&apos;re looking for.</p>
-            <button className="btn btn-outline btn-sm" onClick={() => { resetFilters(); setScope("All"); }}>Clear search</button>
-          </div>
-        )}
-        {filtered.map((rec) => {
-          const signature = parseAnalystSignature(rec.analystSignature);
-          const runTime = formatRunTime(rec.startTime, rec.endTime);
-          const expanded = isExpanded(rec);
-          const logTypeLabel = LOG_TYPES.find(t => t.id === rec.activityType)?.label || rec.activityType;
-
-          return (
-          <article className={`record-card-modern ${expanded ? "expanded" : ""}`} key={rec.id}>
-            <div className="record-card-main" onClick={() => toggleCard(rec.id)}>
-              <div className="record-accent" />
-              <div className="record-header-left">
-                <div className="record-instrument-icon">
-                  <Microscope size={18} />
-                </div>
-                <div className="record-title-group">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                    <h3 style={{ margin: 0 }}>{rec.instrumentName || "Unnamed instrument"}</h3>
-                    <span className={`log-type-tag log-type-${rec.activityType.toLowerCase()}`}>
-                      <Tag size={10} /> {logTypeLabel}
-                    </span>
-                    {rec.amends && <span className="record-flag correction" title={correctionTitle(rec)}><Pencil size={10} /> Correction</span>}
-                    {latestActiveIds.has(rec.id)
-                      ? <span className={`log-status-badge ${rec.status.toLowerCase()}`}>{rec.status}</span>
-                      : <span className="record-flag superseded" title="A newer correction replaces this version"><History size={10} /> Superseded</span>}
-                  </div>
-                  <div className="record-meta-modern">
-                    <span title="Analyst"><User size={12} /> {rec.analyst}</span>
-                    <span title="Date"><Calendar size={12} /> {rec.date}</span>
-                    <span title="Sample ID"><Hash size={12} /> {rec.sampleId || "N/A"}</span>
-                    {runTime && <span title="Run Time"><Clock size={12} /> {runTime}</span>}
-                  </div>
-                </div>
-              </div>
-              <div className="record-header-right">
-                {isAdmin && (
-                  <button
-                    type="button"
-                    className="btn btn-outline btn-sm btn-icon-only"
-                    onClick={(e) => { e.stopPropagation(); setReviewTarget(rec); }}
-                    title={rec.reviews.length ? `Review (${rec.reviews.length} so far)` : "Review — approve, reject or comment"}
-                  >
-                    <MessageSquare size={14} />
-                  </button>
-                )}
-                {isAdmin && latestActiveIds.has(rec.id) && (
-                  <button
-                    type="button"
-                    className="btn btn-outline btn-sm btn-icon-only"
-                    onClick={(e) => { e.stopPropagation(); setAmendTarget(rec); }}
-                    title="Amend (issue a correction)"
-                  >
-                    <Pencil size={14} />
-                  </button>
-                )}
-                <div className={`expand-icon ${expanded ? "rotated" : ""}`}>
-                  <ChevronDown size={20} />
-                </div>
-              </div>
-            </div>
-
-            {expanded && (
-              <div className="record-expanded-content">
-                <div className="record-grid-modern">
-                  <div className="grid-section">
-                    <h4 className="section-title-mini">Session Details</h4>
-                    <div className="data-row">
-                      <RecordSummaryItem label="Log Type"  value={logTypeLabel} />
-                      <RecordSummaryItem label="Run Time"  value={runTime} />
-                    </div>
-                    <div className="data-row">
-                      <RecordSummaryItem label="Measured"  value={rec.measuredValue} />
-                      <RecordSummaryItem label="Method"    value={rec.methodUsed} />
-                    </div>
-                  </div>
-                  
-                  <div className="grid-section">
-                    <h4 className="section-title-mini">Instrument Info</h4>
-                    <div className="data-row">
-                      <RecordSummaryItem label="ID"    value={rec.instrumentId} />
-                      <RecordSummaryItem label="Model" value={rec.instrumentModel} />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="record-full-meta-shelf">
-                  <details className="modern-details">
-                    <summary>View Technical Specification & Location</summary>
-                    <div className="details-grid-compact">
-                      <RecordDetail label="Serial No."    value={rec.serialNumber} />
-                      <RecordDetail label="Manufacturer"  value={rec.manufacturer} />
-                      <RecordDetail label="Laboratory"    value={rec.laboratoryName} />
-                      <RecordDetail label="Department"    value={rec.department} />
-                      <RecordDetail label="Location"      value={rec.location} />
-                      {Object.entries(rec.metadata || {}).map(([key, val]) => (
-                        <RecordDetail key={key} label={key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())} value={String(val)} />
-                      ))}
-                    </div>
-                  </details>
-                </div>
-
-                <div className="record-verification-shelf">
-                  <div className="verification-item">
-                    <span className="v-label">Analyst Signature</span>
-                    <div className="v-content">
-                      <SignatureReview signature={signature} />
-                      <span className="v-subtext">{signatureSummary(rec.analystSignature)}</span>
-                      {rec.amends && <span className="v-subtext">Original entry signature · corrected by {rec.submitterName || "admin"}</span>}
-                    </div>
-                  </div>
-                  <div className="verification-item">
-                    <span className="v-label">Submission Info</span>
-                    <div className="v-content">
-                      <span className="v-maintext">{new Date(rec.createdAt).toLocaleString()}</span>
-                      <span className="v-subtext">Captured digitally via secure entry</span>
-                    </div>
-                  </div>
-                </div>
-
-                {rec.remarks && (
-                  <div className="remarks-shelf-modern">
-                    <div className="remarks-icon"><Info size={16} /></div>
-                    <div className="remarks-content">
-                      <p className="remarks-label-modern">Analyst Remarks</p>
-                      <p className="remarks-text-modern">{rec.remarks}</p>
-                    </div>
-                  </div>
-                )}
-                {rec.reviews.length > 0 && <ReviewHistory reviews={rec.reviews} />}
-              </div>
-            )}
-          </article>
-          );
-        })}
-      </div>
+        <ReviewSplit records={filtered} allRecords={records} loading={loading} forms={forms} user={user}
+          latestActiveIds={latestActiveIds} onAmend={setAmendTarget} onChanged={loadRecords} />
       )}
 
       {amendTarget && (
@@ -1420,7 +1269,7 @@ function LogTypeTable({ activityType, records, form, onAmend, onReview, latestAc
                     <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "center" }}>
                       {latestActiveIds.has(rec.id)
                         ? <span className={`log-status-badge ${rec.status.toLowerCase()}`} title={lastReviewTitle(rec)}>{rec.status}</span>
-                        : <span className="record-flag superseded" title="A newer correction replaces this version"><History size={10} /> Superseded</span>}
+                        : <span className="record-flag superseded" title="A newer correction replaces this version"><History size={10} /> Old version</span>}
                       {onReview && (
                         <button
                           type="button"
@@ -1638,7 +1487,7 @@ function ReviewModal({ record, forms, isCurrent, isOwn, onCancel, onDone }: {
           <span>
             Status: {isCurrent
               ? <span className={`log-status-badge ${record.status.toLowerCase()}`}>{record.status}</span>
-              : <span className="record-flag superseded"><History size={10} /> Superseded</span>}
+              : <span className="record-flag superseded"><History size={10} /> Old version</span>}
             {record.amends && <span className="record-flag correction" title={correctionTitle(record)} style={{ marginLeft: 6 }}><Pencil size={10} /> Correction</span>}
           </span>
         </div>
@@ -1673,6 +1522,245 @@ function ReviewModal({ record, forms, isCurrent, isOwn, onCancel, onDone }: {
         )}
       </div>
     </ModalShell>
+  );
+}
+
+/* Review view: records on the left, the chosen one on the right with its data,
+   what changed since the last version, and approve / reject right there. */
+function ReviewSplit({ records, allRecords, loading, forms, user, latestActiveIds, onAmend, onChanged }: {
+  records: LogbookRecord[];
+  allRecords: LogbookRecord[];
+  loading: boolean;
+  forms: FormDef[];
+  user: AppUser | null;
+  latestActiveIds: Set<string>;
+  onAmend: (rec: LogbookRecord) => void;
+  onChanged: () => Promise<void>;
+}) {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Desktop falls back to the first record so the right side is never blank.
+  const [wide] = useState(() => typeof window !== "undefined" && window.matchMedia("(min-width: 901px)").matches);
+  const selected = records.find((r) => r.id === selectedId) ?? (wide ? records[0] ?? null : null);
+
+  const formOf = (rec: LogbookRecord) => forms.find((f) => f.activityType === rec.activityType);
+  const titleOf = (rec: LogbookRecord) => formOf(rec)?.title || LOG_TYPES.find((t) => t.id === rec.activityType)?.label || rec.activityType;
+
+  if (loading && records.length === 0) {
+    return <div style={{ display: "grid", gap: 10 }}>{[1, 2, 3].map((i) => <div key={i} className="skeleton" style={{ height: 68, borderRadius: 12 }} />)}</div>;
+  }
+  if (records.length === 0) {
+    return <div className="ml-empty ml-detail-empty"><Search size={28} /><p>No records match these filters.</p></div>;
+  }
+
+  return (
+    <div className={`ml-layout ${selected ? "has-selection" : ""}`}>
+      <aside className="ml-list rv-list" aria-label="Records">
+        <ul className="ml-items">
+          {records.map((r) => {
+            const current = latestActiveIds.has(r.id);
+            return (
+              <li key={r.id}>
+                <button type="button" className={`ml-item ${selected?.id === r.id ? "active" : ""}`} onClick={() => setSelectedId(r.id)} aria-current={selected?.id === r.id}>
+                  <span className={`ml-dot ${current ? r.status.toLowerCase() : "old"}`} aria-hidden="true" />
+                  <span className="ml-item-main">
+                    <strong>{r.instrumentName || titleOf(r)}{r.amends ? <span className="rv-fix"> · corrected</span> : null}</strong>
+                    <span>{r.analyst} · {titleOf(r)} · {r.date}</span>
+                  </span>
+                  {current
+                    ? <span className={`log-status-badge ${r.status.toLowerCase()}`}>{r.status}</span>
+                    : <span className="record-flag superseded">Old version</span>}
+                  <ChevronRight size={16} className="ml-item-caret" />
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </aside>
+      <section className="ml-detail">
+        {selected ? (
+          <ReviewDetail key={selected.id} record={selected} chain={versionChain(allRecords, selected)} form={formOf(selected)}
+            title={titleOf(selected)} user={user} isCurrent={latestActiveIds.has(selected.id)}
+            onBack={() => setSelectedId(null)} onAmend={() => onAmend(selected)} onChanged={onChanged} />
+        ) : (
+          <div className="ml-empty ml-detail-empty"><FileText size={28} /><p>Pick a record to review it.</p></div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function ReviewDetail({ record, chain, form, title, user, isCurrent, onBack, onAmend, onChanged }: {
+  record: LogbookRecord;
+  chain: LogbookRecord[];
+  form: FormDef | undefined;
+  title: string;
+  user: AppUser | null;
+  isCurrent: boolean;
+  onBack: () => void;
+  onAmend: () => void;
+  onChanged: () => Promise<void>;
+}) {
+  const [comment, setComment] = useState("");
+  const [saving, setSaving] = useState<ReviewDecision | null>(null);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState("");
+
+  const fields = displayFields(record, form?.fields);
+  const signature = parseAnalystSignature(record.analystSignature);
+  const isOwn = !!user && record.submittedBy === user.id;
+  const canDecide = isCurrent && !isOwn;
+  const prev = chain.length > 1 ? chain[chain.findIndex((r) => r.id === record.id) - 1] : undefined;
+  const changes = prev ? recordChanges(prev, record, fields) : [];
+  const changedKeys = new Set(changes.map((c) => c.key));
+  const lastDecision = [...record.reviews].reverse().find((r) => r.decision !== "Comment");
+
+  async function submit(decision: ReviewDecision) {
+    if (decision !== "Approved" && !comment.trim()) {
+      setError(decision === "Rejected" ? "Write why it's rejected, so the analyst knows what to fix." : "Write a comment first.");
+      return;
+    }
+    setSaving(decision); setError(""); setDone("");
+    try {
+      const r = await fetch("/api/logbook/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recordId: record.id, decision, comment: comment.trim() }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "Couldn't save the review.");
+      setComment("");
+      setDone(decision === "Approved" ? "Approved." : decision === "Rejected" ? "Rejected. The analyst will see your reason." : "Comment added.");
+      await onChanged();
+    } catch (e) {
+      setError(e instanceof Error && e.message !== "Failed to fetch" ? e.message : "Network error. Nothing was saved.");
+    }
+    setSaving(null);
+  }
+
+  return (
+    <article className="ml-card">
+      <button type="button" className="ml-back" onClick={onBack}><ArrowLeft size={16} /> All records</button>
+      <header className="ml-card-head">
+        <span className="ml-card-icon"><Microscope size={22} /></span>
+        <div>
+          <p className="ml-eyebrow">{title}</p>
+          <h2>{record.instrumentName || title}</h2>
+          <p className="ml-meta">
+            <span><User size={13} /> {record.analyst}</span>
+            <span><Calendar size={13} /> {record.date || "No date"}</span>
+            {record.startTime && <span><Clock size={13} /> {record.startTime}{record.endTime ? `–${record.endTime}` : ""}</span>}
+            {record.instrumentId && <span><Hash size={13} /> {record.instrumentId}</span>}
+          </p>
+        </div>
+        {isCurrent
+          ? <span className={`log-status-badge ${record.status.toLowerCase()}`}>{record.status}</span>
+          : <span className="record-flag superseded">Old version</span>}
+      </header>
+
+      {!isCurrent && (
+        <div className="ml-banner pending"><History size={20} /><div><strong>This is an old version</strong><p>A newer correction replaced it. Review the latest version instead.</p></div></div>
+      )}
+
+      {prev && isCurrent && (
+        <div className="ml-banner pending rv-changed">
+          <Pencil size={20} />
+          <div>
+            <strong>Corrected by {record.submitterName || "someone"} · {changes.length} change{changes.length === 1 ? "" : "s"}</strong>
+            {record.amendmentReason && <p>“{record.amendmentReason}”</p>}
+          </div>
+        </div>
+      )}
+
+      <section className="ml-section">
+        <h3>Submitted values</h3>
+        <dl className="ml-values">
+          {fields.map((f) => {
+            const v = recordValue(record, f.key);
+            const edited = changedKeys.has(f.key);
+            return (
+              <div key={f.key} className={`${f.full || f.type === "textarea" ? "full" : ""} ${edited ? "rv-edited" : ""}`}>
+                <dt>{f.label}{edited && <span className="ml-edited">edited</span>}</dt>
+                <dd className={v ? "" : "empty"}>{v || "—"}</dd>
+                {edited && <dd className="rv-was">was: {changes.find((c) => c.key === f.key)?.before || "empty"}</dd>}
+              </div>
+            );
+          })}
+        </dl>
+        <div className="ml-signed">
+          {signature.image && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={signature.image} alt="Analyst signature" />
+          )}
+          <span>Signed by <strong>{signature.signedBy || record.analyst}</strong> · {new Date(chain[0]?.createdAt || record.createdAt).toLocaleString()}</span>
+        </div>
+      </section>
+
+      {isCurrent && (
+        <section className="ml-section rv-review">
+          <h3>Your review</h3>
+          {isOwn ? (
+            <p className="ml-muted">You submitted this record, so another admin has to approve or reject it. You can still comment.</p>
+          ) : lastDecision ? (
+            <p className="ml-muted">Last decision: <strong>{lastDecision.decision}</strong> by {lastDecision.reviewerName}. You can change it.</p>
+          ) : null}
+          <textarea rows={2} value={comment} onChange={(e) => { setComment(e.target.value); setError(""); }}
+            placeholder="Comment or reason (required to reject)" aria-label="Review comment" />
+          {error && <div className="ml-form-error" role="alert"><AlertTriangle size={16} /> {error}</div>}
+          {done && !error && <div className="rv-done" role="status"><CheckCircle2 size={16} /> {done}</div>}
+          <div className="rv-actions">
+            <button type="button" className="btn btn-primary btn-icon-gap" disabled={!canDecide || !!saving} onClick={() => submit("Approved")}>
+              {saving === "Approved" ? <RefreshCw size={16} className="spin" /> : <CheckCircle2 size={16} />} <span>Approve</span>
+            </button>
+            <button type="button" className="btn btn-danger btn-icon-gap" disabled={!canDecide || !!saving} onClick={() => submit("Rejected")}>
+              {saving === "Rejected" ? <RefreshCw size={16} className="spin" /> : <XCircle size={16} />} <span>Reject</span>
+            </button>
+            <button type="button" className="btn btn-outline btn-icon-gap" disabled={!!saving} onClick={() => submit("Comment")}>
+              <MessageSquare size={16} /> <span>Comment</span>
+            </button>
+            <button type="button" className="btn btn-ghost btn-icon-gap rv-amend" onClick={onAmend} title="Issue a correction yourself">
+              <Pencil size={16} /> <span>Amend</span>
+            </button>
+          </div>
+        </section>
+      )}
+
+      {chain.length > 1 && (
+        <section className="ml-section">
+          <h3>Edit history</h3>
+          <VersionHistory chain={chain} currentId={record.id} fields={fields} />
+        </section>
+      )}
+
+      {record.reviews.length > 0 && (
+        <section className="ml-section">
+          <h3>Review history</h3>
+          <ol className="ml-timeline">
+            {record.reviews.map((r) => (
+              <li key={r.id} className={r.decision.toLowerCase()}>
+                <div><strong>{r.decision}</strong> · {r.reviewerName} <span className="ml-muted">{new Date(r.createdAt).toLocaleString()}</span></div>
+                {r.comment && <p>{r.comment}</p>}
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+
+      <details className="ml-more">
+        <summary><Microscope size={15} /> Instrument details</summary>
+        <dl className="ml-values compact">
+          {[["Model", record.instrumentModel], ["Serial No.", record.serialNumber], ["Manufacturer", record.manufacturer],
+            ["Laboratory", record.laboratoryName], ["Department", record.department], ["Location", record.location]]
+            .filter(([, v]) => v).map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}
+        </dl>
+      </details>
+      <details className="ml-more">
+        <summary><ShieldCheck size={15} /> Integrity</summary>
+        <dl className="ml-values compact">
+          {record.chainIndex != null && <div><dt>Chain index</dt><dd>#{record.chainIndex}</dd></div>}
+          <div className="full"><dt>Record hash</dt><dd className="mono">{record.recordHash || "—"}</dd></div>
+        </dl>
+      </details>
+    </article>
   );
 }
 
@@ -3389,35 +3477,8 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
    Shared UI Components
    ════════════════════════════════════════════════════════════════════════════ */
 
-function RecordSummaryItem({ label, value }: { label: string; value: string | undefined }) {
-  return (
-    <div className="summary-item-modern">
-      <span className="label">{label}</span>
-      <span className="value" title={value}>{value || "—"}</span>
-    </div>
-  );
-}
 
-function RecordDetail({ label, value }: { label: string; value: string | undefined }) {
-  if (!value) return null;
-  return (
-    <div className="detail-item-compact">
-      <span className="k">{label}</span>
-      <span className="v">{value}</span>
-    </div>
-  );
-}
 
-function SignatureReview({ signature }: { signature: AnalystSignaturePayload | null }) {
-  if (!signature?.image) return <div style={{ fontSize: 12, color: 'var(--muted)' }}>No digital signature captured</div>;
-  return (
-    <div className="sig-review-wrap">
-      {/* Data: URL from the record — see the note on the table cell above. */}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={signature.image} alt="Analyst signature" className="sig-image-small" />
-    </div>
-  );
-}
 
 /* ════════════════════════════════════════════════════════════════════════════
    Tab — Weekly Plans (every analyst's plan vs achievement)

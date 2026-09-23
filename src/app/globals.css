@@ -10325,3 +10325,48 @@ button:disabled {
   .ml-form-actions { flex-direction: column-reverse; }
   .ml-form-actions .btn { width: 100%; justify-content: center; }
 }
+
+/* Green count for approvals not seen yet, next to the red one. */
+.count-badge.success { background: var(--success); color: #fff; }
+.count-badge + .count-badge { margin-left: 4px; }
+
+/* Admin review view (reuses the My logs layout) */
+.rv-list { max-height: calc(100vh - var(--header-h) - 32px); }
+.rv-fix { font-weight: 500; color: var(--primary); font-size: 12px; }
+.ml-item.active .rv-fix { color: inherit; }
+.ml-dot.old { background: var(--outline); }
+.rv-changed { background: color-mix(in srgb, var(--primary) 10%, var(--surface-1)); color: var(--on-surface); }
+.rv-changed > svg { color: var(--primary); flex-shrink: 0; }
+.ml-values .rv-edited { padding: 8px 10px; margin: -8px -10px; border-radius: 10px; background: color-mix(in srgb, var(--primary) 8%, transparent); }
+.rv-was { margin-top: 2px !important; font-size: 12px !important; font-weight: 500 !important; color: var(--muted) !important; text-decoration: line-through; }
+.rv-review { background: var(--surface-2); }
+.rv-review textarea { width: 100%; margin-top: 4px; padding: 10px 12px; border: 1px solid var(--outline-variant); border-radius: 10px; background: var(--surface-1); color: var(--on-surface); font: inherit; resize: vertical; }
+.rv-review textarea:focus { outline: 2px solid var(--primary); outline-offset: -1px; }
+.rv-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.rv-amend { margin-left: auto; }
+.rv-done { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; font-weight: 600; color: var(--success); }
+.rec-old-toggle { display: inline-flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13px; color: var(--on-surface-variant); cursor: pointer; }
+.rec-old-toggle input { width: 16px; height: 16px; accent-color: var(--primary); }
+@media (max-width: 640px) {
+  .rv-actions .btn { flex: 1 1 calc(50% - 4px); justify-content: center; }
+  .rv-amend { margin-left: 0; }
+}
+
+/* Version history with what each correction changed */
+.vh { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.vh > li { padding: 12px 14px; border: 1px solid var(--outline-variant); border-radius: 12px; background: var(--surface-1); }
+.vh > li.current { border-color: var(--primary); }
+.vh-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.vh-head strong { font-size: 14px; }
+.vh-tag { padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; background: var(--primary-container); color: var(--on-primary-container); }
+.vh-head .log-status-badge { margin-left: auto; }
+.vh-meta { margin-top: 2px; font-size: 12px; color: var(--muted); }
+.vh-reason { margin: 8px 0 0; font-size: 14px; font-style: italic; }
+.vh-changes { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
+.vh-changes li { display: grid; grid-template-columns: minmax(110px, 30%) 1fr; gap: 10px; font-size: 13px; align-items: baseline; }
+.vh-label { font-weight: 600; color: var(--on-surface-variant); }
+.vh-diff { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.vh-diff del { padding: 1px 6px; border-radius: 6px; background: var(--error-container); color: var(--error); }
+.vh-diff ins { padding: 1px 6px; border-radius: 6px; background: var(--success-container); color: var(--success); text-decoration: none; font-weight: 600; }
+.vh-none { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+@media (max-width: 640px) { .vh-changes li { grid-template-columns: 1fr; gap: 2px; } }

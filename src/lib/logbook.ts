@@ -501,7 +501,13 @@ export async function reviewCounts(user: AppUser) {
   const current = currentVersionIds(records);
   const count = (status: ReviewStatus) =>
     records.filter((r) => current.has(r.id) && r.status === status).length;
-  return { pending: count("Pending"), rejected: count("Rejected") };
+  // When each currently approved record was approved, so the header can count
+  // approvals the analyst hasn't seen yet.
+  const approvedAt = records
+    .filter((r) => current.has(r.id) && r.status === "Approved")
+    .map((r) => [...r.reviews].reverse().find((v) => v.decision === "Approved")?.createdAt || "")
+    .filter(Boolean);
+  return { pending: count("Pending"), rejected: count("Rejected"), approvedAt };
 }
 
 export function statusFrom(reviews: RecordReview[]): ReviewStatus {

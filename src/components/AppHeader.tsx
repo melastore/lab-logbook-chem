@@ -30,7 +30,9 @@ export type HeaderAction = {
   badgeTone?: "danger";
 };
 
-type NavItem = { href: string; label: string; icon: ReactNode; badge?: number; badgeTone?: "danger" };
+type NavItem = { href: string; label: string; icon: ReactNode; badge?: number; badgeTone?: "danger"; good?: number };
+
+const SEEN_KEY = "logs-approvals-seen";
 
 export function AppHeader({ user, actions = [], confirmLeave }: {
   user: AppUser | null;
@@ -42,7 +44,7 @@ export function AppHeader({ user, actions = [], confirmLeave }: {
   const pathname = usePathname();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [counts, setCounts] = useState({ pending: 0, rejected: 0 });
+  const [counts, setCounts] = useState({ pending: 0, rejected: 0, newApproved: 0 });
   const menuRef = useRef<HTMLDivElement>(null);
   const isAdmin = user?.role === "admin";
 
@@ -73,7 +75,17 @@ export function AppHeader({ user, actions = [], confirmLeave }: {
     if (!user) return;
     fetch("/api/logbook/review")
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (d) setCounts({ pending: d.pending || 0, rejected: d.rejected || 0 }); })
+      .then((d) => {
+        if (!d) return;
+        const approvedAt: string[] = d.approvedAt || [];
+        let seen = "";
+        try {
+          // Opening My logs counts as seeing every approval so far.
+          if (window.location.pathname === "/logs") localStorage.setItem(SEEN_KEY, new Date().toISOString());
+          seen = localStorage.getItem(SEEN_KEY) || "";
+        } catch { /* storage blocked: show nothing new */ seen = "9999"; }
+        setCounts({ pending: d.pending || 0, rejected: d.rejected || 0, newApproved: approvedAt.filter((t) => t > seen).length });
+      })
       .catch(() => {});
   }, [user]);
 
@@ -89,7 +101,7 @@ export function AppHeader({ user, actions = [], confirmLeave }: {
 
   const nav: NavItem[] = [
     { href: "/", label: "Log entry", icon: <Activity size={18} /> },
-    { href: "/logs", label: "My logs", icon: <ScrollText size={18} />, badge: isAdmin ? 0 : counts.rejected, badgeTone: "danger" },
+    { href: "/logs", label: "My logs", icon: <ScrollText size={18} />, badge: isAdmin ? 0 : counts.rejected, badgeTone: "danger", good: isAdmin ? 0 : counts.newApproved },
     { href: "/weekly-plan", label: "Weekly plan", icon: <CalendarDays size={18} /> },
     ...(isAdmin ? [{ href: "/admin", label: "Admin", icon: <LayoutDashboard size={18} />, badge: counts.pending }] : []),
   ];
@@ -107,8 +119,8 @@ export function AppHeader({ user, actions = [], confirmLeave }: {
     toLogin("signed-out");
   }
 
-  const badge = (n?: number, tone?: "danger") =>
-    n ? <span className={`count-badge ${tone === "danger" ? "danger" : ""}`}>{n > 99 ? "99+" : n}</span> : null;
+  const badge = (n?: number, tone?: "danger" | "success") =>
+    n ? <span className={`count-badge ${tone ?? ""}`} title={tone === "success" ? "Newly approved" : tone === "danger" ? "Rejected" : undefined}>{n > 99 ? "99+" : n}</span> : null;
 
   return (
     <header className="app-header">
@@ -128,7 +140,7 @@ export function AppHeader({ user, actions = [], confirmLeave }: {
           <nav className="app-header-nav" aria-label="Main">
             {nav.map((item) => (
               <Link key={item.href} href={item.href} onClick={guard} className={`app-nav-link ${isActive(item.href) ? "active" : ""}`} aria-current={isActive(item.href) ? "page" : undefined}>
-                {item.icon}<span>{item.label}</span>{badge(item.badge, item.badgeTone)}
+                {item.icon}<span>{item.label}</span>{badge(item.badge, item.badgeTone)}{badge(item.good, "success")}
               </Link>
             ))}
             {actions.map((a) => (
@@ -181,7 +193,7 @@ export function AppHeader({ user, actions = [], confirmLeave }: {
           <nav className="app-drawer-nav" aria-label="Main">
             {nav.map((item) => (
               <Link key={item.href} href={item.href} onClick={guard} className={`app-drawer-link ${isActive(item.href) ? "active" : ""}`} aria-current={isActive(item.href) ? "page" : undefined}>
-                {item.icon}<span>{item.label}</span>{badge(item.badge, item.badgeTone)}
+                {item.icon}<span>{item.label}</span>{badge(item.badge, item.badgeTone)}{badge(item.good, "success")}
               </Link>
             ))}
             {actions.map((a) => (

@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState, type FormEvent } f
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle, ArrowLeft, Calendar, CheckCircle2, ChevronRight, Clock, FileText,
-  History, Info, Microscope, Pencil, RefreshCw, Search, ShieldCheck, X, XCircle,
+  Info, Microscope, Pencil, RefreshCw, Search, ShieldCheck, X, XCircle,
 } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import type { AppUser, LogbookRecord } from "@/lib/logbook";
@@ -12,26 +12,13 @@ import { currentVersionIds } from "@/lib/logbook";
 import { ALL_FORMS, STANDARD_KEYS, type FormDef, type FormField } from "@/lib/forms";
 import { parseAnalystSignature } from "@/lib/signature";
 import { toISODate } from "@/lib/weekly-plan";
+import { displayFields, recordValue, versionChain } from "@/lib/record-diff";
+import { VersionHistory } from "@/components/VersionHistory";
 
 const STATUSES = ["All", "Pending", "Approved", "Rejected"] as const;
 type StatusFilter = typeof STATUSES[number];
 
-const STANDARD_GETTERS: Record<string, (r: LogbookRecord) => string> = {
-  date: (r) => r.date,
-  analyst: (r) => r.analyst,
-  sampleId: (r) => r.sampleId,
-  measuredValue: (r) => r.measuredValue,
-  methodUsed: (r) => r.methodUsed,
-  startTime: (r) => r.startTime,
-  endTime: (r) => r.endTime,
-  remarks: (r) => r.remarks,
-};
-
-function valueOf(rec: LogbookRecord, key: string): string {
-  if (STANDARD_KEYS.has(key)) return STANDARD_GETTERS[key]?.(rec) ?? "";
-  const v = rec.metadata?.[key];
-  return v == null || typeof v === "object" ? "" : String(v);
-}
+const valueOf = recordValue;
 
 function formFor(forms: FormDef[], rec: LogbookRecord) {
   return forms.find((f) => f.activityType === rec.activityType && f.scope !== "instrument")
@@ -179,7 +166,7 @@ function MyLogs() {
               <RecordDetail
                 key={selected.id}
                 record={selected}
-                versions={records.filter((r) => (r.amends || r.id) === (selected.amends || selected.id) && r.id !== selected.id)}
+                chain={versionChain(records, selected)}
                 form={formFor(forms, selected)}
                 user={user}
                 onBack={() => open(null)}
@@ -195,33 +182,19 @@ function MyLogs() {
   );
 }
 
-function RecordDetail({ record, versions, form, user, onBack, onCorrected }: {
+function RecordDetail({ record, chain, form, user, onBack, onCorrected }: {
   record: LogbookRecord;
-  versions: LogbookRecord[];
+  chain: LogbookRecord[];
   form: FormDef | undefined;
   user: AppUser | null;
   onBack: () => void;
   onCorrected: (newId: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
-  const fields = useMemo(() => {
-    const fromForm = (form?.fields ?? []).filter((f) => f.key !== "instrumentUsed" || valueOf(record, f.key));
-    if (fromForm.length) return fromForm;
-    // Form was deleted or renamed: show whatever was stored instead.
-    const std: FormField[] = [
-      { key: "date", label: "Date", type: "date" }, { key: "sampleId", label: "Sample ID", type: "text" },
-      { key: "methodUsed", label: "Method", type: "text" }, { key: "measuredValue", label: "Measured value", type: "text" },
-      { key: "startTime", label: "Start time", type: "time" }, { key: "endTime", label: "End time", type: "time" },
-    ];
-    const extra: FormField[] = Object.entries(record.metadata || {})
-      .filter(([, v]) => v != null && typeof v !== "object" && String(v).trim())
-      .map(([k]): FormField => ({ key: k, label: k.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase()), type: "text" }));
-    const remarks: FormField = { key: "remarks", label: "Remarks", type: "textarea" };
-    return [...std.filter((f) => valueOf(record, f.key)), ...extra, remarks];
-  }, [form, record]);
+  const fields = useMemo(() => displayFields(record, form?.fields), [form, record]);
   const signature = parseAnalystSignature(record.analystSignature);
   const lastDecision = [...(record.reviews ?? [])].reverse().find((r) => r.decision !== "Comment");
-  const canCorrect = record.status === "Rejected" && !!user && (record.amends ? versions.find((v) => v.id === record.amends)?.submittedBy : record.submittedBy) === user.id;
+  const canCorrect = record.status === "Rejected" && !!user && chain[0]?.submittedBy === user.id;
 
   const instrumentInfo = [
     ["Instrument ID", record.instrumentId], ["Model", record.instrumentModel], ["Serial No.", record.serialNumber],
@@ -297,12 +270,6 @@ function RecordDetail({ record, versions, form, user, onBack, onCorrected }: {
         </section>
       )}
 
-      {record.amends && record.amendmentReason && (
-        <section className="ml-section">
-          <h3>Why it was corrected</h3>
-          <p className="ml-reason">{record.amendmentReason}{record.submitterName ? ` (${record.submitterName})` : ""}</p>
-        </section>
-      )}
 
       {record.reviews?.length > 0 && (
         <section className="ml-section">
@@ -327,19 +294,11 @@ function RecordDetail({ record, versions, form, user, onBack, onCorrected }: {
         </details>
       )}
 
-      {versions.length > 0 && (
-        <details className="ml-more">
-          <summary><History size={15} /> Earlier versions ({versions.length})</summary>
-          <ul className="ml-versions">
-            {versions.map((v) => (
-              <li key={v.id}>
-                <span>{v.amends ? "Correction" : "Original"} · {niceDate(v.createdAt)}</span>
-                <span className={`log-status-badge ${v.status.toLowerCase()}`}>{v.status}</span>
-                {v.amendmentReason && <p>{v.amendmentReason}</p>}
-              </li>
-            ))}
-          </ul>
-        </details>
+      {chain.length > 1 && (
+        <section className="ml-section">
+          <h3>Edit history</h3>
+          <VersionHistory chain={chain} currentId={record.id} fields={fields} />
+        </section>
       )}
 
       <details className="ml-more">
