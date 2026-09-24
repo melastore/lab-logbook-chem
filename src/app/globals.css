@@ -4063,7 +4063,6 @@ button:disabled {
 [data-theme="dark"] .form-auth-gate-modern { background: #2a2200; border-color: #5f4900; color: #ffca28; }
 [data-theme="dark"] .instrument-banner-modern { background: var(--surface-2); }
 
-
 .metrics-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -8061,105 +8060,12 @@ button:disabled {
 }
 
 /* ==========================================================================
-   Weekly Plan & Report
+   Weekly plan: shared with the admin reports tab
    ========================================================================== */
-.wp-page {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  background: var(--surface);
-}
 
-.wp-topbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-  padding: 14px 24px;
-  background: var(--surface-1);
-  border-bottom: 1px solid var(--outline-variant);
-  position: sticky;
-  top: 0;
-  z-index: 20;
-}
-.wp-topbar-left, .wp-topbar-right { display: flex; align-items: center; gap: 14px; }
-.wp-title-group { display: flex; flex-direction: column; min-width: 0; }
-.wp-title { font-size: 19px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.2; }
-.wp-title-sub { font-size: 12px; color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; }
-.wp-topbar-actions { display: flex; align-items: center; gap: 10px; }
-.wp-week-picker {
-  display: inline-flex; align-items: center; gap: 10px;
-  font-size: 13px; font-weight: 600; color: var(--muted);
-  background: var(--surface-2);
-  border: 1px solid var(--outline-variant);
-  border-radius: 10px;
-  padding: 4px 5px 4px 12px;
-}
-.wp-week-picker span { white-space: nowrap; }
-.wp-week-picker .input-modern { width: 150px; border: none; background: var(--surface-1); padding: 6px 8px; }
-
-.wp-body { flex: 1; padding: 24px; }
-.wp-loading { text-align: center; padding: 60px; color: var(--muted); }
-
-.wp-sheet { max-width: 1280px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
-
-/* Report heading */
-.wp-sheet-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-  flex-wrap: wrap;
-  padding: 20px 24px;
-  background: var(--surface-1);
-  border: 1px solid var(--outline-variant);
-  border-radius: 16px;
-}
-.wp-meta-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
-.wp-meta-label { text-transform: uppercase; letter-spacing: 0.05em; font-size: 11px; font-weight: 700; }
-.wp-meta-row strong { color: var(--on-surface); font-size: 14px; }
-.wp-sheet-heading { font-size: 18px; font-weight: 800; line-height: 1.3; }
-.wp-sheet-sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
-.wp-saved-chip {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: 12px; font-weight: 700;
-  color: var(--success);
-  background: color-mix(in srgb, var(--success) 12%, var(--surface-1));
-  border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
-  padding: 5px 10px; border-radius: 999px;
-}
-
-/* Summary cards */
-.wp-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-@media (max-width: 720px) { .wp-summary { grid-template-columns: 1fr; } }
-.wp-stat {
-  display: flex; align-items: flex-start; gap: 14px;
-  padding: 18px 20px;
-  background: var(--surface-1);
-  border: 1px solid var(--outline-variant);
-  border-radius: 16px;
-}
-.wp-stat-accent { border-color: color-mix(in srgb, var(--accent) 35%, var(--outline-variant)); box-shadow: 0 1px 2px rgba(16,24,40,0.04); }
-.wp-stat-icon {
-  display: flex; align-items: center; justify-content: center;
-  width: 40px; height: 40px; flex-shrink: 0;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--primary) 12%, var(--surface-1));
-  color: var(--primary);
-}
-.wp-stat-accent .wp-stat-icon { background: color-mix(in srgb, var(--accent) 14%, var(--surface-1)); color: var(--accent); }
-.wp-stat-body { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
-.wp-stat-label { font-size: 12px; color: var(--muted); font-weight: 600; }
-.wp-stat-value { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
-.wp-stat-value small { font-size: 14px; font-weight: 700; color: var(--muted); }
-.wp-stat-note { font-size: 11px; color: var(--muted); margin-top: 2px; }
 .wp-progress { height: 7px; border-radius: 999px; background: var(--surface-variant); overflow: hidden; margin-top: 6px; }
 .wp-progress span { display: block; height: 100%; border-radius: 999px; transition: width 0.4s ease; }
 
-/* Report table tweaks (builds on .spreadsheet-table) */
-.wp-table-wrap { margin: 0; }
-.wp-table th { vertical-align: bottom; }
 .wp-th-am { display: block; font-size: 12px; font-weight: 800; text-transform: none; letter-spacing: 0; color: var(--on-surface); }
 .wp-th-en { display: block; font-size: 10px; font-weight: 600; color: var(--muted); margin-top: 1px; }
 
@@ -8172,63 +8078,6 @@ button:disabled {
   padding: 0 8px;
 }
 .wp-calc-strong { color: var(--on-surface); font-weight: 800; }
-
-.wp-ach-cell { display: flex; align-items: center; gap: 2px; padding-left: 6px; }
-.wp-ach-input { width: 72px !important; text-align: center; padding-left: 6px !important; padding-right: 6px !important; }
-/* Hide the number spinners — they steal horizontal room and clip "100". */
-.wp-ach-input::-webkit-outer-spin-button,
-.wp-ach-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-.wp-ach-input { -moz-appearance: textfield; appearance: textfield; }
-.wp-ach-pct { font-size: 12px; color: var(--muted); padding-right: 6px; }
-
-/* ── Weekly plan: Excel-style formula (fx) bar ── */
-.wp-fx-bar {
-  display: flex; align-items: stretch; gap: 0;
-  border: 1px solid var(--outline-variant);
-  border-radius: 10px;
-  overflow: hidden;
-  background: var(--surface-1);
-  max-width: 1280px; margin: 0 auto; width: 100%;
-}
-.wp-fx-namebox {
-  display: flex; align-items: center; justify-content: center;
-  min-width: 86px; padding: 0 12px;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 13px; font-weight: 700; color: var(--on-surface);
-  background: var(--surface-2);
-  border-right: 1px solid var(--outline-variant);
-}
-.wp-fx-icon {
-  display: flex; align-items: center; justify-content: center;
-  padding: 0 14px; color: var(--muted);
-  border-right: 1px solid var(--outline-variant);
-}
-.wp-fx-icon em { font-style: italic; font-family: Georgia, "Times New Roman", serif; font-size: 16px; font-weight: 600; }
-.wp-fx-input {
-  flex: 1; min-width: 0; border: none; outline: none;
-  padding: 10px 14px;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 13.5px; color: var(--on-surface);
-  background: transparent;
-}
-.wp-fx-input:read-only { color: var(--muted); cursor: default; }
-.wp-fx-input:not(:read-only):focus { background: color-mix(in srgb, var(--primary) 5%, var(--surface-1)); }
-
-/* Selectable calc cells + active-cell highlight (Excel selection box). */
-.wp-cell-sel { cursor: cell; }
-.wp-cell-active {
-  box-shadow: inset 0 0 0 2px var(--primary);
-  background: color-mix(in srgb, var(--primary) 7%, var(--surface)) !important;
-}
-.wp-ach-value {
-  display: block; text-align: right; padding: 0 10px;
-  font-variant-numeric: tabular-nums; font-weight: 700; color: var(--on-surface);
-}
-.wp-ach-formula {
-  width: 100% !important; text-align: left;
-  font-family: var(--font-mono, ui-monospace, monospace) !important;
-  font-size: 13px !important; letter-spacing: -0.3px;
-}
 
 /* ── Weekly plan: report history drawer ── */
 .wp-history-overlay {
@@ -8473,43 +8322,6 @@ button:disabled {
 @media (max-width: 720px) {
   .wp-admin-meta { display: none; }
   .wp-admin-who { min-width: 120px; }
-}
-
-
-
-/* Excel Top Summary UI */
-.wp-excel-summary-container {
-  overflow-x: auto;
-  margin-bottom: 24px;
-}
-.wp-excel-summary {
-  width: 100%;
-  border-collapse: collapse;
-  background: var(--surface);
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  font-size: 14px;
-}
-.wp-excel-summary td {
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-}
-.wp-excel-title {
-  font-weight: 600;
-  color: var(--text);
-}
-.wp-excel-saved {
-  text-align: right;
-  color: var(--text-dim);
-}
-.wp-excel-label {
-  font-weight: 500;
-  color: var(--text-muted);
-}
-.wp-excel-val, .wp-excel-pct {
-  text-align: right;
-  font-weight: 600;
-  color: var(--primary);
 }
 
 /* ==========================================================================
@@ -9206,13 +9018,6 @@ button:disabled {
   .wp-admin-head > div {
     width: 100%;
   }
-  .wp-week-picker {
-    flex: 1;
-  }
-  .wp-week-picker select {
-    width: 100%;
-    min-width: 0 !important;
-  }
   .wp-admin-row {
     flex-wrap: wrap;
     gap: 8px 10px;
@@ -9229,106 +9034,9 @@ button:disabled {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
-   Weekly Plan & Report — mobile layout
-   Top bar stacks into back+title / week picker / action row; the summary and
-   report tables scroll edge-to-edge inside their own containers.
+   Spreadsheet footer and history drawer, mobile
    ───────────────────────────────────────────────────────────────────────── */
 @media (max-width: 860px) {
-  .wp-topbar {
-    padding: 10px 16px 12px;
-    gap: 10px;
-  }
-
-  .wp-topbar-left,
-  .wp-topbar-right {
-    width: 100%;
-  }
-
-  .wp-topbar-left {
-    gap: 10px;
-  }
-
-  /* Icon-only back button — the title says where you are */
-  .wp-back-btn span {
-    display: none;
-  }
-  .wp-back-btn {
-    padding: 0;
-    width: 36px;
-    height: 36px;
-    justify-content: center;
-    flex-shrink: 0;
-  }
-
-  .wp-title {
-    font-size: 17px;
-  }
-
-  .wp-topbar-right {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
-  }
-
-  .wp-week-picker {
-    justify-content: space-between;
-  }
-  .wp-week-picker .input-modern {
-    flex: 1;
-    max-width: 220px;
-    min-width: 0;
-  }
-
-  /* History / Export / Save share one row; Save gets the most room */
-  .wp-topbar-actions {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1.3fr;
-    gap: 8px;
-  }
-  .wp-topbar-actions .btn {
-    width: 100%;
-    justify-content: center;
-    white-space: nowrap;
-  }
-
-  .wp-body {
-    padding: 12px;
-  }
-  .wp-sheet {
-    gap: 12px;
-  }
-
-  /* Amharic summary block: keep the Excel shape, scroll sideways */
-  .wp-excel-summary-container {
-    margin: 0 -12px 0;
-    padding: 0 12px;
-  }
-  .wp-excel-summary {
-    min-width: 640px;
-    font-size: 12px;
-  }
-  .wp-excel-summary td {
-    padding: 6px 8px;
-  }
-
-  /* fx bar: tighter chrome so the formula gets the space */
-  .wp-fx-namebox {
-    min-width: 44px;
-    padding: 0 8px;
-    font-size: 12px;
-  }
-  .wp-fx-input {
-    font-size: 13px;
-  }
-
-  /* Report table: bleed to the screen edges for maximum width */
-  .wp-table-wrap {
-    margin: 0 -12px;
-    border-radius: 0;
-    border-left: none;
-    border-right: none;
-  }
-
   .spreadsheet-footer {
     flex-wrap: wrap;
     gap: 10px;
@@ -9354,21 +9062,6 @@ button:disabled {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--error) 15%, transparent);
 }
 .field-missing .field-label-modern { color: var(--error); }
-
-/* Weekly plan soft checks */
-.wp-warnings { display: grid; gap: 6px; margin: 0 0 12px; }
-.wp-warning {
-  display: flex; align-items: center; gap: 8px; margin: 0;
-  padding: 8px 12px; border-radius: 8px; font-size: 0.9rem;
-  background: color-mix(in srgb, var(--tertiary) 12%, var(--surface));
-  border: 1px solid color-mix(in srgb, var(--tertiary) 45%, transparent);
-}
-.wp-warning-error {
-  background: color-mix(in srgb, var(--error) 10%, var(--surface));
-  border-color: var(--error);
-  color: var(--error);
-}
-.spreadsheet-cell.wp-cell-warn { box-shadow: inset 0 0 0 1.5px var(--tertiary); }
 
 /* Supervisor review */
 .notice.notice-warning {
@@ -9578,9 +9271,8 @@ button:disabled {
 }
 
 /* ==========================================================================
-   Weekly plan — week navigator, save state, trend
+   Week navigator (weekly plan and admin)
    ========================================================================== */
-.wp-topbar-right, .wp-topbar-actions { flex-wrap: wrap; }
 .wp-weeknav { display: inline-flex; align-items: center; gap: 4px; padding: 3px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--outline-variant); }
 .wp-weeknav.is-off { opacity: .55; }
 .wp-weeknav-btn {
@@ -9598,21 +9290,6 @@ button:disabled {
 /* The native date input sits invisibly on top so the whole label opens the picker. */
 .wp-weeknav-label input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
 .wp-weeknav-label input::-webkit-calendar-picker-indicator { position: absolute; inset: 0; width: 100%; height: 100%; cursor: pointer; }
-
-.wp-save-state { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--muted); white-space: nowrap; }
-.wp-save-state.ok { color: var(--success); }
-.wp-save-state.pending { color: var(--warning); }
-.wp-save-state.error { color: var(--error); }
-
-
-.wp-trend { display: grid; gap: 10px; padding: 14px 20px; border-bottom: 1px solid var(--outline-variant); }
-.wp-trend-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); font-weight: 600; }
-.wp-trend-head strong { color: var(--on-surface); }
-.wp-trend-bars { display: flex; align-items: flex-end; gap: 4px; height: 72px; }
-.wp-trend-bar { flex: 1; height: 100%; display: flex; align-items: flex-end; border: 0; padding: 0; background: var(--surface-3); border-radius: 4px; cursor: pointer; overflow: hidden; }
-.wp-trend-bar span { width: 100%; border-radius: 4px 4px 0 0; }
-.wp-trend-bar.current { outline: 2px solid var(--primary); outline-offset: 1px; }
-.wp-trend .btn { justify-self: start; }
 
 /* Admin weekly plans */
 .wpa-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
@@ -9854,9 +9531,6 @@ button:disabled {
   .lab-nav { top: var(--header-h); height: calc(100vh - var(--header-h)); }
   .lab-nav-close { display: none; }
 }
-
-/* Weekly plan: its toolbar sticks just under the header */
-.wp-page .wp-topbar { top: var(--header-h); z-index: 110; }
 
 /* ==========================================================================
    Settings page
@@ -10370,3 +10044,204 @@ button:disabled {
 .vh-diff ins { padding: 1px 6px; border-radius: 6px; background: var(--success-container); color: var(--success); text-decoration: none; font-weight: 600; }
 .vh-none { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
 @media (max-width: 640px) { .vh-changes li { grid-template-columns: 1fr; gap: 2px; } }
+
+/* ==========================================================================
+   Weekly plan
+   ========================================================================== */
+.wk-page { min-height: 100vh; display: flex; flex-direction: column; background: var(--surface); }
+
+.wk-bar-top {
+  position: sticky; top: var(--header-h); z-index: 110;
+  display: flex; align-items: center; gap: 12px 20px; flex-wrap: wrap;
+  padding: 12px 24px;
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--outline-variant);
+}
+.wk-heading { margin-right: auto; min-width: 0; }
+.wk-heading h1 { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.2; }
+.wk-heading p { font-size: 12px; color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; }
+.wk-top-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wk-save { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; white-space: nowrap; min-width: 72px; justify-content: flex-end; }
+.wk-save.ok { color: var(--success); }
+.wk-save.pending { color: var(--warning); }
+.wk-save.error { color: var(--error); }
+
+.wk-loading { padding: 80px 16px; text-align: center; color: var(--muted); }
+
+.wk-layout {
+  display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 24px; align-items: start;
+  width: 100%; max-width: 1180px; margin: 0 auto; padding: 24px;
+}
+
+/* Left column: score and totals */
+.wk-summary {
+  position: sticky; top: calc(var(--header-h) + 84px);
+  display: grid; gap: 16px; padding: 20px;
+  background: var(--surface-1);
+  border: 1px solid var(--outline-variant); border-radius: var(--radius-lg);
+}
+.wk-score { display: flex; align-items: center; gap: 16px; --tone: var(--outline); }
+.wk-score[data-tone="good"] { --tone: var(--success); }
+.wk-score[data-tone="fair"] { --tone: var(--tertiary); }
+.wk-score[data-tone="low"] { --tone: var(--primary); }
+.wk-ring {
+  --p: 0;
+  width: 84px; height: 84px; flex-shrink: 0; border-radius: 50%;
+  display: grid; place-items: center;
+  background:
+    radial-gradient(closest-side, var(--surface-1) 78%, transparent 79%),
+    conic-gradient(var(--tone) calc(var(--p) * 1%), var(--surface-3) 0);
+}
+.wk-ring strong { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.wk-ring small { font-size: 12px; color: var(--muted); }
+.wk-label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.wk-score b { font-size: 16px; color: var(--tone); }
+
+.wk-figures { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 0; }
+.wk-figures div { display: grid; gap: 2px; }
+.wk-figures dt { font-size: 11px; font-weight: 700; color: var(--muted); }
+.wk-figures dd { margin: 0; font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.wk-figures dd small { font-size: 12px; font-weight: 600; color: var(--muted); }
+.wk-figures dd.over { color: var(--error); }
+.wk-hours-meter { height: 6px; border-radius: 99px; background: var(--surface-3); overflow: hidden; margin-top: -6px; }
+.wk-hours-meter span { display: block; height: 100%; background: var(--primary); border-radius: 99px; transition: width .3s var(--ease-standard); }
+
+.wk-official { border-top: 1px solid var(--outline-variant); padding-top: 12px; font-size: 12px; }
+.wk-official summary { cursor: pointer; font-weight: 700; color: var(--on-surface-variant); }
+.wk-official table { width: 100%; margin-top: 10px; border-collapse: collapse; }
+.wk-official th { text-align: left; font-weight: 500; color: var(--muted); padding: 5px 6px 5px 0; line-height: 1.35; }
+.wk-official td { text-align: right; font-weight: 700; padding: 5px 0 5px 6px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wk-official tr + tr > * { border-top: 1px dashed var(--outline-variant); }
+
+/* Right column: one block per day */
+.wk-days { display: grid; gap: 14px; min-width: 0; }
+.wk-alerts { display: grid; gap: 6px; }
+.wk-alerts p {
+  display: flex; align-items: center; gap: 8px; margin: 0; padding: 8px 12px;
+  border-radius: var(--radius-sm); font-size: 13px;
+  background: var(--warning-container); color: var(--on-warning-container);
+}
+.wk-alerts p.error { background: var(--error-container); color: var(--on-error-container); }
+
+.wk-day {
+  padding: 14px 16px 10px;
+  background: var(--surface-1);
+  border: 1px solid var(--outline-variant); border-radius: var(--radius-lg);
+}
+.wk-day.is-today { border-color: var(--primary); box-shadow: inset 3px 0 0 var(--primary); }
+.wk-day.is-outside { background: var(--surface-2); border-style: dashed; }
+.wk-day-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.wk-day-name { display: flex; align-items: baseline; gap: 8px; }
+.wk-day-name strong { font-size: 15px; font-weight: 800; }
+.wk-day-name span { font-size: 12px; color: var(--muted); font-weight: 600; }
+.wk-day.is-today .wk-day-name strong { color: var(--primary); }
+.wk-day-hours {
+  font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
+  padding: 2px 8px; border-radius: 99px;
+  background: var(--secondary-container); color: var(--on-secondary-container);
+}
+
+.wk-tasks { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.wk-task {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--outline-variant); border-radius: var(--radius-md);
+  background: var(--surface);
+  transition: border-color var(--dur-short) ease;
+}
+.wk-task:focus-within { border-color: var(--primary); }
+.wk-task.is-done { background: color-mix(in srgb, var(--success) 6%, var(--surface)); }
+
+.wk-task-main { display: grid; gap: 2px; min-width: 0; }
+.wk-task-title, .wk-task-note {
+  width: 100%; border: 0; background: transparent; color: var(--on-surface);
+  font: inherit; padding: 2px 0; outline: none;
+}
+.wk-task-title { font-size: 14px; font-weight: 600; resize: none; field-sizing: content; min-height: 24px; line-height: 1.45; }
+.wk-task-note { font-size: 12.5px; color: var(--on-surface-variant); }
+.wk-task-title::placeholder, .wk-task-note::placeholder { color: var(--muted); opacity: .7; }
+.wk-task.is-done .wk-task-title { color: var(--on-surface-variant); }
+
+.wk-task-side { display: flex; align-items: flex-start; gap: 6px; }
+.wk-hours {
+  display: inline-flex; align-items: center; gap: 4px; height: 32px; padding: 0 8px;
+  border: 1px solid var(--outline-variant); border-radius: var(--radius-sm);
+  background: var(--surface-1); color: var(--muted); font-size: 12px;
+}
+.wk-hours input {
+  width: 38px; border: 0; background: transparent; outline: none; text-align: right;
+  font: inherit; font-size: 14px; font-weight: 700; color: var(--on-surface);
+  -moz-appearance: textfield; appearance: textfield;
+}
+.wk-hours input::-webkit-inner-spin-button, .wk-hours input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.wk-hours:focus-within { border-color: var(--primary); }
+.wk-day-select {
+  height: 32px; padding: 0 6px; font-size: 12px; font-weight: 600;
+  border: 1px solid var(--outline-variant); border-radius: var(--radius-sm);
+  background: var(--surface-1); color: var(--on-surface-variant); cursor: pointer;
+}
+.wk-task-actions { display: flex; }
+.wk-icon-btn {
+  display: grid; place-items: center; width: 32px; height: 32px;
+  border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer;
+}
+.wk-icon-btn:hover, .wk-icon-btn.on { background: var(--surface-3); color: var(--on-surface); }
+.wk-icon-btn.danger:hover { background: var(--error-container); color: var(--error); }
+
+.wk-task-progress { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; }
+.wk-pct-chips { display: inline-flex; padding: 2px; border-radius: var(--radius-sm); background: var(--surface-3); }
+.wk-pct-chips button {
+  border: 0; background: transparent; cursor: pointer;
+  padding: 3px 8px; border-radius: 6px;
+  font-size: 11.5px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums;
+}
+.wk-pct-chips button:hover { color: var(--on-surface); }
+.wk-pct-chips button.on { background: var(--surface-1); color: var(--primary); box-shadow: var(--shadow-sm); }
+.wk-bar { flex: 1; height: 6px; border-radius: 99px; background: var(--surface-3); overflow: hidden; --tone: var(--primary); }
+.wk-bar span { display: block; height: 100%; border-radius: 99px; background: var(--tone); transition: width .3s var(--ease-standard); }
+.wk-pct-value { width: 40px; text-align: right; font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--tone); --tone: var(--primary); }
+.wk-page [data-tone="good"] { --tone: var(--success); }
+.wk-page [data-tone="fair"] { --tone: var(--tertiary); }
+
+.wk-formula { grid-column: 1 / -1; display: grid; gap: 4px; padding-top: 8px; border-top: 1px dashed var(--outline-variant); }
+.wk-formula label { display: flex; align-items: center; gap: 10px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.wk-formula input {
+  flex: 1; min-width: 0; height: 30px; padding: 0 10px;
+  border: 1px solid var(--outline-variant); border-radius: var(--radius-sm);
+  background: var(--surface-1); color: var(--on-surface);
+  font-family: var(--font-mono); font-size: 13px;
+}
+.wk-formula input:focus { outline: none; border-color: var(--primary); }
+.wk-formula small { font-size: 11.5px; color: var(--muted); }
+
+.wk-add {
+  display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%;
+  margin-top: 8px; padding: 7px; border: 1px dashed var(--outline-variant); border-radius: var(--radius-md);
+  background: transparent; color: var(--muted); font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.wk-add:hover { border-color: var(--primary); color: var(--primary); background: color-mix(in srgb, var(--primary) 5%, transparent); }
+.wk-day-head + .wk-add { margin-top: 0; }
+
+.wk-history-tools { display: flex; align-items: center; gap: 8px; }
+.wp-history-ach[data-tone] { color: var(--tone); }
+.wp-history-ach[data-tone="low"] { --tone: var(--primary); }
+
+@media (max-width: 900px) {
+  .wk-bar-top { padding: 10px 16px; gap: 10px; }
+  .wk-heading { width: 100%; }
+  .wk-bar-top .wp-weeknav { flex: 1; justify-content: space-between; }
+  .wk-top-actions { width: 100%; }
+  .wk-save { min-width: 0; margin-right: auto; order: -1; }
+  .wk-layout { grid-template-columns: 1fr; padding: 16px; gap: 16px; }
+  .wk-summary { position: static; }
+  .wk-hours-meter { margin-top: -6px; }
+}
+@media (max-width: 560px) {
+  .wk-task { grid-template-columns: 1fr; }
+  .wk-task-side { flex-wrap: wrap; }
+  .wk-task-actions { margin-left: auto; }
+  .wk-task-progress { flex-wrap: wrap; gap: 8px; }
+  .wk-bar { flex-basis: 100%; order: 3; }
+  .wk-pct-value { margin-left: auto; }
+  .wk-figures dd { font-size: 16px; }
+}
