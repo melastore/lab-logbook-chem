@@ -1,20 +1,32 @@
 "use client";
 
-import { useState, type ChangeEvent, type KeyboardEvent } from "react";
+import { useLayoutEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
 import type { FormField } from "@/lib/forms";
 
 // Excel-style cell: shows the formatted value, and the raw value/formula while
 // focused. `name` is the cell address (e.g. "C14") used for keyboard moves.
+// Text cells (multiline) wrap and grow taller, like "wrap text" in Excel.
 export function SheetCell({ name, raw, display, onInput, onFocus, multiline, className = "", disabled, placeholder, inputMode }: {
   name: string; raw: string; display: string; onInput: (v: string) => void; onFocus: () => void;
   multiline?: boolean; className?: string; disabled?: boolean; placeholder?: string;
   inputMode?: "decimal" | "text";
 }) {
   const [draft, setDraft] = useState<string | null>(null);
+  const value = draft ?? display;
+  const area = useRef<HTMLTextAreaElement>(null);
+
+  // field-sizing: content does this in Chrome only; Firefox and Safari need the height set.
+  useLayoutEffect(() => {
+    const el = area.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value]);
+
   const props = {
     className: `xl-input ${className}`,
     "data-cell": name,
-    value: draft ?? display,
+    value,
     spellCheck: false,
     disabled,
     placeholder,
@@ -23,7 +35,7 @@ export function SheetCell({ name, raw, display, onInput, onFocus, multiline, cla
     onChange: (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => { setDraft(e.target.value); onInput(e.target.value); },
     onKeyDown: (e: KeyboardEvent<HTMLElement>) => moveOnKey(e, name),
   };
-  return multiline ? <textarea rows={1} {...props} /> : <input type="text" inputMode={inputMode} {...props} />;
+  return multiline ? <textarea ref={area} rows={1} {...props} /> : <input type="text" inputMode={inputMode} {...props} />;
 }
 
 // Enter / arrows move between rows, Shift+Enter goes up, like Excel.
@@ -52,5 +64,5 @@ export function colWidth(f: FormField) {
   if (f.type === "date") return 110;
   if (f.type === "time") return 84;
   if (f.type === "number") return 100;
-  return 150;
+  return 180;
 }

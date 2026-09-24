@@ -171,7 +171,7 @@ export function FormExcel({ title, info, fields, rows, setRows, newRow, maxRows,
                     return (
                       <td key={f.key} className={`${f.type === "number" ? "c " : ""}${cls}`}>
                         <SheetCell name={name} raw={value} display={value} disabled={disabled}
-                          multiline={f.type === "textarea"} className={f.type === "number" ? "c" : ""}
+                          multiline={f.type !== "number"} className={f.type === "number" ? "c" : ""}
                           inputMode={f.type === "number" ? "decimal" : "text"}
                           onFocus={focus(c, r)} onInput={(v) => edit(i, f.key, v)} />
                       </td>
