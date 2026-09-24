@@ -1238,6 +1238,8 @@ function ReviewDetail({ record, chain, form, title, user, isCurrent, onBack, onA
   const [saving, setSaving] = useState<ReviewDecision | null>(null);
   const [error, setError] = useState("");
   const [done, setDone] = useState("");
+  // Once decided, the form stays closed until the reviewer asks to change it.
+  const [reopen, setReopen] = useState(false);
 
   const fields = displayFields(record, form?.fields);
   const signature = parseAnalystSignature(record.analystSignature);
@@ -1263,7 +1265,9 @@ function ReviewDetail({ record, chain, form, title, user, isCurrent, onBack, onA
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || "Couldn't save the review.");
       setComment("");
-      setDone(decision === "Approved" ? "Approved." : decision === "Rejected" ? "Rejected. The analyst will see your reason." : "Comment added.");
+      setReopen(false);
+      // A decision shows as the card above; only a comment needs its own note.
+      setDone(decision === "Comment" ? "Comment added." : "");
       await onChanged();
     } catch (e) {
       setError(e instanceof Error && e.message !== "Failed to fetch" ? e.message : "Network error. Nothing was saved.");
@@ -1330,12 +1334,34 @@ function ReviewDetail({ record, chain, form, title, user, isCurrent, onBack, onA
       </section>
 
       {isCurrent && (
+        lastDecision && !isOwn && !reopen ? (
+        <section className="ml-section rv-review">
+          <h3>Review</h3>
+          <div className={`rv-decision ${lastDecision.decision.toLowerCase()}`}>
+            {lastDecision.decision === "Approved" ? <CheckCircle2 size={20} /> : <XCircle size={20} />}
+            <div>
+              <strong>{lastDecision.decision} by {lastDecision.reviewerName}</strong>
+              <span>{new Date(lastDecision.createdAt).toLocaleString()}</span>
+              {lastDecision.comment && <p>“{lastDecision.comment}”</p>}
+            </div>
+          </div>
+          {done && <div className="rv-done" role="status"><CheckCircle2 size={16} /> {done}</div>}
+          <div className="rv-actions">
+            <button type="button" className="btn btn-outline btn-sm btn-icon-gap" onClick={() => { setReopen(true); setDone(""); }}>
+              <Pencil size={15} /> <span>Change decision or comment</span>
+            </button>
+            <button type="button" className="btn btn-ghost btn-sm btn-icon-gap rv-amend" onClick={onAmend} title="Issue a correction yourself">
+              <Pencil size={15} /> <span>Amend</span>
+            </button>
+          </div>
+        </section>
+        ) : (
         <section className="ml-section rv-review">
           <h3>Your review</h3>
           {isOwn ? (
             <p className="ml-muted">You submitted this record, so another admin has to approve or reject it. You can still comment.</p>
           ) : lastDecision ? (
-            <p className="ml-muted">Last decision: <strong>{lastDecision.decision}</strong> by {lastDecision.reviewerName}. You can change it.</p>
+            <p className="ml-muted">Currently <strong>{lastDecision.decision}</strong> by {lastDecision.reviewerName}.</p>
           ) : null}
           <textarea rows={2} value={comment} onChange={(e) => { setComment(e.target.value); setError(""); }}
             placeholder="Comment or reason (required to reject)" aria-label="Review comment" />
@@ -1351,11 +1377,14 @@ function ReviewDetail({ record, chain, form, title, user, isCurrent, onBack, onA
             <button type="button" className="btn btn-outline btn-icon-gap" disabled={!!saving} onClick={() => submit("Comment")}>
               <MessageSquare size={16} /> <span>Comment</span>
             </button>
-            <button type="button" className="btn btn-ghost btn-icon-gap rv-amend" onClick={onAmend} title="Issue a correction yourself">
-              <Pencil size={16} /> <span>Amend</span>
-            </button>
+            {reopen
+              ? <button type="button" className="btn btn-ghost btn-icon-gap" onClick={() => { setReopen(false); setError(""); }}>Cancel</button>
+              : <button type="button" className="btn btn-ghost btn-icon-gap rv-amend" onClick={onAmend} title="Issue a correction yourself">
+                  <Pencil size={16} /> <span>Amend</span>
+                </button>}
           </div>
         </section>
+        )
       )}
 
       {chain.length > 1 && (
