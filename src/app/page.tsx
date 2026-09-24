@@ -91,6 +91,10 @@ export default function AnalystEntryPage() {
 
   const [rows, setRows] = useState<Record<string, string>[]>([{ date: todayISO() }]);
   const [signatureImage, setSignatureImage] = useState("");
+  const [savedSignature, setSavedSignature] = useState<string | null>(null);
+  // Bumped when the sheet is replaced from outside, so a focused cell doesn't keep old text.
+  const [sheetVersion, setSheetVersion] = useState(0);
+  const [saveNext, setSaveNext] = useState(true);
   const [submitState, setSubmitState] = useState<SubmitState>("idle");
   const [message, setMessage] = useState("");
   // Set on a submit attempt with gaps, so empty required cells are only flagged
@@ -109,6 +113,10 @@ export default function AnalystEntryPage() {
         if (d.user) {
           setUser(d.user);
           setRows((prev) => prev.map(r => ({ ...r, analyst: r.analyst || d.user.fullName || d.user.username })));
+          fetch("/api/auth/signature")
+            .then((r) => (r.ok ? r.json() : { signature: null }))
+            .then((s) => { setSavedSignature(s.signature?.image || null); setSaveNext(!s.signature); })
+            .catch(() => {});
         }
       })
       .catch(() => {})
@@ -198,6 +206,7 @@ export default function AnalystEntryPage() {
   }, [cleared]);
 
   function clearSheet() {
+    setSheetVersion((v) => v + 1);
     setCleared({ rows, signature: signatureImage });
     setRows([newRow()]);
     setSignatureImage("");
@@ -207,6 +216,7 @@ export default function AnalystEntryPage() {
 
   function undoClear() {
     if (!cleared) return;
+    setSheetVersion((v) => v + 1);
     setRows(cleared.rows);
     setSignatureImage(cleared.signature);
     setCleared(null);
@@ -225,6 +235,7 @@ export default function AnalystEntryPage() {
   // can't be submitted under another.
   function resetEntry(key: string) {
     const draft = readDrafts()[key];
+    setSheetVersion((v) => v + 1);
     setRows(draft?.rows?.length ? draft.rows : [newRow()]);
     setSignatureImage(draft?.signature || "");
     setShowMissing(false);
@@ -424,6 +435,7 @@ export default function AnalystEntryPage() {
           signedAt: new Date().toISOString(),
           signedBy: user.fullName,
           username: user.username,
+          method: signatureImage === savedSignature ? "saved" : "drawn",
         }),
       };
     });
@@ -449,11 +461,26 @@ export default function AnalystEntryPage() {
     }
 
     const result = await response.json().catch(() => ({ count: payloads.length }));
+    const n = result.count ?? payloads.length;
+    const at = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     setSubmitState("sent");
-    setMessage(`Successfully submitted ${result.count} ${result.count === 1 ? "record" : "records"} as ${user.fullName || user.username}. Log entries are sealed in a secure hash chain and cannot be modified or deleted.`);
+    setMessage(`Sent ${n} ${n === 1 ? "entry" : "entries"} for review at ${at}.`);
+    // Saving the signature is the user's choice, and only after it was used to sign.
+    if (signatureImage !== savedSignature && saveNext) {
+      const image = signatureImage;
+      fetch("/api/auth/signature", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image }) })
+        .then((r) => { if (r.ok) { setSavedSignature(image); setSaveNext(false); } })
+        .catch(() => {});
+    }
+    setSheetVersion((v) => v + 1);
     setRows([newRow()]);
     setSignatureImage("");
     setShowMissing(false);
+  }
+
+  async function removeSavedSignature() {
+    const r = await fetch("/api/auth/signature", { method: "DELETE" }).catch(() => null);
+    if (r?.ok) { setSavedSignature(null); setSaveNext(true); }
   }
 
   const sheetInfo: [string, string][] = mode === "analytical" && selectedInstrument
@@ -618,26 +645,6 @@ export default function AnalystEntryPage() {
             </div>
           ) : (
             <>
-              {submitState === "sent" && (
-                <div
-                  role="status"
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 12,
-                    padding: "14px 18px",
-                    borderRadius: 12,
-                    marginBottom: 16,
-                    background: "color-mix(in srgb, var(--success) 14%, var(--surface))",
-                    border: "1px solid var(--success)",
-                    color: "var(--success)",
-                    fontWeight: 700,
-                  }}
-                >
-                  <CheckCircle2 size={20} />
-                  <span>{message}</span>
-                </div>
-              )}
               {mode === "analytical" && (
                 <div className="form-tabs" style={{ justifyContent: "flex-start" }}
                   onClick={(e) => (e.target as HTMLElement).closest("button")?.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" })}>
@@ -729,7 +736,7 @@ export default function AnalystEntryPage() {
                 ) : (
                   <>
                     {excel ? (
-                      <FormExcel title={currentForm.title} info={sheetInfo} fields={currentForm.fields}
+                      <FormExcel key={sheetVersion} title={currentForm.title} info={sheetInfo} fields={currentForm.fields}
                         rows={rows} setRows={setRows} newRow={newRow} maxRows={MAX_ROWS} showMissing={showMissing}
                         onRemoveRow={(i) => setRows((prev) => prev.filter((_, idx) => idx !== i))} />
                     ) : formLayout === 'cards' ? (
@@ -762,6 +769,11 @@ export default function AnalystEntryPage() {
                       entries={Math.max(filledCount, 1)}
                       submitting={submitState === "submitting"}
                       error={submitState === "error" ? message : ""}
+                      saved={savedSignature}
+                      saveNext={saveNext}
+                      onSaveNext={setSaveNext}
+                      onRemoveSaved={removeSavedSignature}
+                      sent={submitState === "sent" ? message : ""}
                       onClearSheet={isDirty ? clearSheet : undefined}
                       onUndoClear={cleared ? undoClear : undefined}
                     />
@@ -774,6 +786,13 @@ export default function AnalystEntryPage() {
         </div>
       </div>
       </div>
+      {submitState === "sent" && (
+        <div className="toast" role="status">
+          <CheckCircle2 size={20} />
+          <div><strong>Submitted</strong><span>{message}</span></div>
+          <button type="button" onClick={resetTransient} aria-label="Dismiss"><X size={16} /></button>
+        </div>
+      )}
     </main>
   );
 }

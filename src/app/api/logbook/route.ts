@@ -106,12 +106,12 @@ export async function POST(request: Request) {
   }
 
   try {
-    const createdRecords = await createRecords(recordsToCreate, user.id);
+    const ids = await createRecords(recordsToCreate, user.id);
     await logAudit({
       actor: user.username, actorId: user.id, action: "record.create",
-      target: createdRecords.map((r) => r.id).join(","), detail: { count: createdRecords.length },
+      target: ids.join(","), detail: { count: ids.length },
     });
-    return NextResponse.json({ records: createdRecords, count: createdRecords.length });
+    return NextResponse.json({ ids, count: ids.length });
   } catch (e) {
     return errorResponse("logbook", e);
   }

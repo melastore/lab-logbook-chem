@@ -607,11 +607,6 @@ export async function addReview(
   };
 }
 
-export async function createRecord(input: LogbookInput, submittedBy: string) {
-  const records = await createRecords([input], submittedBy);
-  return records[0];
-}
-
 // Records are append-only; the database blocks UPDATE/DELETE. Corrections go
 // through createAmendment, so there is no deleteRecord here.
 
@@ -648,14 +643,16 @@ function recordToRow(
   };
 }
 
-export async function createRecords(inputs: LogbookInput[], submittedBy: string) {
+// Returns only the new ids: sending whole rows back (signatures included) made
+// every submit download what it had just uploaded.
+export async function createRecords(inputs: LogbookInput[], submittedBy: string): Promise<string[]> {
   const body = inputs.map((input) => recordToRow(input, submittedBy));
-  const rows = await supabaseRest<LogbookRow[]>("/logbook_records?select=*", {
+  const rows = await supabaseRest<{ id: string }[]>("/logbook_records?select=id", {
     method: "POST",
     prefer: "return=representation",
     body,
   });
-  return rows.map(mapRecord);
+  return rows.map((r) => r.id);
 }
 
 export async function createAmendment(

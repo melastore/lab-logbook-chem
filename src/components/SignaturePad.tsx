@@ -11,6 +11,18 @@ type SignaturePadProps = {
   bare?: boolean;
 };
 
+// The canvas is drawn at device resolution, which made each PNG tens of KB and
+// every entry carries a copy. 480px wide is plenty for a signature.
+function exportSmall(canvas: HTMLCanvasElement) {
+  const width = Math.min(480, canvas.width);
+  const height = Math.round(canvas.height * (width / canvas.width));
+  const out = document.createElement("canvas");
+  out.width = width;
+  out.height = height;
+  out.getContext("2d")?.drawImage(canvas, 0, 0, width, height);
+  return out.toDataURL("image/png");
+}
+
 export function SignaturePad({ value, onChange, disabled, bare }: SignaturePadProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef(false);
@@ -122,7 +134,7 @@ export function SignaturePad({ value, onChange, disabled, bare }: SignaturePadPr
     drawingRef.current = false;
     lastPointRef.current = null;
     setHasInk(false);
-    onChange(event.currentTarget.toDataURL("image/png"));
+    onChange(exportSmall(event.currentTarget));
   }
 
   function clearSignature() {

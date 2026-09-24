@@ -5,6 +5,8 @@ export type AnalystSignaturePayload = {
   signedAt: string;
   signedBy: string;
   username: string;
+  // "saved" when the user applied their stored signature, "drawn" when drawn for this entry.
+  method?: "saved" | "drawn";
 };
 
 const prefix = "sig:v1:";
@@ -34,6 +36,7 @@ export function parseAnalystSignature(value: string): AnalystSignaturePayload {
       signedAt: typeof parsed.signedAt === "string" ? parsed.signedAt : "",
       signedBy: typeof parsed.signedBy === "string" ? parsed.signedBy : "",
       username: typeof parsed.username === "string" ? parsed.username : "",
+      ...(parsed.method === "saved" || parsed.method === "drawn" ? { method: parsed.method } : {}),
     };
   } catch {
     return {
@@ -49,6 +52,6 @@ export function parseAnalystSignature(value: string): AnalystSignaturePayload {
 
 export function signatureSummary(value: string) {
   const signature = parseAnalystSignature(value);
-  if (signature.image) return "Drawn signature";
+  if (signature.image) return signature.method === "saved" ? "Saved signature" : "Drawn signature";
   return signature.typed || "Not signed";
 }

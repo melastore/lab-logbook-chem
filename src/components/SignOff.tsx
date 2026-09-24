@@ -1,12 +1,17 @@
 "use client";
 
-import { CheckCircle2, Circle, FileOutput, RefreshCw, TriangleAlert, Undo2 } from "lucide-react";
+import { useState } from "react";
+import { CheckCircle2, Circle, FileOutput, PenLine, RefreshCw, TriangleAlert, Undo2 } from "lucide-react";
 import { SignaturePad } from "./SignaturePad";
 
 type Check = { ok: boolean; text: string; bad?: boolean };
 
-// Signature line and submit checklist under a log sheet.
-export function SignOff({ analyst, date, checks, attempted, signature, onSignature, entries, submitting, error, disabled, onClearSheet, onUndoClear }: {
+// Signature line and submit checklist under a log sheet. A saved signature is
+// never applied on its own: the user clicks to sign with it for each submit.
+export function SignOff({
+  analyst, date, checks, attempted, signature, onSignature, entries, submitting, error, disabled,
+  saved, saveNext, onSaveNext, onRemoveSaved, sent, onClearSheet, onUndoClear,
+}: {
   analyst: string;
   date: string;
   checks: Check[];
@@ -17,24 +22,59 @@ export function SignOff({ analyst, date, checks, attempted, signature, onSignatu
   submitting: boolean;
   error: string;
   disabled?: boolean;
+  saved?: string | null;
+  saveNext?: boolean;
+  onSaveNext?: (v: boolean) => void;
+  onRemoveSaved?: () => void;
+  sent?: string;
   onClearSheet?: () => void;
   onUndoClear?: () => void;
 }) {
+  const [drawNew, setDrawNew] = useState(false);
+  const usingSaved = Boolean(saved && signature && signature === saved);
+  const offerSaved = Boolean(saved && !signature && !drawNew && !disabled);
+
   return (
     <section className="so" aria-label="Sign and submit">
       <div className="so-sign">
         <div className="so-sign-head">
           <span>Analyst signature</span>
-          {signature && !disabled && <button type="button" onClick={() => onSignature("")}>Clear</button>}
+          {signature && !disabled
+            ? <button type="button" onClick={() => onSignature("")}>Clear</button>
+            : saved && drawNew && <button type="button" onClick={() => setDrawNew(false)}>Use my saved signature</button>}
         </div>
-        <SignaturePad value={signature} onChange={onSignature} disabled={disabled} bare />
+
+        {offerSaved ? (
+          <div className="so-saved">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={saved!} alt="Your saved signature" />
+            <div className="so-saved-actions">
+              <button type="button" className="btn btn-primary btn-sm btn-icon-gap" onClick={() => onSignature(saved!)}>
+                <PenLine size={15} /> Sign with my saved signature
+              </button>
+              <button type="button" className="so-link" onClick={() => setDrawNew(true)}>Draw a new one</button>
+              {onRemoveSaved && <button type="button" className="so-link muted" onClick={onRemoveSaved}>Remove saved signature</button>}
+            </div>
+          </div>
+        ) : (
+          <SignaturePad value={signature} onChange={onSignature} disabled={disabled} bare />
+        )}
+
         <div className="so-sign-line">
           <span><small>Name</small>{analyst || "—"}</span>
           <span><small>Date</small>{date}</span>
+          {usingSaved && <span className="so-tag">Saved signature</span>}
         </div>
+        {signature && !usingSaved && !disabled && onSaveNext && (
+          <label className="so-save">
+            <input type="checkbox" checked={!!saveNext} onChange={(e) => onSaveNext(e.target.checked)} />
+            {saved ? "Replace my saved signature with this one" : "Save this as my signature for next time"}
+          </label>
+        )}
       </div>
 
       <div className="so-side">
+        {sent && <p className="so-sent" role="status"><CheckCircle2 size={16} /> {sent}</p>}
         <ul className="so-checks">
           {checks.map((c) => (
             <li key={c.text} className={c.ok ? "ok" : attempted || c.bad ? "bad" : ""}>
