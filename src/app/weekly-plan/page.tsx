@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { WeekPicker } from "@/components/WeekPicker";
-import { SheetCell as Cell, moveOnKey } from "@/components/SheetCell";
+import { SheetCell as Cell, moveOnKey, fitWidth } from "@/components/SheetCell";
 import {
   Trash2, CheckCircle2, Clock, FileSpreadsheet, History, X,
   AlertTriangle, Save,
@@ -358,8 +358,8 @@ export default function WeeklyPlanPage() {
               <colgroup>
                 <col className="xl-c-hdr" />
                 <col style={{ width: 42 }} /><col style={{ width: 81 }} /><col style={{ width: 118 }} />
-                <col style={{ width: 363 }} /><col style={{ width: 73 }} /><col style={{ width: 73 }} />
-                <col style={{ width: 286 }} /><col style={{ width: 97 }} /><col style={{ width: 92 }} />
+                <col style={{ width: fitWidth(tasks.map((t) => t.activity), 363, 560) }} /><col style={{ width: 73 }} /><col style={{ width: 73 }} />
+                <col style={{ width: fitWidth(tasks.map((t) => t.comment), 286, 480) }} /><col style={{ width: 97 }} /><col style={{ width: 92 }} />
               </colgroup>
               <thead>
                 <tr>

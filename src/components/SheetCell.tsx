@@ -66,3 +66,27 @@ export function colWidth(f: FormField) {
   if (f.type === "number") return 100;
   return 180;
 }
+
+// Widest a column may auto-fit to before its text wraps.
+export function colMaxWidth(f: FormField) {
+  if (f.type === "textarea") return 460;
+  if (f.type === "text") return 380;
+  if (f.type === "select") return 300;
+  return colWidth(f);
+}
+
+let measureCtx: CanvasRenderingContext2D | null = null;
+
+// Auto-fit like double-clicking a column edge in Excel: as wide as the longest
+// line, between min and max. Past max the cell wraps instead.
+export function fitWidth(texts: string[], min: number, max: number) {
+  if (typeof document === "undefined") return min;
+  measureCtx ??= document.createElement("canvas").getContext("2d");
+  if (!measureCtx) return min;
+  measureCtx.font = '16px "Times New Roman", Times, serif';
+  let widest = 0;
+  for (const text of texts) {
+    for (const line of (text || "").split("\n")) widest = Math.max(widest, measureCtx.measureText(line).width);
+  }
+  return Math.round(Math.min(max, Math.max(min, widest + 14)));
+}

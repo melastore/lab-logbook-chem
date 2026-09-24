@@ -3,7 +3,7 @@
 import { useState, type Dispatch, type SetStateAction } from "react";
 import { Trash2 } from "lucide-react";
 import type { FormField } from "@/lib/forms";
-import { SheetCell, moveOnKey, colName, colWidth } from "./SheetCell";
+import { SheetCell, moveOnKey, colName, colWidth, colMaxWidth, fitWidth } from "./SheetCell";
 
 type Row = Record<string, string>;
 
@@ -85,7 +85,7 @@ export function FormExcel({ title, info, fields, rows, setRows, newRow, maxRows,
           <colgroup>
             <col className="xl-c-hdr" />
             <col style={{ width: 44 }} />
-            {fields.map((f) => <col key={f.key} style={{ width: colWidth(f) }} />)}
+            {fields.map((f) => <col key={f.key} style={{ width: fitWidth(rows.map((r) => r[f.key] || ""), colWidth(f), colMaxWidth(f)) }} />)}
           </colgroup>
           <thead>
             <tr>

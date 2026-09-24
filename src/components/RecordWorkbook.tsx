@@ -6,7 +6,7 @@ import { LOG_TYPES } from "@/lib/logbook";
 import type { FormDef } from "@/lib/forms";
 import { displayFields, recordValue } from "@/lib/record-diff";
 import { parseAnalystSignature } from "@/lib/signature";
-import { colName, colWidth } from "./SheetCell";
+import { colName, colWidth, colMaxWidth, fitWidth } from "./SheetCell";
 import { labDate } from "./FormExcel";
 
 export type SheetSelection = {
@@ -66,7 +66,7 @@ export function RecordWorkbook({ records, forms, selectedId, onOpen, isCurrent, 
             <col style={{ width: 44 }} />
             <col style={{ width: 100 }} />
             {withInstrument && <><col style={{ width: 150 }} /><col style={{ width: 110 }} /></>}
-            {fields.map((f) => <col key={f.key} style={{ width: colWidth(f) }} />)}
+            {fields.map((f) => <col key={f.key} style={{ width: fitWidth(rows.map((r) => recordValue(r, f.key)), colWidth(f), colMaxWidth(f)) }} />)}
             <col style={{ width: 120 }} />
           </colgroup>
           <thead>
