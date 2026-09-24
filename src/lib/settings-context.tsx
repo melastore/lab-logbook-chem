@@ -4,7 +4,7 @@ import { createContext, useContext, useState, ReactNode } from "react";
 
 type Theme = "light" | "dark";
 type FontSize = "small" | "medium" | "large";
-type FormLayout = "spreadsheet" | "cards";
+type FormLayout = "excel" | "spreadsheet" | "cards";
 
 interface SettingsContextType {
   theme: Theme;
@@ -38,9 +38,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [formLayout, setFormLayoutState] = useState<FormLayout>(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("lab-form-layout") as FormLayout;
-      if (saved === "spreadsheet" || saved === "cards") return saved;
+      if (saved === "excel" || saved === "spreadsheet" || saved === "cards") return saved;
     }
-    return "spreadsheet";
+    return "excel";
   });
 
   const setTheme = (t: Theme) => {

@@ -15,6 +15,7 @@ import {
   type InstrumentNode, type FormDef, type FormField,
 } from "@/lib/forms";
 import { SignaturePad } from "@/components/SignaturePad";
+import { FormExcel, isBlankRow } from "@/components/FormExcel";
 import { AppHeader } from "@/components/AppHeader";
 import { toISODate } from "@/lib/weekly-plan";
 import { encodeAnalystSignature } from "@/lib/signature";
@@ -320,11 +321,13 @@ export default function AnalystEntryPage() {
 
 
 
-  const missingCount = rows.reduce((n, row) =>
+  // Extra rows left empty are dropped; the first row always counts.
+  const entryRows = rows.filter((row, i) => i === 0 || !isBlankRow(row));
+  const missingCount = entryRows.reduce((n, row) =>
     n + currentForm.fields.filter((f) => f.required && !(row[f.key] || "").trim()).length, 0);
   const badTimeRows = rows.map((row, i) => (endBeforeStart(row) ? i + 1 : 0)).filter(Boolean);
   const futureRows = rows.map((row, i) => (futureDate(row) ? i + 1 : 0)).filter(Boolean);
-  const canSubmit = Boolean(user) && showForm && missingCount === 0 && badTimeRows.length === 0 && futureRows.length === 0 && Boolean(signatureImage) && rows.length > 0;
+  const canSubmit = Boolean(user) && showForm && missingCount === 0 && badTimeRows.length === 0 && futureRows.length === 0 && Boolean(signatureImage) && entryRows.length > 0;
 
   function whatsMissing() {
     const parts: string[] = [];
@@ -352,7 +355,7 @@ export default function AnalystEntryPage() {
     setSubmitState("submitting");
     setMessage("");
 
-    const payloads = rows.map(row => {
+    const payloads = entryRows.map(row => {
       const meta: Record<string, string> = {};
       const std: Record<string, string> = {};
       for (const f of currentForm.fields) {
@@ -422,6 +425,14 @@ export default function AnalystEntryPage() {
     setSignatureImage("");
     setShowMissing(false);
   }
+
+  const sheetInfo: [string, string][] = mode === "analytical" && selectedInstrument
+    ? ([
+        ["Instrument", [selectedInstrument.name, selectedInstrument.instrumentId, selectedInstrument.model].filter(Boolean).join(" · ")],
+        ["Laboratory", [selectedInstrument.laboratoryName, selectedInstrument.location].filter(Boolean).join(" · ")],
+      ] as [string, string][]).filter(([, v]) => v)
+    : [];
+  const excel = formLayout === "excel";
 
   return (
     <main className="app-layout">
@@ -632,7 +643,7 @@ export default function AnalystEntryPage() {
                 </div>
               ) : (
               <form className="entry-form-panel panel shadow-sm" onSubmit={handleSubmit} noValidate>
-                <div className="doc-form-header" style={{ padding: '16px 24px', justifyContent: 'flex-start', gap: 12 }}>
+                {!excel && <div className="doc-form-header" style={{ padding: '16px 24px', justifyContent: 'flex-start', gap: 12 }}>
                   <h2 className="doc-form-title" style={{ margin: 0 }}>{currentForm.title}</h2>
                   {mode === "analytical" && selectedInstrument && (
                     <span className="doc-form-instrument">
@@ -640,12 +651,15 @@ export default function AnalystEntryPage() {
                       {selectedInstrument.instrumentId ? ` · ${selectedInstrument.instrumentId}` : ""}
                     </span>
                   )}
-                </div>
+                </div>}
 
                  {authReady && !user ? (
                   <div className="auth-preview-overlay-container">
                     <div className="auth-preview-blurred">
-                      {formLayout === 'cards' ? (
+                      {excel ? (
+                        <FormExcel title={currentForm.title} info={sheetInfo} fields={currentForm.fields}
+                          rows={rows} setRows={setRows} newRow={newRow} maxRows={MAX_ROWS} disabled />
+                      ) : formLayout === 'cards' ? (
                         <FormCards
                           fields={currentForm.fields}
                           rows={rows}
@@ -700,7 +714,11 @@ export default function AnalystEntryPage() {
                   </div>
                 ) : (
                   <>
-                    {formLayout === 'cards' ? (
+                    {excel ? (
+                      <FormExcel title={currentForm.title} info={sheetInfo} fields={currentForm.fields}
+                        rows={rows} setRows={setRows} newRow={newRow} maxRows={MAX_ROWS} showMissing={showMissing}
+                        onRemoveRow={(i) => setRows((prev) => prev.filter((_, idx) => idx !== i))} />
+                    ) : formLayout === 'cards' ? (
                       <FormCards
                         fields={currentForm.fields}
                         rows={rows}
@@ -779,7 +797,7 @@ function FormSpreadsheet({
   onRemoveRow?: (index: number) => void;
 }) {
   const isMissing = (f: FormField, row: Record<string, string>) =>
-    Boolean(showMissing && f.required && !(row[f.key] || "").trim());
+    Boolean(showMissing && f.required && !(row[f.key] || "").trim() && (row === rows[0] || !isBlankRow(row)));
   const tableRef = useRef<HTMLTableElement>(null);
 
   function updateCell(rowIndex: number, key: string, value: string) {
@@ -939,7 +957,7 @@ function FormCards({
   onRemoveRow?: (index: number) => void;
 }) {
   const isMissing = (f: FormField, row: Record<string, string>) =>
-    Boolean(showMissing && f.required && !(row[f.key] || "").trim());
+    Boolean(showMissing && f.required && !(row[f.key] || "").trim() && (row === rows[0] || !isBlankRow(row)));
   function updateCell(rowIndex: number, key: string, value: string) {
     if (disabled) return;
     setRows(prev => {

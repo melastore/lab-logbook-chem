@@ -5,7 +5,7 @@ import {
   User, Lock, Palette,
   CheckCircle2, XCircle, RefreshCw,
   Type, Eye, EyeOff, Check, ShieldCheck,
-  QrCode, Smartphone, Table2, LayoutList
+  QrCode, Smartphone, Table2, LayoutList, FileSpreadsheet
 } from "lucide-react";
 import type { AppUser } from "@/lib/logbook";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -543,10 +543,11 @@ export default function SettingsPage() {
 
               <div className="st-group">
                 <span className="st-group-label">Data-entry layout</span>
-                <div className="st-choices st-choices-2" role="radiogroup" aria-label="Data-entry layout">
+                <div className="st-choices st-choices-3" role="radiogroup" aria-label="Data-entry layout">
                   {([
+                    ["excel", <FileSpreadsheet key="i" size={16} />, "Excel", "The paper logbook as a sheet, with cell letters and a formula bar."],
                     ["spreadsheet", <Table2 key="i" size={16} />, "Spreadsheet", "All fields in one compact grid. Fastest for routine entries."],
-                    ["cards", <LayoutList key="i" size={16} />, "Vertical cards", "One field per line. Easiest to read on small screens."],
+                    ["cards", <LayoutList key="i" size={16} />, "Vertical", "One field per line. Easiest to read on small screens."],
                   ] as const).map(([value, icon, title, desc]) => (
                     <button key={value} type="button" role="radio" aria-checked={formLayout === value} className={`st-choice st-choice-row ${formLayout === value ? "active" : ""}`} onClick={() => setFormLayout(value)}>
                       <span className="st-choice-icon">{icon}</span>

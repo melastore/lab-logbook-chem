@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { WeekPicker } from "@/components/WeekPicker";
+import { SheetCell as Cell, moveOnKey } from "@/components/SheetCell";
 import {
   Trash2, CheckCircle2, Clock, FileSpreadsheet, History, X,
   AlertTriangle, Save,
@@ -46,39 +47,6 @@ function mmddyy(iso: string) {
 function excelDate(iso: string) {
   const d = parseISODate(iso);
   return d ? `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}` : "";
-}
-
-// Shows the formatted value, and the raw value/formula while focused, like a real cell.
-function Cell({ name, raw, display, onInput, onFocus, multiline, className = "" }: {
-  name: string; raw: string; display: string; onInput: (v: string) => void; onFocus: () => void;
-  multiline?: boolean; className?: string;
-}) {
-  const [draft, setDraft] = useState<string | null>(null);
-  const props = {
-    className: `xl-input ${className}`,
-    "data-cell": name,
-    value: draft ?? display,
-    spellCheck: false,
-    onFocus: () => { setDraft(raw); onFocus(); },
-    onBlur: () => setDraft(null),
-    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => { setDraft(e.target.value); onInput(e.target.value); },
-    onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => moveOnKey(e, name),
-  };
-  return multiline ? <textarea rows={1} {...props} /> : <input type="text" {...props} />;
-}
-
-// Enter / arrows move between rows, Shift+Enter goes up, like Excel.
-function moveOnKey(e: React.KeyboardEvent<HTMLElement>, name: string) {
-  const m = /^([A-Z])(\d+)$/.exec(name);
-  if (!m) return;
-  let row = Number(m[2]);
-  if ((e.key === "Enter" && !e.shiftKey) || e.key === "ArrowDown") row++;
-  else if ((e.key === "Enter" && e.shiftKey) || e.key === "ArrowUp") row--;
-  else return;
-  const next = document.querySelector<HTMLElement>(`[data-cell="${m[1]}${row}"]`);
-  if (!next) return;
-  e.preventDefault();
-  next.focus();
 }
 
 export default function WeeklyPlanPage() {

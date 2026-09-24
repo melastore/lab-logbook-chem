@@ -9619,6 +9619,7 @@ button:disabled {
 .st-group-label { font-size: 13px; font-weight: 700; color: var(--on-surface-variant); }
 .st-choices { display: grid; gap: 12px; }
 .st-choices-2 { grid-template-columns: 1fr 1fr; }
+.st-choices-3 { grid-template-columns: repeat(3, 1fr); }
 .st-choice {
   position: relative; display: grid; gap: 10px; padding: 12px; border-radius: 14px; cursor: pointer; text-align: left;
   border: 1.5px solid var(--outline-variant); background: var(--surface-1); color: var(--on-surface); font: inherit;
@@ -9679,7 +9680,7 @@ button:disabled {
   .st-2fa-enroll { flex-direction: column; align-items: center; text-align: left; }
   .st-code-row > * { flex: 1 1 auto; }
   .st-code { width: 100%; }
-  .st-choices-2 { grid-template-columns: 1fr; }
+  .st-choices-2, .st-choices-3 { grid-template-columns: 1fr; }
   .st-choices-2:has(.st-theme-mock) { grid-template-columns: 1fr 1fr; }
   .st-segment { max-width: none; }
 }
@@ -10219,3 +10220,24 @@ button:disabled {
 .wkp-foot span { display: inline-flex; align-items: center; gap: 6px; }
 .wkp-foot button { border: 0; background: transparent; color: var(--primary); font-weight: 700; font-size: 13px; cursor: pointer; padding: 4px 6px; border-radius: 6px; }
 .wkp-foot button:hover { background: var(--surface-3); }
+
+/* Log entry forms in the Excel layout (shares the .xl-sheet styles above) */
+.xl-form { display: grid; gap: 10px; padding: 16px 24px 8px; min-width: 0; }
+.xl-grid-form { max-height: 70vh; }
+.xl-form-title { font-size: 16pt; font-weight: 700; vertical-align: middle !important; }
+.xl-form-info { vertical-align: middle !important; }
+.xl-req { color: #c00000; margin-left: 2px; }
+.xl-sheet td.xl-no { color: #444; padding: 1px 3px; }
+.xl-bottom td:not(.xl-plain) { border-bottom: 2px solid #000; }
+.xl-sheet td.xl-missing { background: #ffc7ce; box-shadow: inset 0 0 0 1.5px #c00000; }
+.xl-input:disabled { color: #000; cursor: default; }
+.xl-select { appearance: none; -webkit-appearance: none; cursor: pointer; padding-right: 14px; }
+.xl-select option { color: #000; background: #fff; }
+td.xl-sel > .xl-select, td:hover > .xl-select {
+  background: linear-gradient(45deg, transparent 50%, #444 50%) right 7px center / 5px 5px no-repeat,
+              linear-gradient(-45deg, transparent 50%, #444 50%) right 2px center / 5px 5px no-repeat;
+}
+.xl-time::-webkit-calendar-picker-indicator { opacity: 0; }
+td.xl-sel > .xl-time::-webkit-calendar-picker-indicator, td:hover > .xl-time::-webkit-calendar-picker-indicator { opacity: .6; }
+@media (max-width: 760px) { .xl-form { padding: 12px 12px 4px; } }
+.xl-time.xl-empty:not(:focus), .xl-time.xl-empty:not(:focus)::-webkit-datetime-edit { color: transparent; }
