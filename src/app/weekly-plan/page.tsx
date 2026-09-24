@@ -2,20 +2,25 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { AppHeader } from "@/components/AppHeader";
+import { WeekPicker } from "@/components/WeekPicker";
 import {
-  Plus, Trash2, CheckCircle2, Clock, FileSpreadsheet, History, X,
-  AlertTriangle, ChevronLeft, ChevronRight, CalendarDays, Sigma, Save,
+  Trash2, CheckCircle2, Clock, FileSpreadsheet, History, X,
+  AlertTriangle, Save,
 } from "lucide-react";
 import type { AppUser } from "@/lib/logbook";
 import {
-  WEEKLY_HOURS, taskWeight, taskAchWeight, taskAchPercent, mondayOf, addWeeks, weekLabel, weekRangeDMY,
-  planStats, performanceRating, parseISODate, toISODate,
+  WEEKLY_HOURS, taskWeight, taskAchWeight, taskAchPercent, mondayOf, weekLabel, weekRangeDMY,
+  planStats, parseISODate, toISODate,
   type WeeklyTask, type WeeklyPlan,
 } from "@/lib/weekly-plan";
 import { templateSheet, summarySheets, sheetName, fileSafe } from "@/lib/weekly-export";
 
 const AUTOSAVE_MS = 2500;
-const QUICK_PCT = [0, 25, 50, 75, 100];
+// Same layout as may25weeklyPlan.xlsx: task rows start at 13, at least 13 of them.
+const FIRST_ROW = 13;
+const MIN_ROWS = 13;
+const COLS = ["A", "B", "C", "D", "E", "F", "G", "H", "I"] as const;
+type Col = (typeof COLS)[number];
 
 function addDays(iso: string, n: number) {
   const d = parseISODate(iso);
@@ -24,29 +29,57 @@ function addDays(iso: string, n: number) {
   return toISODate(d);
 }
 
-// Row numbers in the formula don't matter, the export remaps them.
-const pctFormula = (pct: number) => `=H13*${pct}/100`;
-
-function newTask(date: string): WeeklyTask {
-  return { id: crypto.randomUUID(), date, hours: 0, activity: "", achWeight: 0, achFormula: pctFormula(0), comment: "" };
+function blankTask(row: number, date = ""): WeeklyTask {
+  return { id: crypto.randomUUID(), date, hours: 0, activity: "", achWeight: 0, achFormula: `=H${row}*0/100`, comment: "" };
 }
 
-// Formulas the % control wrote itself. Anything else was typed by hand.
-function isPlainPct(formula = "") {
-  return /^=?\s*H\d*\s*\*\s*\d+(\.\d+)?\s*\/\s*100\s*$/i.test(formula.trim()) || !formula.trim();
+const isBlank = (t: WeeklyTask) => !t.date && !t.hours && !t.activity.trim() && !t.comment.trim();
+
+// Excel number formats used by the template.
+const pct = (v: number, dp = 0) => `${(v * 100).toFixed(dp)}%`;
+const fix = (v: number, dp: number) => v.toFixed(dp);
+function mmddyy(iso: string) {
+  const d = parseISODate(iso);
+  if (!d) return "";
+  return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}/${String(d.getFullYear()).slice(2)}`;
+}
+function excelDate(iso: string) {
+  const d = parseISODate(iso);
+  return d ? `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}` : "";
 }
 
-function achTone(pct: number) {
-  return pct >= 90 ? "good" : pct >= 50 ? "fair" : "low";
+// Shows the formatted value, and the raw value/formula while focused, like a real cell.
+function Cell({ name, raw, display, onInput, onFocus, multiline, className = "" }: {
+  name: string; raw: string; display: string; onInput: (v: string) => void; onFocus: () => void;
+  multiline?: boolean; className?: string;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const props = {
+    className: `xl-input ${className}`,
+    "data-cell": name,
+    value: draft ?? display,
+    spellCheck: false,
+    onFocus: () => { setDraft(raw); onFocus(); },
+    onBlur: () => setDraft(null),
+    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => { setDraft(e.target.value); onInput(e.target.value); },
+    onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => moveOnKey(e, name),
+  };
+  return multiline ? <textarea rows={1} {...props} /> : <input type="text" {...props} />;
 }
 
-// Empty dates sort last so unscheduled work sits at the bottom.
-function byDate(a: WeeklyTask, b: WeeklyTask) {
-  return (a.date || "9999").localeCompare(b.date || "9999");
+// Enter / arrows move between rows, Shift+Enter goes up, like Excel.
+function moveOnKey(e: React.KeyboardEvent<HTMLElement>, name: string) {
+  const m = /^([A-Z])(\d+)$/.exec(name);
+  if (!m) return;
+  let row = Number(m[2]);
+  if ((e.key === "Enter" && !e.shiftKey) || e.key === "ArrowDown") row++;
+  else if ((e.key === "Enter" && e.shiftKey) || e.key === "ArrowUp") row--;
+  else return;
+  const next = document.querySelector<HTMLElement>(`[data-cell="${m[1]}${row}"]`);
+  if (!next) return;
+  e.preventDefault();
+  next.focus();
 }
-
-const dayName = (iso: string) => parseISODate(iso)?.toLocaleDateString("en-GB", { weekday: "long" }) || "";
-const dayShort = (iso: string) => parseISODate(iso)?.toLocaleDateString("en-GB", { day: "numeric", month: "short" }) || "";
 
 export default function WeeklyPlanPage() {
   const [user, setUser] = useState<AppUser | null>(null);
@@ -63,8 +96,7 @@ export default function WeeklyPlanPage() {
   const [showHistory, setShowHistory] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string>("");
   const [deletingWeek, setDeletingWeek] = useState<string>("");
-  const [formulaOpen, setFormulaOpen] = useState<string>("");
-  const [focusId, setFocusId] = useState<string>("");
+  const [active, setActive] = useState<{ col: Col; row: number } | null>(null);
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -81,13 +113,9 @@ export default function WeeklyPlanPage() {
         setAllPlans(plans);
         const current = plans.find((p) => p.weekStartDate === weekStartDate);
         // Old rows only have executionPercent; give them a formula.
-        const rows = current && current.tasks.length > 0
-          ? current.tasks.map((t) => {
-              if (t.achFormula) return { ...t, achWeight: taskAchWeight(t) };
-              const pct = Math.round(taskAchPercent(t));
-              return { ...t, achFormula: pctFormula(pct), achWeight: taskAchWeight(t) };
-            })
-          : [newTask(weekStartDate)];
+        const rows = (current?.tasks || []).map((t, i) => t.achFormula
+          ? { ...t, achWeight: taskAchWeight(t) }
+          : { ...t, achFormula: `=H${FIRST_ROW + i}*${Math.round(taskAchPercent(t))}/100`, achWeight: taskAchWeight(t) });
         setTasks(rows);
         setSavedSnapshot(JSON.stringify(rows));
         setSaveError("");
@@ -97,30 +125,43 @@ export default function WeeklyPlanPage() {
       .catch(() => setLoadedWeek(`${user.username}:${weekStartDate}`));
   }, [user, weekStartDate]);
 
-  // New task goes after the last one on that day, so export rows stay in date order.
-  function addTask(date: string) {
-    const t = newTask(date);
-    setTasks((prev) => {
-      const at = prev.findLastIndex((x) => x.date && x.date <= date);
-      const next = [...prev];
-      next.splice(at + 1, 0, t);
-      return next;
-    });
-    setFocusId(t.id);
-  }
-
-  const removeTask = (id: string) => setTasks((t) => t.filter((x) => x.id !== id));
-
-  const updateTask = (id: string, patch: Partial<WeeklyTask>) => {
+  // Typing into an empty row below the last task fills the rows in between,
+  // so the text stays where it was typed. A new row gets the day after the
+  // last dated row above it, stopping at Friday.
+  function editRow(i: number, patch: Partial<WeeklyTask>) {
     setSaveError("");
     setTasks((prev) => {
-      const next = prev.map((x) => (x.id === id ? { ...x, ...patch } : x));
-      return patch.date !== undefined ? [...next].sort(byDate) : next;
+      const next = [...prev];
+      while (next.length <= i) next.push(blankTask(FIRST_ROW + next.length));
+      if (i >= prev.length && patch.date === undefined) {
+        const above = parseISODate(next.slice(0, i).findLast((t) => t.date)?.date || "");
+        if (above) {
+          const d = toISODate(new Date(above.getFullYear(), above.getMonth(), above.getDate() + 1));
+          const friday = addDays(weekStartDate, 4);
+          next[i] = { ...next[i], date: d > friday ? friday : d };
+        } else if (i === 0) {
+          next[i] = { ...next[i], date: weekStartDate };
+        }
+      }
+      next[i] = { ...next[i], ...patch };
+      // Drop blank rows left at the end, the sheet shows empty rows anyway.
+      while (next.length && isBlank(next[next.length - 1]) && next.length - 1 !== i) next.pop();
+      return next;
     });
-  };
+  }
 
-  const setPct = (id: string, pct: number) =>
-    updateTask(id, { achFormula: pctFormula(Math.min(Math.max(Math.round(pct), 0), 100)) });
+  function setCell(i: number, col: Col, value: string) {
+    if (col === "B") editRow(i, { date: value });
+    else if (col === "C") editRow(i, { hours: Math.max(parseFloat(value) || 0, 0) });
+    else if (col === "D") editRow(i, { activity: value });
+    else if (col === "G") editRow(i, { comment: value });
+    else if (col === "I") editRow(i, { achFormula: value });
+  }
+
+  const removeRow = (i: number) => {
+    setActive(null);
+    setTasks((t) => t.filter((_, j) => j !== i));
+  };
 
   const dirty = !loading && JSON.stringify(tasks) !== savedSnapshot;
 
@@ -184,7 +225,7 @@ export default function WeeklyPlanPage() {
 
   function goToWeek(week: string) {
     if (!week || week === weekStartDate || !okToLeave()) return;
-    setFormulaOpen("");
+    setActive(null);
     setWeekStartDate(week);
   }
 
@@ -198,9 +239,8 @@ export default function WeeklyPlanPage() {
     if (res.ok) {
       setAllPlans((prev) => prev.filter((p) => p.weekStartDate !== week));
       if (week === weekStartDate) {
-        const fresh = [newTask(weekStartDate)];
-        setTasks(fresh);
-        setSavedSnapshot(JSON.stringify(fresh));
+        setTasks([]);
+        setSavedSnapshot("[]");
         setSavedAt("");
       }
     }
@@ -213,7 +253,7 @@ export default function WeeklyPlanPage() {
     .sort((a, b) => b.weekStartDate.localeCompare(a.weekStartDate));
 
   const displayName = user?.fullName || user?.username || "";
-  const thisWeek = mondayOf();
+  const hasPlan = planStats(tasks).totalHours > 0;
 
   async function exportWeek() {
     const XLSX = await import("xlsx");
@@ -236,128 +276,58 @@ export default function WeeklyPlanPage() {
     XLSX.writeFile(wb, `weekly_history_${fileSafe(user?.username || "me")}.xlsx`);
   }
 
-  const stats = planStats(tasks);
-  const hasPlan = stats.taskCount > 0 && stats.totalHours > 0;
-  const rating = performanceRating(stats.achievement, hasPlan);
+  // Sheet values, computed the way the template formulas do.
+  const rowCount = Math.max(MIN_ROWS, tasks.length + 1);
+  const lastRow = FIRST_ROW + rowCount - 1;
+  const totalRow = lastRow + 1;
+  const sumRange = `SUM($H$${FIRST_ROW}:$H$${lastRow})`;
+  const c12 = tasks.reduce((s, t) => s + (Number(t.hours) || 0), 0);
+  const sumH = tasks.reduce((s, t) => s + taskWeight(t), 0);
+  const sumI = tasks.reduce((s, t) => s + taskAchWeight(t), 0);
+  const sumE = sumH > 0 ? 1 : 0;
+  const sumF = sumH > 0 ? sumI / sumH : 0;
+  const h6 = 8 / WEEKLY_HOURS;
+  const h8 = c12 / 5;
+  const range = weekRangeDMY(weekStartDate);
 
-  // Same numbers as the top block of the official template (H6..I9).
-  const dayWeight = 8 / WEEKLY_HOURS;
-  const dayHours = stats.totalHours / 5;
-  const official = [
-    { am: "የመንግስትን የሥራ ሰዓት አጠቃቀም ክብደት (የ1 ቀን)", value: dayWeight.toFixed(3), pct: `${((stats.totalAchWeight / dayWeight) * 100).toFixed(0)}%` },
-    { am: "የመንግስትን የሥራ ሰዓት አጠቃቀም አፈጻጸም (የ1 ቀን)", value: stats.totalAchWeight.toFixed(3), pct: "" },
-    { am: "እቅድ ክብደት (የ 1 ቀን)", value: dayHours.toFixed(1), pct: dayHours > 0 ? `${((stats.totalAchWeight / dayHours) * 100).toFixed(1)}%` : "0.0%" },
-    { am: "እቅድ አፈጻጸም (የ 1 ቀን)", value: stats.totalAchWeight.toFixed(1), pct: "" },
-  ];
+  function rawOf(i: number, col: Col): string {
+    const t = tasks[i];
+    const r = FIRST_ROW + i;
+    switch (col) {
+      case "B": return t?.date ? excelDate(t.date) : "";
+      case "C": return t?.hours ? String(t.hours) : "";
+      case "D": return t?.activity || "";
+      case "E": return `=IF(H${r}="","",H${r}/${sumRange})`;
+      case "F": return `=IF(I${r}="","",I${r}/SUM($H$${FIRST_ROW}:H$${lastRow}))`;
+      case "G": return t?.comment || "";
+      case "H": return `=IF(C${r}="","",C${r}/${WEEKLY_HOURS})`;
+      case "I": return t?.achFormula || "";
+      default: return "";
+    }
+  }
+
+  const editable = (col: Col) => col === "C" || col === "D" || col === "G" || col === "I";
+  const fxRaw = active && active.row >= FIRST_ROW && active.row <= lastRow ? rawOf(active.row - FIRST_ROW, active.col) : "";
+  const focus = (col: Col, row: number) => () => setActive({ col, row });
+  const sel = (col: Col, row: number) => (active?.col === col && active.row === row ? " xl-sel" : "");
 
   const overAchieved = tasks.filter((t) => taskAchWeight(t) > taskWeight(t) + 1e-9).length;
   const warnings = [
-    ...(stats.totalHours > WEEKLY_HOURS ? [`${stats.totalHours} hours planned, more than the ${WEEKLY_HOURS}-hour week.`] : []),
-    ...(overAchieved ? [`${overAchieved} task${overAchieved > 1 ? "s are" : " is"} over 100% done. Check the formula.`] : []),
+    ...(c12 > WEEKLY_HOURS ? [`${c12} hours entered, more than the ${WEEKLY_HOURS}-hour week.`] : []),
+    ...(overAchieved ? [`Ach. weight is higher than the weight on ${overAchieved} row${overAchieved > 1 ? "s" : ""}.`] : []),
   ];
 
-  // Mon..Fri always show; any other dates in the data get their own group.
-  const weekDays = [0, 1, 2, 3, 4].map((n) => addDays(weekStartDate, n));
-  const extraDays = [...new Set(tasks.map((t) => t.date).filter((d) => d && !weekDays.includes(d)))].sort();
-  const groups = [...weekDays, ...extraDays];
-  const unscheduled = tasks.filter((t) => !t.date);
-  const today = toISODate(new Date());
-
-  function renderTask(task: WeeklyTask) {
-    const w = taskWeight(task);
-    const pct = taskAchPercent(task);
-    const custom = !isPlainPct(task.achFormula);
-    const showFormula = formulaOpen === task.id || custom;
-    return (
-      <li key={task.id} className={`wk-task ${w > 0 && pct >= 100 - 1e-6 ? "is-done" : ""}`}>
-        <div className="wk-task-main">
-          <textarea
-            className="wk-task-title" rows={1} placeholder="What needs doing?"
-            value={task.activity} autoFocus={focusId === task.id}
-            onChange={(e) => updateTask(task.id, { activity: e.target.value })}
-          />
-          <input
-            className="wk-task-note" type="text" placeholder="Result or problem (optional)"
-            value={task.comment} onChange={(e) => updateTask(task.id, { comment: e.target.value })}
-          />
-        </div>
-
-        <div className="wk-task-side">
-          <label className="wk-hours" title={`Weight ${w.toFixed(3)} of the week`}>
-            <Clock size={14} />
-            <input type="number" min="0" step="0.5" value={task.hours || ""} placeholder="0" aria-label="Hours"
-              onChange={(e) => updateTask(task.id, { hours: parseFloat(e.target.value) || 0 })} />
-            <span>h</span>
-          </label>
-
-          <select className="wk-day-select" value={task.date} aria-label="Day"
-            onChange={(e) => updateTask(task.id, { date: e.target.value })}>
-            {weekDays.map((d) => <option key={d} value={d}>{dayName(d).slice(0, 3)} {dayShort(d)}</option>)}
-            {task.date && !weekDays.includes(task.date) && <option value={task.date}>{dayShort(task.date)}</option>}
-            <option value="">No day</option>
-          </select>
-
-          <div className="wk-task-actions">
-            <button type="button" className={`wk-icon-btn ${showFormula ? "on" : ""}`} title="Edit as a formula"
-              aria-label="Edit as a formula" onClick={() => setFormulaOpen(formulaOpen === task.id ? "" : task.id)}>
-              <Sigma size={15} />
-            </button>
-            <button type="button" className="wk-icon-btn danger" onClick={() => removeTask(task.id)} title="Remove task" aria-label="Remove task">
-              <Trash2 size={15} />
-            </button>
-          </div>
-        </div>
-
-        <div className="wk-task-progress">
-          <div className="wk-pct-chips" role="group" aria-label="Done">
-            {QUICK_PCT.map((p) => (
-              <button key={p} type="button" className={Math.round(pct) === p && !custom ? "on" : ""}
-                onClick={() => setPct(task.id, p)}>{p}%</button>
-            ))}
-          </div>
-          <div className="wk-bar" data-tone={achTone(pct)}><span style={{ width: `${Math.min(pct, 100)}%` }} /></div>
-          <span className="wk-pct-value" data-tone={achTone(pct)}>{pct.toFixed(0)}%</span>
-        </div>
-
-        {showFormula && (
-          <div className="wk-formula">
-            <label>
-              <span>Ach. weight</span>
-              <input type="text" spellCheck={false} value={task.achFormula ?? ""} placeholder="=H13*80/100"
-                onChange={(e) => updateTask(task.id, { achFormula: e.target.value })} />
-            </label>
-            <small>H is this task&apos;s weight ({w.toFixed(3)}), C its hours. Result: {taskAchWeight(task).toFixed(3)}</small>
-          </div>
-        )}
-      </li>
-    );
-  }
+  const rows = Array.from({ length: rowCount }, (_, i) => i);
 
   return (
-    <main className="app-layout wk-page">
+    <main className="app-layout xl-page">
       <AppHeader user={user} confirmLeave={okToLeave} />
 
-      <header className="wk-bar-top">
-        <div className="wk-heading">
-          <h1>Weekly plan</h1>
-          <p>{displayName}{displayName && " · "}{weekRangeDMY(weekStartDate)}</p>
-        </div>
+      <header className="xl-toolbar">
+        <WeekPicker value={weekStartDate} onChange={goToWeek} saved={new Set(savedWeeks.map((p) => p.weekStartDate))} />
 
-        <div className="wp-weeknav" role="group" aria-label="Week">
-          <button type="button" className="wp-weeknav-btn" onClick={() => goToWeek(addWeeks(weekStartDate, -1))} aria-label="Previous week"><ChevronLeft size={18} /></button>
-          <label className="wp-weeknav-label" title="Pick any day to open its week">
-            <CalendarDays size={16} />
-            <span><small>Week of</small>{weekLabel(weekStartDate)}</span>
-            <input type="date" value={weekStartDate} aria-label="Pick a week" onChange={(e) => goToWeek(mondayOf(e.target.value))} />
-          </label>
-          <button type="button" className="wp-weeknav-btn" onClick={() => goToWeek(addWeeks(weekStartDate, 1))} aria-label="Next week"><ChevronRight size={18} /></button>
-        </div>
-
-        <div className="wk-top-actions">
-          {weekStartDate !== thisWeek && (
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => goToWeek(thisWeek)}>This week</button>
-          )}
-          <span className={`wk-save ${saveError ? "error" : dirty || saving ? "pending" : "ok"}`} role="status">
+        <div className="xl-toolbar-end">
+          <span className={`xl-save ${saveError ? "error" : dirty || saving ? "pending" : "ok"}`} role="status">
             {loading ? "" : saving ? "Saving…" : saveError ? "Not saved" : dirty ? "Unsaved"
               : savedAt ? <><CheckCircle2 size={14} /> Saved {new Date(savedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</> : ""}
           </span>
@@ -369,99 +339,169 @@ export default function WeeklyPlanPage() {
           <button className="btn btn-outline btn-sm" onClick={() => setShowHistory(true)} disabled={loading}>
             <History size={15} /> <span>History</span>
           </button>
-          <button className="btn btn-outline btn-sm" onClick={exportWeek} disabled={loading || !hasPlan} title="Download in the official Excel template">
+          <button className="btn btn-outline btn-sm" onClick={exportWeek} disabled={loading || !hasPlan} title="Download as .xlsx">
             <FileSpreadsheet size={15} /> <span>Export</span>
           </button>
         </div>
       </header>
 
       {loading ? (
-        <div className="wk-loading">Loading…</div>
+        <div className="xl-loading">Loading…</div>
       ) : (
-        <div className="wk-layout">
-          <aside className="wk-summary">
-            <div className="wk-score" data-tone={hasPlan ? achTone(stats.achievement) : "none"}>
-              <div className="wk-ring" style={{ ["--p" as string]: Math.min(stats.achievement, 100) }}>
-                <strong>{stats.achievement.toFixed(0)}<small>%</small></strong>
-              </div>
-              <div>
-                <span className="wk-label">Achieved</span>
-                <b>{rating.label}</b>
-              </div>
+        <div className="xl-wrap">
+          {(saveError || warnings.length > 0) && (
+            <div className="xl-alerts" role="status">
+              {saveError && <p className="error"><AlertTriangle size={14} /> {saveError}</p>}
+              {warnings.map((w) => <p key={w}><AlertTriangle size={14} /> {w}</p>)}
             </div>
+          )}
 
-            <dl className="wk-figures">
-              <div>
-                <dt>Hours</dt>
-                <dd className={stats.totalHours > WEEKLY_HOURS ? "over" : ""}>{stats.totalHours}<small> / {WEEKLY_HOURS}</small></dd>
-              </div>
-              <div>
-                <dt>Tasks done</dt>
-                <dd>{stats.completed}<small> / {stats.taskCount}</small></dd>
-              </div>
-              <div>
-                <dt>Weight</dt>
-                <dd>{stats.totalWeight.toFixed(3)}</dd>
-              </div>
-              <div>
-                <dt>Ach. weight</dt>
-                <dd>{stats.totalAchWeight.toFixed(3)}</dd>
-              </div>
-            </dl>
-            <div className="wk-hours-meter" aria-hidden>
-              <span style={{ width: `${Math.min((stats.totalHours / WEEKLY_HOURS) * 100, 100)}%` }} />
-            </div>
+          <div className="xl-fx">
+            <div className="xl-namebox">{active ? `${active.col}${active.row}` : ""}</div>
+            <div className="xl-fx-icon"><em>fx</em></div>
+            <input
+              className="xl-fx-input" type="text" spellCheck={false}
+              value={fxRaw}
+              readOnly={!active || !editable(active.col) || active.row < FIRST_ROW || active.row > lastRow}
+              onChange={(e) => active && setCell(active.row - FIRST_ROW, active.col, e.target.value)}
+            />
+          </div>
 
-            <details className="wk-official">
-              <summary>Template figures</summary>
-              <table>
-                <tbody>
-                  {official.map((r) => (
-                    <tr key={r.am}><th>{r.am}</th><td>{r.value}</td><td>{r.pct}</td></tr>
-                  ))}
-                </tbody>
-              </table>
-            </details>
-          </aside>
+          <div className="xl-grid">
+            <table className="xl-sheet">
+              <colgroup>
+                <col className="xl-c-hdr" />
+                <col style={{ width: 42 }} /><col style={{ width: 81 }} /><col style={{ width: 118 }} />
+                <col style={{ width: 363 }} /><col style={{ width: 73 }} /><col style={{ width: 73 }} />
+                <col style={{ width: 286 }} /><col style={{ width: 97 }} /><col style={{ width: 92 }} />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th className="xl-corner" />
+                  {COLS.map((c) => <th key={c} className={active?.col === c ? "on" : ""}>{c}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="xl-h25"><th>1</th><td /><td /><td /><td /><td /><td /><td /><td /><td /></tr>
+                <tr className="xl-h29"><th>2</th><td /><td /><td /><td colSpan={4} /><td /><td /></tr>
+                <tr className="xl-h26 xl-big">
+                  <th>3</th><td /><td /><td className="b">Name:</td><td className="b">{displayName}</td><td /><td /><td /><td /><td />
+                </tr>
+                <tr className="xl-h10"><th>4</th><td /><td /><td /><td /><td /><td /><td /><td /><td /></tr>
+                <tr className="xl-h34">
+                  <th>5</th><td />
+                  <td colSpan={8} className="xl-r5">በሳምንቱ ክትትል የሚያስፈልጋቸው ስራዎች  ({range})</td>
+                </tr>
 
-          <section className="wk-days">
-            {(saveError || warnings.length > 0) && (
-              <div className="wk-alerts" role="status">
-                {saveError && <p className="error"><AlertTriangle size={15} /> {saveError}</p>}
-                {warnings.map((w) => <p key={w}><AlertTriangle size={15} /> {w}</p>)}
-              </div>
-            )}
+                <tr className="xl-sum xl-top">
+                  <th>6</th><td className="xl-plain" />
+                  <td colSpan={3} rowSpan={4} className="xl-l c m">እቅድ (የሚሸፍነው ግዜ፡ 1 ሳምንት)  ({range})</td>
+                  <td rowSpan={4} className="c m">{pct(sumE)}</td>
+                  <td colSpan={2} className="l">የመንግስትን የሥራ ሰዓት አጠቃቀም  ክብደት (የ1 ቀን)</td>
+                  <td className="c t">{fix(h6, 2)}</td>
+                  <td rowSpan={2} className="xl-r c m">{pct(sumI / h6)}</td>
+                </tr>
+                <tr className="xl-sum">
+                  <th>7</th><td className="xl-plain" />
+                  <td colSpan={2} className="l">የመንግስትን የሥራ ሰዓት አጠቃቀም አፈጻጸም (የ1 ቀን)</td>
+                  <td className="c t">{fix(sumI, 2)}</td>
+                </tr>
+                <tr className="xl-sum">
+                  <th>8</th><td className="xl-plain" />
+                  <td colSpan={2} className="l">እቅድ ክብደት (የ 1 ቀን)</td>
+                  <td className="c t">{fix(h8, 1)}</td>
+                  <td rowSpan={2} className="xl-r c m">{h8 > 0 ? pct(sumI / h8, 1) : ""}</td>
+                </tr>
+                <tr className="xl-sum">
+                  <th>9</th><td className="xl-plain" />
+                  <td colSpan={2} className="l">እቅድ አፈጻጸም (የ 1 ቀን)</td>
+                  <td className="c t">{fix(sumI, 1)}</td>
+                </tr>
 
-            {groups.map((day) => {
-              const dayTasks = tasks.filter((t) => t.date === day);
-              const hours = dayTasks.reduce((s, t) => s + (Number(t.hours) || 0), 0);
-              const outside = !weekDays.includes(day);
-              return (
-                <div key={day} className={`wk-day ${day === today ? "is-today" : ""} ${outside ? "is-outside" : ""}`}>
-                  <div className="wk-day-head">
-                    <div className="wk-day-name">
-                      <strong>{dayName(day)}</strong>
-                      <span>{dayShort(day)}{outside && " · outside this week"}</span>
-                    </div>
-                    {hours > 0 && <span className="wk-day-hours">{hours} h</span>}
-                  </div>
-                  {dayTasks.length > 0 && <ul className="wk-tasks">{dayTasks.map(renderTask)}</ul>}
-                  <button type="button" className="wk-add" onClick={() => addTask(day)}>
-                    <Plus size={15} /> Add task
-                  </button>
-                </div>
-              );
-            })}
+                <tr className="xl-head">
+                  <th>10</th><td className="xl-plain" />
+                  <td rowSpan={3} className="xl-l">Date (mm.dd.yy)</td>
+                  <td rowSpan={2}>ስራው የሚፈጀው ሰዓት</td>
+                  <td rowSpan={3} className="m">ዋና ዋና ተግባራት</td>
+                  <td rowSpan={2}>እቅድ (የሳምንቱ)</td>
+                  <td rowSpan={2}>አፈጻጸም (የሳምንቱ)</td>
+                  <td rowSpan={3} className="m">አስተያየት /የተገኘ ውጤት፣ የደረሰ ጉዳት፣ ያጋጠመ ችግር.../</td>
+                  <td colSpan={2} className="xl-r m">ክብደት</td>
+                </tr>
+                <tr className="xl-head">
+                  <th>11</th><td className="xl-plain" />
+                  <td rowSpan={2}>የስራው ክብደት</td>
+                  <td rowSpan={2} className="xl-r">የአፈጻጸም ክብደት</td>
+                </tr>
+                <tr className="xl-head xl-h20">
+                  <th>12</th><td className="xl-plain" />
+                  <td className="b">{fix(c12, 2)}</td>
+                  <td>{pct(sumE)}</td>
+                  <td>{pct(sumF)}</td>
+                </tr>
 
-            {unscheduled.length > 0 && (
-              <div className="wk-day is-outside">
-                <div className="wk-day-head">
-                  <div className="wk-day-name"><strong>No day set</strong></div>
-                </div>
-                <ul className="wk-tasks">{unscheduled.map(renderTask)}</ul>
-              </div>
-            )}
-          </section>
+                {rows.map((i) => {
+                  const r = FIRST_ROW + i;
+                  const t = tasks[i];
+                  const h = t && t.hours ? taskWeight(t) : null;
+                  const iv = h != null ? taskAchWeight(t) : null;
+                  const over = h != null && iv != null && iv > h + 1e-9;
+                  return (
+                    <tr key={r} className="xl-row">
+                      <th className={active?.row === r ? "on" : ""}>
+                        <span>{r}</span>
+                        {t && (
+                          <button type="button" className="xl-del" onClick={() => removeRow(i)} title={`Delete row ${r}`} aria-label={`Delete row ${r}`}>
+                            <Trash2 size={12} />
+                          </button>
+                        )}
+                      </th>
+                      <td className="xl-plain" />
+                      <td className={`xl-l c xl-date${sel("B", r)}`}>
+                        <span>{t?.date ? mmddyy(t.date) : ""}</span>
+                        <input type="date" data-cell={`B${r}`} value={t?.date || ""} aria-label={`B${r}`}
+                          onFocus={focus("B", r)} onChange={(e) => setCell(i, "B", e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && moveOnKey(e, `B${r}`)} />
+                      </td>
+                      <td className={`c${sel("C", r)}`}>
+                        <Cell name={`C${r}`} raw={rawOf(i, "C")} display={t?.hours ? fix(t.hours, 2) : ""} className="c"
+                          onFocus={focus("C", r)} onInput={(v) => setCell(i, "C", v)} />
+                      </td>
+                      <td className={sel("D", r)}>
+                        <Cell name={`D${r}`} raw={rawOf(i, "D")} display={t?.activity || ""} multiline
+                          onFocus={focus("D", r)} onInput={(v) => setCell(i, "D", v)} />
+                      </td>
+                      <td className={`c b xl-calc${sel("E", r)}`} onClick={focus("E", r)}>{h != null && sumH > 0 ? pct(h / sumH) : ""}</td>
+                      <td className={`c b xl-calc${sel("F", r)}`} onClick={focus("F", r)}>{iv != null && sumH > 0 ? pct(iv / sumH) : ""}</td>
+                      <td className={sel("G", r)}>
+                        <Cell name={`G${r}`} raw={rawOf(i, "G")} display={t?.comment || ""} multiline
+                          onFocus={focus("G", r)} onInput={(v) => setCell(i, "G", v)} />
+                      </td>
+                      <td className={`c xl-calc${sel("H", r)}`} onClick={focus("H", r)}>{h != null ? fix(h, 4) : ""}</td>
+                      <td className={`xl-r c${sel("I", r)}${over ? " xl-warn" : ""}`}>
+                        <Cell name={`I${r}`} raw={rawOf(i, "I") || `=H${r}*0/100`} display={iv != null ? fix(iv, 4) : ""} className="c"
+                          onFocus={focus("I", r)} onInput={(v) => setCell(i, "I", v)} />
+                      </td>
+                    </tr>
+                  );
+                })}
+
+                <tr className="xl-total">
+                  <th>{totalRow}</th><td className="xl-plain" />
+                  <td className="xl-l xl-nofill" />
+                  <td className="xl-nofill" />
+                  <td />
+                  <td className="c b">{pct(sumE)}</td>
+                  <td className="c b">{pct(sumF)}</td>
+                  <td />
+                  <td />
+                  <td className="xl-r" />
+                </tr>
+                <tr className="xl-after"><th>{totalRow + 1}</th><td /><td /><td /><td /><td /><td /><td /><td /><td /></tr>
+              </tbody>
+            </table>
+          </div>
+          <p className="xl-tip">Type into any empty row to add a task. In column I, write the achievement as a formula, e.g. <code>=H13*80/100</code>.</p>
         </div>
       )}
 
@@ -473,7 +513,7 @@ export default function WeeklyPlanPage() {
                 <h3><History size={18} /> Report history</h3>
                 <p>{savedWeeks.length} saved week{savedWeeks.length === 1 ? "" : "s"}</p>
               </div>
-              <div className="wk-history-tools">
+              <div className="wp-history-tools">
                 {savedWeeks.length > 0 && (
                   <button className="btn btn-outline btn-sm" type="button" onClick={exportHistory} title="Export all weeks">
                     <FileSpreadsheet size={15} /> <span>Export all</span>
@@ -506,8 +546,8 @@ export default function WeeklyPlanPage() {
                       <div className="wp-history-meta">
                         <span><Clock size={13} /> {s.totalHours} h</span>
                         <span>{s.taskCount} task{s.taskCount === 1 ? "" : "s"}</span>
-                        <span className="wp-history-ach" data-tone={achTone(s.achievement)}>
-                          {s.achievement.toFixed(0)}% · {performanceRating(s.achievement).label}
+                        <span className="wp-history-ach">
+                          {s.achievement.toFixed(0)}% achieved
                         </span>
                       </div>
                     </button>
