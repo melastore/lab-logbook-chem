@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ChangeEvent, type KeyboardEvent } from "react";
+import type { FormField } from "@/lib/forms";
 
 // Excel-style cell: shows the formatted value, and the raw value/formula while
 // focused. `name` is the cell address (e.g. "C14") used for keyboard moves.
@@ -44,4 +45,12 @@ export function colName(i: number): string {
   let s = "";
   for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s;
   return s;
+}
+
+export function colWidth(f: FormField) {
+  if (f.type === "textarea") return 260;
+  if (f.type === "date") return 110;
+  if (f.type === "time") return 84;
+  if (f.type === "number") return 100;
+  return 150;
 }

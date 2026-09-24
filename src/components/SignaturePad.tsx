@@ -7,14 +7,16 @@ type SignaturePadProps = {
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
+  // Just the drawing area; the caller shows status and Clear.
+  bare?: boolean;
 };
 
-export function SignaturePad({ value, onChange, disabled }: SignaturePadProps) {
+export function SignaturePad({ value, onChange, disabled, bare }: SignaturePadProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef(false);
   const lastPointRef = useRef<{ x: number; y: number } | null>(null);
   const valueRef = useRef(value);
-  // Hides the hint the instant the pen touches down, not on pointer-up.
+  // Hides the hint the instant the pen touches down, before value is set on pointer-up.
   const [hasInk, setHasInk] = useState(false);
 
   const prepareCanvas = useCallback(() => {
@@ -119,6 +121,7 @@ export function SignaturePad({ value, onChange, disabled }: SignaturePadProps) {
     event.preventDefault();
     drawingRef.current = false;
     lastPointRef.current = null;
+    setHasInk(false);
     onChange(event.currentTarget.toDataURL("image/png"));
   }
 
@@ -152,7 +155,7 @@ export function SignaturePad({ value, onChange, disabled }: SignaturePadProps) {
         )}
       </div>
 
-      <div className="signature-actions">
+      {!bare && <div className="signature-actions">
         <span className={`signature-state ${value ? "signed" : ""}`}>
           <span className="signature-dot" aria-hidden="true" />
           {disabled
@@ -169,7 +172,7 @@ export function SignaturePad({ value, onChange, disabled }: SignaturePadProps) {
         >
           <Eraser size={14} /> Clear
         </button>
-      </div>
+      </div>}
     </div>
   );
 }

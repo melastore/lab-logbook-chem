@@ -133,16 +133,32 @@ export default function WeeklyPlanPage() {
 
   const dirty = !loading && JSON.stringify(tasks) !== savedSnapshot;
 
-  useEffect(() => {
-    if (!dirty) return;
-    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); };
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [dirty]);
-
-  function okToLeave() {
-    return !dirty || window.confirm("You have unsaved changes to this week. Leave without saving?");
+  // Leaving the week never asks: unsaved changes are sent in the background.
+  // keepalive lets the request finish even if the page is going away.
+  function saveBeforeLeaving() {
+    if (!user || !dirty) return true;
+    const body = { username: user.username, weekStartDate, tasks };
+    fetch("/api/weekly-plan", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), keepalive: true,
+    }).catch(() => {});
+    setAllPlans((prev) => [...prev.filter((p) => p.weekStartDate !== weekStartDate), { ...body, updatedAt: new Date().toISOString() }]);
+    return true;
   }
+
+  // Closing the tab: same idea, with sendBeacon since the page is gone.
+  const pendingRef = useRef<string | null>(null);
+  const weekRef = useRef(weekStartDate);
+  useEffect(() => {
+    weekRef.current = weekStartDate;
+    pendingRef.current = user && dirty ? JSON.stringify({ username: user.username, weekStartDate, tasks }) : null;
+  }, [user, dirty, weekStartDate, tasks]);
+  useEffect(() => {
+    const flush = () => {
+      if (pendingRef.current) navigator.sendBeacon("/api/weekly-plan", new Blob([pendingRef.current], { type: "application/json" }));
+    };
+    window.addEventListener("pagehide", flush);
+    return () => window.removeEventListener("pagehide", flush);
+  }, []);
 
   // Saves what was on screen when the save started; edits made while it is
   // in flight stay dirty and go out with the next save.
@@ -161,16 +177,17 @@ export default function WeeklyPlanPage() {
         body: JSON.stringify({ username: user.username, weekStartDate: week, tasks }),
       });
       const d = await res.json().catch(() => ({}));
+      // The week may have changed while this was in flight.
+      const still = week === weekRef.current;
       if (res.ok && d.plan) {
         const saved = d.plan as WeeklyPlan;
-        setSavedAt(saved.updatedAt);
-        setSavedSnapshot(snapshot);
+        if (still) { setSavedAt(saved.updatedAt); setSavedSnapshot(snapshot); }
         setAllPlans((prev) => [...prev.filter((p) => p.weekStartDate !== week), saved]);
-      } else {
+      } else if (still) {
         setSaveError(d.error || "Couldn't save. Your changes are still here, try again.");
       }
     } catch {
-      setSaveError("Couldn't save, check your connection. Your changes are still here.");
+      if (week === weekRef.current) setSaveError("Couldn't save, check your connection. Your changes are still here.");
     }
     savingRef.current = false;
     setSaving(false);
@@ -192,7 +209,8 @@ export default function WeeklyPlanPage() {
   }, [dirty, savePlan]);
 
   function goToWeek(week: string) {
-    if (!week || week === weekStartDate || !okToLeave()) return;
+    if (!week || week === weekStartDate) return;
+    saveBeforeLeaving();
     setActive(null);
     setWeekStartDate(week);
   }
@@ -289,7 +307,7 @@ export default function WeeklyPlanPage() {
 
   return (
     <main className="app-layout xl-page">
-      <AppHeader user={user} confirmLeave={okToLeave} />
+      <AppHeader user={user} confirmLeave={saveBeforeLeaving} />
 
       <header className="xl-toolbar">
         <WeekPicker value={weekStartDate} onChange={goToWeek} saved={new Set(savedWeeks.map((p) => p.weekStartDate))} />
@@ -469,7 +487,11 @@ export default function WeeklyPlanPage() {
               </tbody>
             </table>
           </div>
-          <p className="xl-tip">Type into any empty row to add a task. In column I, write the achievement as a formula, e.g. <code>=H13*80/100</code>.</p>
+          <div className="xl-status">
+            <span>Ready</span>
+            <span className="xl-status-hint">Type in any empty row to add a task. Column I takes a formula, e.g. <code>=H13*80/100</code></span>
+            <span className="xl-status-end">Hours: {c12}</span>
+          </div>
         </div>
       )}
 

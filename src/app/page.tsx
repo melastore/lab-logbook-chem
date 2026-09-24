@@ -4,9 +4,9 @@ import { FormEvent, useEffect, useMemo, useState, useRef, KeyboardEvent } from "
 import Link from "next/link";
 import {
   Activity, ArrowRight, X, Search,
-  CheckCircle2, AlertCircle, Microscope,
+  CheckCircle2, Microscope,
   ChevronRight, ChevronDown, Zap, Droplets, Beaker,
-  RefreshCw, FileOutput, Info, PanelLeftClose, PanelLeft, Plus, Trash2
+  PanelLeftClose, PanelLeft, Plus, Trash2
 } from "lucide-react";
 import { LabLogo } from "@/components/LabLogo";
 import type { AppUser, InstrumentTemplate, InstrumentCategory } from "@/lib/logbook";
@@ -14,8 +14,8 @@ import {
   INSTRUMENT_TREE, ANALYTICAL_FORMS, SAMPLE_FORMS, INSTRUMENT_INFO_FORM, STANDARD_KEYS, INSTRUMENT_STANDARD_KEYS,
   type InstrumentNode, type FormDef, type FormField,
 } from "@/lib/forms";
-import { SignaturePad } from "@/components/SignaturePad";
-import { FormExcel, isBlankRow } from "@/components/FormExcel";
+import { SignOff } from "@/components/SignOff";
+import { FormExcel, isBlankRow, labDate } from "@/components/FormExcel";
 import { AppHeader } from "@/components/AppHeader";
 import { toISODate } from "@/lib/weekly-plan";
 import { encodeAnalystSignature } from "@/lib/signature";
@@ -59,6 +59,17 @@ function futureDate(row: Record<string, string>) {
 }
 
 const MAX_ROWS = 50;
+
+type Draft = { rows: Record<string, string>[]; signature: string };
+const DRAFTS_KEY = "lab-entry-drafts";
+
+// Storage can be missing or full (private mode); drafts are a convenience.
+function readDrafts(): Record<string, Draft> {
+  try { return JSON.parse(localStorage.getItem(DRAFTS_KEY) || "{}"); } catch { return {}; }
+}
+function writeDrafts(drafts: Record<string, Draft>) {
+  try { localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts)); } catch { /* ignore */ }
+}
 
 export default function AnalystEntryPage() {
   const [user, setUser] = useState<AppUser | null>(null);
@@ -161,21 +172,45 @@ export default function AnalystEntryPage() {
 
   const showForm = mode === "analytical" ? selectedInstrument !== null : true;
 
-  // Anything typed beyond the prefilled date/analyst, or a signature, is work
-  // worth asking about before it's thrown away.
-  const isDirty = Boolean(signatureImage) || rows.length > 1 || rows.some((row) =>
-    Object.entries(row).some(([k, v]) => k !== "date" && k !== "analyst" && (v || "").trim()));
+  // Anything typed beyond the prefilled date/analyst, or a signature.
+  const isDirty = Boolean(signatureImage) || rows.some((row) => !isBlankRow(row));
 
-  function confirmDiscard() {
-    return !isDirty || window.confirm("You have an unsubmitted entry. Discard it?");
-  }
+  // Unsubmitted work is kept per user, instrument and form, so switching
+  // away and back brings it back instead of asking to discard it.
+  const formIdFor = (m: Mode) => (m === "analytical" ? analyticalFormId : sampleFormId);
+  const keyFor = (m: Mode, instrumentId: string | undefined, formId: string) =>
+    `${user?.username || ""}:${m}:${m === "analytical" ? instrumentId || "" : ""}:${formId}`;
+  const entryKey = keyFor(mode, selectedInstrument?.id, formIdFor(mode));
 
   useEffect(() => {
-    if (!isDirty) return;
-    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); };
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [isDirty]);
+    if (!user || !showForm) return;
+    const drafts = readDrafts();
+    if (isDirty) drafts[entryKey] = { rows, signature: signatureImage };
+    else delete drafts[entryKey];
+    writeDrafts(drafts);
+  }, [user, showForm, entryKey, isDirty, rows, signatureImage]);
+
+  const [cleared, setCleared] = useState<Draft | null>(null);
+  useEffect(() => {
+    if (!cleared) return;
+    const t = setTimeout(() => setCleared(null), 8000);
+    return () => clearTimeout(t);
+  }, [cleared]);
+
+  function clearSheet() {
+    setCleared({ rows, signature: signatureImage });
+    setRows([newRow()]);
+    setSignatureImage("");
+    setShowMissing(false);
+    resetTransient();
+  }
+
+  function undoClear() {
+    if (!cleared) return;
+    setRows(cleared.rows);
+    setSignatureImage(cleared.signature);
+    setCleared(null);
+  }
 
   function resetTransient() {
     setSubmitState("idle");
@@ -186,20 +221,22 @@ export default function AnalystEntryPage() {
     return { date: todayISO(), ...(user ? { analyst: user.fullName || user.username } : {}) };
   }
 
-  // Switching instrument or form starts a fresh entry, so values typed for one
-  // instrument can't be submitted under another.
-  function resetEntry() {
-    setRows([newRow()]);
-    setSignatureImage("");
+  // Each instrument and form has its own sheet, so values typed for one
+  // can't be submitted under another.
+  function resetEntry(key: string) {
+    const draft = readDrafts()[key];
+    setRows(draft?.rows?.length ? draft.rows : [newRow()]);
+    setSignatureImage(draft?.signature || "");
     setShowMissing(false);
+    setCleared(null);
     resetTransient();
   }
 
   function switchMode(next: Mode) {
-    if (next === mode || !confirmDiscard()) return;
+    if (next === mode) return;
     setMode(next);
     setNavOpen(false);
-    resetEntry();
+    resetEntry(keyFor(next, selectedInstrument?.id, formIdFor(next)));
   }
 
   function toggleGroup(id: string) {
@@ -212,7 +249,6 @@ export default function AnalystEntryPage() {
 
   function pickInstrument(node: InstrumentNode) {
     if (selectedInstrument?.id === node.id) { setNavOpen(false); return; }
-    if (!confirmDiscard()) return;
     const matched = templates.find(t => t.instrumentId === node.instrumentId);
     if (matched) {
       const t = matched;
@@ -240,7 +276,7 @@ export default function AnalystEntryPage() {
     }
     setAnalyticalFormId(analyticalForms[0].id);
     setNavOpen(false);
-    resetEntry();
+    resetEntry(keyFor("analytical", node.id, analyticalForms[0].id));
   }
 
   // Saved instrument templates grouped by category. The categories table (with
@@ -282,7 +318,6 @@ export default function AnalystEntryPage() {
 
   function pickTemplate(t: InstrumentTemplate) {
     if (selectedInstrument?.id === t.id) { setNavOpen(false); return; }
-    if (!confirmDiscard()) return;
     setSelectedInstrument({
       id: t.id,
       name: t.instrumentName,
@@ -308,18 +343,15 @@ export default function AnalystEntryPage() {
     setInstrumentForm(f || INSTRUMENT_INFO_FORM);
     setAnalyticalFormId(analyticalForms[0].id);
     setNavOpen(false);
-    resetEntry();
+    resetEntry(keyFor("analytical", t.id, analyticalForms[0].id));
   }
 
   function pickSampleForm(id: string) {
     if (id === sampleFormId) { setNavOpen(false); return; }
-    if (!confirmDiscard()) return;
     setSampleFormId(id);
     setNavOpen(false);
-    resetEntry();
+    resetEntry(keyFor("sampleprep", undefined, id));
   }
-
-
 
   // Extra rows left empty are dropped; the first row always counts.
   const entryRows = rows.filter((row, i) => i === 0 || !isBlankRow(row));
@@ -329,27 +361,25 @@ export default function AnalystEntryPage() {
   const futureRows = rows.map((row, i) => (futureDate(row) ? i + 1 : 0)).filter(Boolean);
   const canSubmit = Boolean(user) && showForm && missingCount === 0 && badTimeRows.length === 0 && futureRows.length === 0 && Boolean(signatureImage) && entryRows.length > 0;
 
-  function whatsMissing() {
-    const parts: string[] = [];
-    if (missingCount > 0) parts.push(`${missingCount} required field${missingCount === 1 ? "" : "s"} empty (marked in red)`);
-    if (badTimeRows.length) parts.push(`end time is before start time on row ${badTimeRows.join(", ")}`);
-    if (futureRows.length) parts.push(`date is in the future on row ${futureRows.join(", ")}`);
-    if (!signatureImage) parts.push("signature missing");
-    return parts.length ? `Can't submit yet: ${parts.join(", ")}.` : "";
-  }
-
-  // Keep the "can't submit" note current as the user fills the gaps.
-  const blockedNote = showMissing && submitState === "error" && message.startsWith("Can't submit");
-  const stripState: SubmitState = blockedNote && canSubmit ? "idle" : submitState;
-  const liveMessage = blockedNote ? whatsMissing() : message;
+  const filledCount = entryRows.filter((row) => !isBlankRow(row)).length;
+  const checks = [
+    {
+      ok: filledCount > 0 && missingCount === 0,
+      text: filledCount === 0 ? "Fill in at least one entry"
+        : missingCount ? `${missingCount} required cell${missingCount === 1 ? "" : "s"} empty`
+        : `${filledCount} ${filledCount === 1 ? "entry" : "entries"}, required cells filled`,
+    },
+    ...(badTimeRows.length ? [{ ok: false, bad: true, text: `End time is before start time on row ${badTimeRows.join(", ")}` }] : []),
+    ...(futureRows.length ? [{ ok: false, bad: true, text: `Date is in the future on row ${futureRows.join(", ")}` }] : []),
+    { ok: Boolean(signatureImage), text: signatureImage ? "Signed" : "Sign in the box" },
+  ];
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!user || !showForm) return;
     if (!canSubmit) {
       setShowMissing(true);
-      setSubmitState("error");
-      setMessage(whatsMissing());
+      resetTransient();
       return;
     }
     setSubmitState("submitting");
@@ -438,7 +468,6 @@ export default function AnalystEntryPage() {
     <main className="app-layout">
       <AppHeader
         user={user}
-        confirmLeave={confirmDiscard}
       />
       <div className="entry-shell">
       {/* ── Instrument list ── */}
@@ -615,7 +644,7 @@ export default function AnalystEntryPage() {
                   <button
                     type="button"
                     className={`form-tab ${isGeneral ? "active" : ""}`}
-                    onClick={() => { if (isGeneral || !confirmDiscard()) return; setAnalyticalFormId(GENERAL_TAB); resetEntry(); }}
+                    onClick={() => { if (isGeneral) return; setAnalyticalFormId(GENERAL_TAB); resetEntry(keyFor("analytical", selectedInstrument?.id, GENERAL_TAB)); }}
                   >
                     General
                   </button>
@@ -624,7 +653,7 @@ export default function AnalystEntryPage() {
                       key={f.id}
                       type="button"
                       className={`form-tab ${!isGeneral && analyticalFormId === f.id ? "active" : ""}`}
-                      onClick={() => { if (!isGeneral && analyticalFormId === f.id) return; if (!confirmDiscard()) return; setAnalyticalFormId(f.id); resetEntry(); }}
+                      onClick={() => { if (!isGeneral && analyticalFormId === f.id) return; setAnalyticalFormId(f.id); resetEntry(keyFor("analytical", selectedInstrument?.id, f.id)); }}
                     >
                       {f.title}
                     </button>
@@ -675,23 +704,8 @@ export default function AnalystEntryPage() {
                         />
                       )}
                       
-                      <div className="signature-block-modern" style={{ padding: '0 24px', marginTop: 24 }}>
-                        <label className="field-label">Signature <span className="req">*</span></label>
-                        <SignaturePad value={signatureImage} onChange={setSignatureImage} disabled={true} />
-                      </div>
-
-                      <div className="submit-strip-modern shadow-sm" style={{ margin: '16px 24px 24px' }}>
-                        <div className="submit-strip-status">
-                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                            <Info size={20} />
-                            <strong style={{ fontSize: 16 }}>{currentForm.title}</strong>
-                          </div>
-                          <p style={{ marginLeft: 32 }}>Sign in to enable submission.</p>
-                        </div>
-                        <button className="btn btn-primary btn-lg btn-icon-gap" type="submit" disabled={true}>
-                          <FileOutput size={18} /> <span>Submit</span>
-                        </button>
-                      </div>
+                      <SignOff analyst="" date={labDate(todayISO())} checks={[]} attempted={false}
+                        signature="" onSignature={() => {}} entries={1} submitting={false} error="" disabled />
                     </div>
 
                     <div className="auth-lock-overlay">
@@ -738,34 +752,19 @@ export default function AnalystEntryPage() {
                       />
                     )}
 
-                    <div className="signature-block-modern" style={{ padding: '0 24px' }}>
-                      <label className="field-label">Signature <span className="req">*</span></label>
-                      <SignaturePad value={signatureImage} onChange={setSignatureImage} />
-                    </div>
-
-                    <div className="submit-strip-modern shadow-sm" style={{ margin: '16px 24px 24px' }}>
-                      <div className="submit-strip-status">
-                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                          {stripState === "sent" ? <CheckCircle2 size={22} color="var(--success)" /> :
-                           stripState === "error" ? <AlertCircle size={22} color="var(--danger)" /> :
-                           <Info size={20} />}
-                          <strong style={{
-                            fontSize: 16,
-                            color: stripState === "sent" ? "var(--success)" : stripState === "error" ? "var(--danger)" : undefined,
-                          }}>
-                            {stripState === "sent" ? "Successfully submitted" : stripState === "error" ? "Submission error" : currentForm.title}
-                          </strong>
-                        </div>
-                        <p style={{ marginLeft: 32 }}>
-                          {liveMessage}
-                        </p>
-                      </div>
-                      <button className="btn btn-primary btn-lg btn-icon-gap" type="submit" disabled={!user || submitState === "submitting"}>
-                        {submitState === "submitting" ? <><RefreshCw size={18} className="spin" /> <span>Saving…</span></> :
-                         stripState === "sent" ? <><CheckCircle2 size={18} /> <span>Saved</span></> :
-                         <><FileOutput size={18} /> <span>Submit</span></>}
-                      </button>
-                    </div>
+                    <SignOff
+                      analyst={user?.fullName || user?.username || ""}
+                      date={labDate(todayISO())}
+                      checks={checks}
+                      attempted={showMissing}
+                      signature={signatureImage}
+                      onSignature={setSignatureImage}
+                      entries={Math.max(filledCount, 1)}
+                      submitting={submitState === "submitting"}
+                      error={submitState === "error" ? message : ""}
+                      onClearSheet={isDirty ? clearSheet : undefined}
+                      onUndoClear={cleared ? undoClear : undefined}
+                    />
                   </>
                 )}
               </form>

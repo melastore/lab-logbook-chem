@@ -30,6 +30,7 @@ import { ConfirmHost, askConfirm, type ConfirmOptions } from "@/components/Confi
 import { VersionHistory } from "@/components/VersionHistory";
 import { displayFields, recordChanges, recordValue, versionChain } from "@/lib/record-diff";
 import { AppHeader } from "@/components/AppHeader";
+import { RecordWorkbook } from "@/components/RecordWorkbook";
 import { parseAnalystSignature, signatureSummary } from "@/lib/signature";
 import { taskWeight, taskAchWeight, toISODate, mondayOf, addWeeks, weekLabel, planStats, type WeeklyPlan } from "@/lib/weekly-plan";
 import { templateSheet, summarySheets, sheetName, fileSafe } from "@/lib/weekly-export";
@@ -381,11 +382,12 @@ function RecordsTab({ user, isAdmin, forms, onPendingChange, initialStatus = "Al
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [loading, setLoading] = useState(true);
-  const [viewMode, setViewMode] = useState<"review" | "table">("review");
+  const [viewMode, setViewMode] = useState<"review" | "table">("table");
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [confirmBulk, setConfirmBulk] = useState(false);
   const [showOld, setShowOld] = useState(false);
   const [scope, setScope] = useState<"All" | "Instrument" | "Sample">("Instrument");
   const [amendTarget, setAmendTarget] = useState<LogbookRecord | null>(null);
-  const [reviewTarget, setReviewTarget] = useState<LogbookRecord | null>(null);
   const [statusFilter, setStatusFilter] = useState<RecordsStatus>(initialStatus);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -513,6 +515,8 @@ function RecordsTab({ user, isAdmin, forms, onPendingChange, initialStatus = "Al
     });
   }, [records, scopeMatch, query, analystFilter, instrumentFilter, activityFilter, dateFrom, dateTo, statusFilter, latestActiveIds, showOld]);
 
+  const openRecord = openId ? filtered.find((r) => r.id === openId) : undefined;
+
   const pendingCount = records.filter((r) => r.status === "Pending" && latestActiveIds.has(r.id)).length;
 
   useEffect(() => {
@@ -538,7 +542,13 @@ function RecordsTab({ user, isAdmin, forms, onPendingChange, initialStatus = "Al
   async function approveSelected() {
     const ids = visibleSelected;
     if (ids.length === 0) return;
-    if (!await askConfirm({ title: `Approve ${ids.length} record${ids.length === 1 ? "" : "s"}?`, message: "Each approval is signed with your name and sealed in the review chain.", confirmLabel: "Approve" })) return;
+    // First click arms the button, the second one approves.
+    if (!confirmBulk) {
+      setConfirmBulk(true);
+      setTimeout(() => setConfirmBulk(false), 5000);
+      return;
+    }
+    setConfirmBulk(false);
     setBulkState({ busy: true, message: "" });
     try {
       const r = await fetch("/api/logbook/review", {
@@ -821,7 +831,7 @@ function RecordsTab({ user, isAdmin, forms, onPendingChange, initialStatus = "Al
             {visibleSelected.length > 0 ? (
               <>
                 <button className="btn btn-primary btn-sm btn-icon-gap" type="button" onClick={approveSelected} disabled={bulkState.busy}>
-                  {bulkState.busy ? <RefreshCw size={15} className="spin" /> : <CheckCircle2 size={15} />} Approve {visibleSelected.length} selected
+                  {bulkState.busy ? <RefreshCw size={15} className="spin" /> : <CheckCircle2 size={15} />} {confirmBulk ? `Click again to approve ${visibleSelected.length}` : `Approve ${visibleSelected.length} selected`}
                 </button>
                 <button className="btn-text-only btn-sm" type="button" onClick={() => setSelectedIds(new Set())} disabled={bulkState.busy}>Clear</button>
               </>
@@ -859,8 +869,25 @@ function RecordsTab({ user, isAdmin, forms, onPendingChange, initialStatus = "Al
       )}
 
       {viewMode === "table" ? (
-        <RecordsTable records={filtered} loading={loading} forms={forms} onAmend={isAdmin ? setAmendTarget : undefined} onReview={isAdmin ? setReviewTarget : undefined} latestActiveIds={latestActiveIds}
-          selection={isAdmin ? { ids: selectedIds, toggle: toggleSelected, canSelect: canBulkApprove } : undefined} />
+        <div className={`lw ${openRecord ? "has-open" : ""}`}>
+          <div className="lw-sheet">
+            {loading && records.length === 0 ? <div className="skeleton" style={{ height: 360, borderRadius: 8 }} /> : (
+              <RecordWorkbook records={filtered} forms={forms} selectedId={openRecord?.id} onOpen={(r) => setOpenId(r.id)}
+                isCurrent={(r) => latestActiveIds.has(r.id)} showAnalyst
+                selection={isAdmin ? { ids: selectedIds, toggle: toggleSelected, canSelect: canBulkApprove } : undefined}
+                empty={<div className="ml-empty ml-detail-empty"><Search size={28} /><p>No records match these filters.</p></div>} />
+            )}
+          </div>
+          {openRecord && (
+            <aside className="lw-panel">
+              <ReviewDetail key={openRecord.id} record={openRecord} chain={versionChain(records, openRecord)}
+                form={forms.find((f) => f.activityType === openRecord.activityType)}
+                title={forms.find((f) => f.activityType === openRecord.activityType)?.title || LOG_TYPES.find((t) => t.id === openRecord.activityType)?.label || openRecord.activityType}
+                user={user} isCurrent={latestActiveIds.has(openRecord.id)}
+                onBack={() => setOpenId(null)} onAmend={() => setAmendTarget(openRecord)} onChanged={loadRecords} />
+            </aside>
+          )}
+        </div>
       ) : (
         <ReviewSplit records={filtered} allRecords={records} loading={loading} forms={forms} user={user}
           latestActiveIds={latestActiveIds} onAmend={setAmendTarget} onChanged={loadRecords} />
@@ -872,16 +899,6 @@ function RecordsTab({ user, isAdmin, forms, onPendingChange, initialStatus = "Al
           form={forms.find((f) => f.activityType === amendTarget.activityType)}
           onCancel={() => setAmendTarget(null)}
           onSubmit={submitAmendment}
-        />
-      )}
-      {reviewTarget && (
-        <ReviewModal
-          record={reviewTarget}
-          forms={forms}
-          isCurrent={latestActiveIds.has(reviewTarget.id)}
-          isOwn={!!user && reviewTarget.submittedBy === user.id}
-          onCancel={() => setReviewTarget(null)}
-          onDone={async () => { setReviewTarget(null); await loadRecords(); }}
         />
       )}
     </>
@@ -907,13 +924,6 @@ function fieldValue(rec: LogbookRecord, field: FormField): string {
   }
   const v = rec.metadata?.[field.key];
   return v == null ? "" : String(v);
-}
-
-function colMinWidth(field: FormField): number {
-  if (field.type === "textarea") return 220;
-  if (field.type === "date") return 110;
-  if (field.type === "time") return 90;
-  return 130;
 }
 
 function escHtml(value: string): string {
@@ -1072,256 +1082,6 @@ function printRecordSheet(records: LogbookRecord[], forms: FormDef[], scopeLabel
   win.onload = () => setTimeout(() => win.print(), 250);
 }
 
-type Selection = {
-  ids: Set<string>;
-  toggle: (id: string) => void;
-  canSelect: (rec: LogbookRecord) => boolean;
-};
-
-function RecordsTable({ records, loading, forms, onAmend, onReview, latestActiveIds, selection }: {
-  records: LogbookRecord[];
-  loading: boolean;
-  forms: FormDef[];
-  onAmend?: (rec: LogbookRecord) => void;
-  onReview?: (rec: LogbookRecord) => void;
-  selection?: Selection;
-  latestActiveIds: Set<string>;
-}) {
-  const [selectedType, setSelectedType] = useState<string | null>(null);
-
-  if (loading) return <div className="skeleton" style={{ height: 320, borderRadius: 12 }} />;
-  if (records.length === 0) {
-    return (
-      <div className="empty-state-modern">
-        <div className="empty-icon-wrap"><Search size={40} /></div>
-        <h3>No records found</h3>
-        <p>Adjust your filters or search terms.</p>
-      </div>
-    );
-  }
-
-  // Group by log type, ordered to match the form definitions (so Daily
-  // Operation comes first); any unknown activity types are appended at the end.
-  const groups = new Map<string, LogbookRecord[]>();
-  for (const rec of records) {
-    const arr = groups.get(rec.activityType);
-    if (arr) arr.push(rec);
-    else groups.set(rec.activityType, [rec]);
-  }
-  const knownOrder = forms.map((f) => f.activityType);
-  const orderedTypes = [...groups.keys()].sort((a, b) => {
-    const ia = knownOrder.indexOf(a);
-    const ib = knownOrder.indexOf(b);
-    return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
-  });
-
-  // Default to the first available type (Daily Operation when present).
-  const activeType = selectedType && orderedTypes.includes(selectedType) ? selectedType : orderedTypes[0];
-
-  return (
-    <div>
-      <div className="scope-switch" role="tablist">
-        {orderedTypes.map((type) => {
-          const label = forms.find((f) => f.activityType === type)?.title
-            || LOG_TYPES.find((t) => t.id === type)?.label
-            || type;
-          return (
-            <button
-              key={type}
-              type="button"
-              role="tab"
-              aria-selected={activeType === type}
-              className={`scope-switch-btn ${activeType === type ? "active" : ""}`}
-              onClick={() => setSelectedType(type)}
-            >
-              <Tag size={14} /> <span>{label}</span>
-              <span className="scope-count">{groups.get(type)!.length}</span>
-            </button>
-          );
-        })}
-      </div>
-      {activeType && <LogTypeTable activityType={activeType} records={groups.get(activeType)!} form={forms.find((f) => f.activityType === activeType)} onAmend={onAmend} onReview={onReview} latestActiveIds={latestActiveIds} selection={selection} />}
-    </div>
-  );
-}
-
-function LogTypeTable({ activityType, records, form, onAmend, onReview, latestActiveIds, selection }: {
-  activityType: string;
-  records: LogbookRecord[];
-  form: FormDef | undefined;
-  onAmend?: (rec: LogbookRecord) => void;
-  onReview?: (rec: LogbookRecord) => void;
-  selection?: Selection;
-  latestActiveIds: Set<string>;
-}) {
-  void activityType;
-  // "instrumentUsed" is dropped — the Instrument column already covers it.
-  const fields = (form?.fields || []).filter((f) => f.key !== "instrumentUsed");
-  const isSample = form?.scope === "sample";
-
-  // Group amendments with their original records
-  const threadedRecords: LogbookRecord[] = [];
-  const byAmends = new Map<string, LogbookRecord[]>();
-  const roots: LogbookRecord[] = [];
-
-  for (const rec of records) {
-    if (rec.amends) {
-      const arr = byAmends.get(rec.amends);
-      if (arr) arr.push(rec);
-      else byAmends.set(rec.amends, [rec]);
-    } else {
-      roots.push(rec);
-    }
-  }
-
-  for (const root of roots) {
-    threadedRecords.push(root);
-    const children = byAmends.get(root.id);
-    if (children) {
-      // Sort children chronologically (oldest amendment first)
-      children.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-      threadedRecords.push(...children);
-    }
-  }
-
-  // Any orphaned amendments (shouldn't happen, but just in case)
-  for (const rec of records) {
-    if (rec.amends && !roots.some(r => r.id === rec.amends)) {
-      threadedRecords.push(rec);
-    }
-  }
-
-  const selectable = selection ? threadedRecords.filter(selection.canSelect) : [];
-
-  return (
-    <section>
-      <div className="table-scroll spreadsheet-container shadow-sm">
-        <table className="doc-entry-table spreadsheet-table">
-          <thead>
-            <tr>
-              {selection && (
-                <th style={{ width: 32, textAlign: "center" }}>
-                  <input
-                    type="checkbox"
-                    aria-label="Select all pending"
-                    checked={selectable.length > 0 && selectable.every((r) => selection.ids.has(r.id))}
-                    disabled={selectable.length === 0}
-                    onChange={(e) => {
-                      for (const r of selectable) {
-                        if (selection.ids.has(r.id) !== e.target.checked) selection.toggle(r.id);
-                      }
-                    }}
-                  />
-                </th>
-              )}
-              <th className="doc-rowno-head">No.</th>
-              {!isSample && <th style={{ minWidth: 150 }}>Instrument</th>}
-              {!isSample && <th style={{ minWidth: 110 }}>ID</th>}
-              {fields.map((f) => (
-                <th key={f.key} style={{ minWidth: colMinWidth(f) }}>{f.label}</th>
-              ))}
-              <th style={{ minWidth: 120 }}>Signature</th>
-              <th style={{ minWidth: 130, textAlign: "center" }}>Review</th>
-              {onAmend && <th style={{ minWidth: 110, textAlign: "center" }}>Amend</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {threadedRecords.map((rec, idx) => {
-              const signature = parseAnalystSignature(rec.analystSignature);
-              return (
-                <tr key={rec.id}>
-                  {selection && (
-                    <td className="doc-cell" style={{ textAlign: "center" }}>
-                      {selection.canSelect(rec) && (
-                        <input
-                          type="checkbox"
-                          aria-label="Select for approval"
-                          checked={selection.ids.has(rec.id)}
-                          onChange={() => selection.toggle(rec.id)}
-                        />
-                      )}
-                    </td>
-                  )}
-                  <td className="doc-rowno">{idx + 1}</td>
-                  {!isSample && <td className="doc-cell" style={{ fontWeight: 700, color: "var(--primary)" }}>{rec.instrumentName || "—"}</td>}
-                  {!isSample && <td className="doc-cell mono" style={{ fontSize: 12 }}>{rec.instrumentId || "—"}</td>}
-                  {fields.map((f) => {
-                    const val = fieldValue(rec, f);
-                    return (
-                      <td key={f.key} className="doc-cell" title={val} style={f.type === "textarea" ? { fontSize: 12, color: "var(--muted)" } : undefined}>
-                        {val || "—"}
-                      </td>
-                    );
-                  })}
-                  <td className="doc-cell">
-                    {signature.image ? (
-                      // Signatures are inline data: URLs held in the record, not
-                      // files on disk — there is nothing for next/image to fetch
-                      // or optimise.
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={signature.image} alt="Analyst signature" className="sig-cell-img" />
-                    ) : (
-                      <span style={{ color: "var(--muted)", fontSize: 11 }}>{signature.typed || "—"}</span>
-                    )}
-                    {rec.amends && <div className="sig-corrected-by">Corrected by {rec.submitterName || "admin"}</div>}
-                  </td>
-                  <td className="doc-cell" style={{ textAlign: "center", whiteSpace: "nowrap" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "center" }}>
-                      {latestActiveIds.has(rec.id)
-                        ? <span className={`log-status-badge ${rec.status.toLowerCase()}`} title={lastReviewTitle(rec)}>{rec.status}</span>
-                        : <span className="record-flag superseded" title="A newer correction replaces this version"><History size={10} /> Old version</span>}
-                      {onReview && (
-                        <button
-                          type="button"
-                          className="btn btn-outline btn-sm btn-icon-gap"
-                          style={{ fontSize: 11, padding: "2px 6px" }}
-                          onClick={() => onReview(rec)}
-                          title="Approve, reject or comment"
-                        >
-                          <MessageSquare size={12} />{rec.reviews.length > 0 && <span>{rec.reviews.length}</span>}
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                  {onAmend && (
-                    <td className="doc-cell" style={{ textAlign: "center", whiteSpace: "nowrap" }}>
-                      {!latestActiveIds.has(rec.id) ? (
-                        <span style={{ color: "var(--muted)" }} title={correctionTitle(rec)}>—</span>
-                      ) : rec.amends ? (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
-                          <span className="record-flag correction" title={correctionTitle(rec)}><Pencil size={10} /> Correction</span>
-                          <button
-                            type="button"
-                            className="btn btn-outline btn-sm"
-                            style={{ fontSize: 11, padding: "2px 6px" }}
-                            onClick={() => onAmend(rec)}
-                            title="Amend this correction"
-                          >
-                            Amend
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          className="btn btn-outline btn-sm btn-icon-gap"
-                          onClick={() => onAmend(rec)}
-                          title="Amend — issue an append-only correction"
-                        >
-                          <Pencil size={14} /> <span>Amend</span>
-                        </button>
-                      )}
-                    </td>
-                  )}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
-
 function AmendModal({ record, form, onCancel, onSubmit }: {
   record: LogbookRecord;
   form: FormDef | undefined;
@@ -1401,132 +1161,6 @@ function AmendModal({ record, form, onCancel, onSubmit }: {
   );
 }
 
-function correctionTitle(rec: LogbookRecord) {
-  const by = rec.submitterName ? ` — by ${rec.submitterName}` : "";
-  return `${rec.amendmentReason || "Correction"}${by}, ${new Date(rec.createdAt).toLocaleString()}`;
-}
-
-function lastReviewTitle(rec: LogbookRecord) {
-  const last = [...rec.reviews].reverse().find((r) => r.decision !== "Comment");
-  if (!last) return "Not reviewed yet";
-  return `${last.decision} by ${last.reviewerName}, ${new Date(last.createdAt).toLocaleString()}${last.comment ? ` — ${last.comment}` : ""}`;
-}
-
-function ReviewHistory({ reviews }: { reviews: LogbookRecord["reviews"] }) {
-  return (
-    <div className="review-history">
-      <p className="remarks-label-modern">Review history</p>
-      <ol>
-        {reviews.map((r) => (
-          <li key={r.id} className={`review-entry ${r.decision.toLowerCase()}`}>
-            <div className="review-entry-head">
-              {r.decision === "Comment"
-                ? <span className="review-entry-kind"><MessageSquare size={12} /> Comment</span>
-                : <span className={`log-status-badge ${r.decision.toLowerCase()}`}>{r.decision}</span>}
-              <strong>{r.reviewerName || "Unknown"}</strong>
-              <span className="review-entry-time">{new Date(r.createdAt).toLocaleString()}</span>
-              {!r.hashMatches && <span className="integrity-badge bad" title="The record's seal no longer matches what was reviewed"><AlertTriangle size={12} /> Content changed</span>}
-            </div>
-            {r.comment && <p className="review-entry-text">{r.comment}</p>}
-          </li>
-        ))}
-      </ol>
-    </div>
-  );
-}
-
-function ReviewModal({ record, forms, isCurrent, isOwn, onCancel, onDone }: {
-  record: LogbookRecord;
-  forms: FormDef[];
-  isCurrent: boolean;
-  isOwn: boolean;
-  onCancel: () => void;
-  onDone: () => Promise<void>;
-}) {
-  const [comment, setComment] = useState("");
-  const [saving, setSaving] = useState<ReviewDecision | null>(null);
-  const [error, setError] = useState("");
-  const canDecide = isCurrent && !isOwn;
-  const logType = LOG_TYPES.find((t) => t.id === record.activityType)?.label || record.activityType;
-
-  async function submit(decision: ReviewDecision) {
-    if (decision !== "Approved" && !comment.trim()) {
-      setError(decision === "Rejected" ? "Enter a reason for rejecting this record." : "Write a comment first.");
-      return;
-    }
-    setSaving(decision); setError("");
-    try {
-      const r = await fetch("/api/logbook/review", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recordId: record.id, decision, comment: comment.trim() }),
-      });
-      if (!r.ok) {
-        const d = await r.json().catch(() => ({}));
-        throw new Error(d.error || "Review failed.");
-      }
-      await onDone();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Review failed.");
-      setSaving(null);
-    }
-  }
-
-  return (
-    <ModalShell open onClose={onCancel} className="modal shadow-3 modal-w-xl" labelledBy="review-record-title">
-      <div className="modal-header">
-        <h2 className="modal-title" id="review-record-title">
-          <MessageSquare size={16} aria-hidden="true" /> Review record
-        </h2>
-        <button className="btn btn-ghost btn-sm" type="button" onClick={onCancel} aria-label="Close">✕</button>
-      </div>
-      <div className="modal-body" style={{ display: "grid", gap: 12 }}>
-        <div className="review-summary">
-          <span><strong>{record.instrumentName || "—"}</strong> · {logType}</span>
-          <span>{record.analyst || "—"} · {record.date || record.createdAt.slice(0, 10)}{record.sampleId ? ` · ${record.sampleId}` : ""}</span>
-          <span>
-            Status: {isCurrent
-              ? <span className={`log-status-badge ${record.status.toLowerCase()}`}>{record.status}</span>
-              : <span className="record-flag superseded"><History size={10} /> Old version</span>}
-            {record.amends && <span className="record-flag correction" title={correctionTitle(record)} style={{ marginLeft: 6 }}><Pencil size={10} /> Correction</span>}
-          </span>
-        </div>
-        {record.reviews.length > 0
-          ? <ReviewHistory reviews={record.reviews} />
-          : <p style={{ fontSize: 13, color: "var(--muted)", margin: 0 }}>No reviews yet.</p>}
-        {!isCurrent && <div className="notice notice-warning">A newer correction replaces this version. You can comment, but approve or reject the latest version.</div>}
-        {isCurrent && isOwn && <div className="notice notice-warning">You submitted this record, so another admin has to approve or reject it.</div>}
-        <div className="field-modern">
-          <label htmlFor="review-comment">Comment {canDecide && <span style={{ fontWeight: 400, color: "var(--muted)" }}>(required to reject)</span>}</label>
-          <textarea id="review-comment" value={comment} rows={3} maxLength={2000} placeholder="Visible to the analyst" onChange={(e) => setComment(e.target.value)} />
-        </div>
-        {error && <div className="notice notice-warning" role="alert">{error}</div>}
-      </div>
-      <div className="modal-footer" style={{ justifyContent: "flex-end", gap: 10, flexWrap: "wrap" }}>
-        <button className="btn btn-ghost btn-icon-gap" type="button" onClick={() => printRecordSheet([record], forms, "Single record")} style={{ marginRight: "auto" }}>
-          <Printer size={16} /> Print
-        </button>
-        <button className="btn btn-outline" type="button" onClick={onCancel} disabled={!!saving}>Cancel</button>
-        <button className="btn btn-outline btn-icon-gap" type="button" onClick={() => submit("Comment")} disabled={!!saving}>
-          {saving === "Comment" ? <RefreshCw size={16} className="spin" /> : <MessageSquare size={16} />} Comment
-        </button>
-        {canDecide && (
-          <>
-            <button className="btn btn-outline btn-danger btn-icon-gap" type="button" onClick={() => submit("Rejected")} disabled={!!saving}>
-              {saving === "Rejected" ? <RefreshCw size={16} className="spin" /> : <XCircle size={16} />} Reject
-            </button>
-            <button className="btn btn-primary btn-icon-gap" type="button" onClick={() => submit("Approved")} disabled={!!saving}>
-              {saving === "Approved" ? <RefreshCw size={16} className="spin" /> : <CheckCircle2 size={16} />} Approve
-            </button>
-          </>
-        )}
-      </div>
-    </ModalShell>
-  );
-}
-
-/* Review view: records on the left, the chosen one on the right with its data,
-   what changed since the last version, and approve / reject right there. */
 function ReviewSplit({ records, allRecords, loading, forms, user, latestActiveIds, onAmend, onChanged }: {
   records: LogbookRecord[];
   allRecords: LogbookRecord[];
@@ -1639,7 +1273,7 @@ function ReviewDetail({ record, chain, form, title, user, isCurrent, onBack, onA
 
   return (
     <article className="ml-card">
-      <button type="button" className="ml-back" onClick={onBack}><ArrowLeft size={16} /> All records</button>
+      <button type="button" className="ml-back lw-close" onClick={onBack}><X size={16} /> Close</button>
       <header className="ml-card-head">
         <span className="ml-card-icon"><Microscope size={22} /></span>
         <div>

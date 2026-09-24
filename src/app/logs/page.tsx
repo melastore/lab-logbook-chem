@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  AlertTriangle, ArrowLeft, Calendar, CheckCircle2, ChevronRight, Clock, FileText,
+  AlertTriangle, Calendar, CheckCircle2, Clock,
   Info, Microscope, Pencil, RefreshCw, Search, ShieldCheck, X, XCircle,
 } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
@@ -14,6 +14,7 @@ import { parseAnalystSignature } from "@/lib/signature";
 import { toISODate } from "@/lib/weekly-plan";
 import { displayFields, recordValue, versionChain } from "@/lib/record-diff";
 import { VersionHistory } from "@/components/VersionHistory";
+import { RecordWorkbook } from "@/components/RecordWorkbook";
 
 const STATUSES = ["All", "Pending", "Approved", "Rejected"] as const;
 type StatusFilter = typeof STATUSES[number];
@@ -95,12 +96,7 @@ function MyLogs() {
     ?? (selectedId ? current.find((r) => records.some((x) => x.id === selectedId && (x.amends || x.id) === (r.amends || r.id))) : undefined);
 
   const open = (id: string | null) => router.replace(id ? `/logs?id=${id}` : "/logs", { scroll: false });
-
-  // Desktop starts on the newest record so the right side isn't empty.
-  useEffect(() => {
-    if (!selectedId && visible.length && window.matchMedia("(min-width: 901px)").matches) open(visible[0].id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId, visible.length]);
+  const currentIds = useMemo(() => new Set(current.map((r) => r.id)), [current]);
 
   return (
     <main className="app-layout">
@@ -118,51 +114,37 @@ function MyLogs() {
           )}
         </header>
 
-        <div className={`ml-layout ${selected ? "has-selection" : ""}`}>
-          <aside className="ml-list" aria-label="Your records">
-            <div className="ml-tools">
-              <div className="um-search">
-                <Search size={16} />
-                <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search instrument, sample, date…" aria-label="Search logs" />
-                {query && <button type="button" onClick={() => setQuery("")} aria-label="Clear search"><X size={14} /></button>}
-              </div>
-              <div className="ml-chips" role="group" aria-label="Status">
-                {STATUSES.map((s) => (
-                  <button key={s} type="button" className={`um-chip ${status === s ? "active" : ""}`} onClick={() => setStatus(s)}>
-                    {s} <span className="ml-chip-count">{counts[s]}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
+        <div className="lw-tools">
+          <div className="um-search">
+            <Search size={16} />
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search instrument, sample, date…" aria-label="Search logs" />
+            {query && <button type="button" onClick={() => setQuery("")} aria-label="Clear search"><X size={14} /></button>}
+          </div>
+          <div className="ml-chips" role="group" aria-label="Status">
+            {STATUSES.map((s) => (
+              <button key={s} type="button" className={`um-chip ${status === s ? "active" : ""}`} onClick={() => setStatus(s)}>
+                {s} <span className="ml-chip-count">{counts[s]}</span>
+              </button>
+            ))}
+          </div>
+        </div>
 
+        <div className={`lw ${selected ? "has-open" : ""}`}>
+          <div className="lw-sheet">
             {loading ? (
-              <div className="ml-items">{[1, 2, 3, 4, 5].map((i) => <div key={i} className="skeleton" style={{ height: 68, borderRadius: 12 }} />)}</div>
+              <div className="skeleton" style={{ height: 360, borderRadius: 8 }} />
             ) : error ? (
               <div className="ml-empty"><XCircle size={24} /><p>{error}</p>
                 {user && <button type="button" className="btn btn-outline btn-sm" onClick={() => load(user.username)}>Try again</button>}</div>
-            ) : visible.length === 0 ? (
-              <div className="ml-empty"><Info size={24} /><p>{current.length ? "Nothing matches." : "You haven't submitted any logs yet."}</p></div>
             ) : (
-              <ul className="ml-items">
-                {visible.map((r) => (
-                  <li key={r.id}>
-                    <button type="button" className={`ml-item ${selected?.id === r.id ? "active" : ""}`} onClick={() => open(r.id)} aria-current={selected?.id === r.id}>
-                      <span className={`ml-dot ${r.status.toLowerCase()}`} aria-hidden="true" />
-                      <span className="ml-item-main">
-                        <strong>{r.instrumentName || formFor(forms, r)?.title || "Log"}</strong>
-                        <span>{formFor(forms, r)?.title || r.activityType} · {r.date || "no date"}{r.sampleId ? ` · ${r.sampleId}` : ""}</span>
-                      </span>
-                      <span className={`log-status-badge ${r.status.toLowerCase()}`}>{r.status}</span>
-                      <ChevronRight size={16} className="ml-item-caret" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              <RecordWorkbook records={visible} forms={forms} selectedId={selected?.id} onOpen={(r) => open(r.id)}
+                isCurrent={(r) => currentIds.has(r.id)}
+                empty={<div className="ml-empty"><Info size={24} /><p>{current.length ? "Nothing matches." : "You haven't submitted any logs yet."}</p></div>} />
             )}
-          </aside>
+          </div>
 
-          <section className="ml-detail" aria-live="polite">
-            {selected ? (
+          {selected && (
+            <aside className="lw-panel" aria-live="polite">
               <RecordDetail
                 key={selected.id}
                 record={selected}
@@ -172,10 +154,8 @@ function MyLogs() {
                 onBack={() => open(null)}
                 onCorrected={async (newId) => { if (user) await load(user.username); open(newId); }}
               />
-            ) : (
-              <div className="ml-empty ml-detail-empty"><FileText size={28} /><p>Pick a record to see what you submitted.</p></div>
-            )}
-          </section>
+            </aside>
+          )}
         </div>
       </div>
     </main>
@@ -203,7 +183,7 @@ function RecordDetail({ record, chain, form, user, onBack, onCorrected }: {
 
   return (
     <article className="ml-card">
-      <button type="button" className="ml-back" onClick={onBack}><ArrowLeft size={16} /> All logs</button>
+      <button type="button" className="ml-back lw-close" onClick={onBack}><X size={16} /> Close</button>
 
       <header className="ml-card-head">
         <span className="ml-card-icon"><Microscope size={22} /></span>

@@ -3,7 +3,7 @@
 import { useState, type Dispatch, type SetStateAction } from "react";
 import { Trash2 } from "lucide-react";
 import type { FormField } from "@/lib/forms";
-import { SheetCell, moveOnKey, colName } from "./SheetCell";
+import { SheetCell, moveOnKey, colName, colWidth } from "./SheetCell";
 
 type Row = Record<string, string>;
 
@@ -16,17 +16,9 @@ export function isBlankRow(row: Row) {
 }
 
 // "30-Apr-2026", as in the lab book examples.
-function labDate(iso: string) {
+export function labDate(iso: string) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
   return m ? `${m[3]}-${MONTHS[Number(m[2]) - 1]}-${m[1]}` : iso;
-}
-
-function colWidth(f: FormField) {
-  if (f.type === "textarea") return 260;
-  if (f.type === "date") return 110;
-  if (f.type === "time") return 84;
-  if (f.type === "number") return 100;
-  return 150;
 }
 
 // A log form laid out like the printed lab book table, on an Excel sheet.
@@ -67,6 +59,10 @@ export function FormExcel({ title, info, fields, rows, setRows, newRow, maxRows,
     const row = rows[i];
     return Boolean(showMissing && row && f.required && !(row[f.key] || "").trim() && (i === 0 || !isBlankRow(row)));
   };
+
+  // Entry numbers count filled rows only, in the order they will be submitted.
+  const numbers: number[] = [];
+  rows.reduce((n, row, i) => { if (!isBlankRow(row)) numbers[i] = ++n; return n; }, 0);
 
   const activeField = active && active.c > 0 ? fields[active.c - 1] : null;
   const activeIndex = active ? active.r - firstRow : -1;
@@ -133,7 +129,7 @@ export function FormExcel({ title, info, fields, rows, setRows, newRow, maxRows,
                       </button>
                     )}
                   </th>
-                  <td className="xl-l c xl-no">{row ? i + 1 : ""}</td>
+                  <td className="xl-l c xl-no">{numbers[i] ?? (i === 0 ? 1 : "")}</td>
                   {fields.map((f, k) => {
                     const c = k + 1;
                     const name = `${colName(c)}${r}`;
@@ -188,7 +184,11 @@ export function FormExcel({ title, info, fields, rows, setRows, newRow, maxRows,
           </tbody>
         </table>
       </div>
-      {!disabled && <p className="xl-tip">Type into any empty row to add an entry. Empty rows are left out when you submit.</p>}
+      <div className="xl-status">
+        <span>Ready</span>
+        {!disabled && <span className="xl-status-hint">Type in any empty row to add an entry</span>}
+        <span className="xl-status-end">Entries: {rows.filter((r) => !isBlankRow(r)).length}</span>
+      </div>
     </div>
   );
 }
