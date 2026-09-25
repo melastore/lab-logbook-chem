@@ -15,13 +15,13 @@ import {
   Plus, Trash2, ShieldAlert, Tag, Table as TableIcon, LayoutGrid,
   FileSpreadsheet, Archive, ArchiveRestore, KeyRound, UserCheck,
   ShieldCheck, AlertTriangle, Pencil, History, TrendingUp, ChevronRight, Printer,
-  MessageSquare, Eye, EyeOff, ChevronLeft, Inbox
+  Eye, EyeOff, Inbox
 } from "lucide-react";
-import type { AppUser, InstrumentCategory, InstrumentTemplate, LogbookRecord, ProfilePublic, ReviewDecision } from "@/lib/logbook";
+import type { AppUser, InstrumentCategory, InstrumentTemplate, LogbookRecord, ProfilePublic } from "@/lib/logbook";
 import { LOG_TYPES, currentVersionIds } from "@/lib/logbook";
 import { 
-  ALL_FORMS, STANDARD_KEYS, INSTRUMENT_STANDARD_KEYS,
-  type FormDef, type FormField, type FieldType, type FormScope 
+  ALL_FORMS, STANDARD_KEYS, INSTRUMENT_STANDARD_KEYS, isInstrumentScope,
+  type FormDef, type FormField, type FieldType, type FormScope, type FormCategory,
 } from "@/lib/forms";
 import { UserAvatar } from "@/components/UserAvatar";
 import { MIN_PASSWORD_LENGTH } from "@/lib/password";
@@ -32,14 +32,12 @@ import { displayFields, recordChanges, recordValue, versionChain } from "@/lib/r
 import { AppHeader } from "@/components/AppHeader";
 import { RecordWorkbook } from "@/components/RecordWorkbook";
 import { parseAnalystSignature, signatureSummary } from "@/lib/signature";
-import { taskWeight, taskAchWeight, toISODate, mondayOf, addWeeks, weekLabel, planStats, type WeeklyPlan } from "@/lib/weekly-plan";
-import { templateSheet, summarySheets, sheetName, fileSafe } from "@/lib/weekly-export";
+import { toISODate } from "@/lib/weekly-plan";
 
-type Tab = "instruments" | "records" | "insights" | "users" | "forms" | "weekly";
+type Tab = "instruments" | "records" | "insights" | "users" | "forms";
 
 const TAB_LABELS: Record<Tab, string> = {
   records: "Records",
-  weekly: "Weekly Plans",
   insights: "Overview",
   instruments: "Instruments",
   forms: "Forms",
@@ -47,10 +45,11 @@ const TAB_LABELS: Record<Tab, string> = {
 };
 
 
-// Sample-preparation activity types (everything else is an analytical instrument log).
-const SAMPLE_TYPES = new Set(["PREP", "REAG"]);
-function isSampleRecord(rec: LogbookRecord) {
-  return SAMPLE_TYPES.has(rec.activityType);
+// Which form group a record belongs to, by its log type. Unknown types are
+// treated as instrument logs, same as before categories existed.
+function recordScope(rec: LogbookRecord, forms: FormDef[]): FormScope {
+  const form = forms.find((f) => f.activityType === rec.activityType && f.scope !== "instrument");
+  return form?.scope ?? (rec.activityType === "PREP" || rec.activityType === "REAG" ? "sample" : "analytical");
 }
 
 export default function AdminDashboard() {
@@ -58,13 +57,12 @@ export default function AdminDashboard() {
   const [user, setUser] = useState<AppUser | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [forms, setForms] = useState<FormDef[]>(ALL_FORMS);
-  const [pendingReviews, setPendingReviews] = useState(0);
-  // Lets Overview open Records pre-filtered; the key remounts it with that filter.
-  const [recordsView, setRecordsView] = useState<{ status: RecordsStatus; key: number }>({ status: "All", key: 0 });
-  const openRecords = useCallback((status: RecordsStatus) => {
-    setRecordsView((v) => ({ status, key: v.key + 1 }));
-    setTab("records");
-  }, []);
+  const [formCats, setFormCats] = useState<FormCategory[]>([]);
+  const loadFormCats = useCallback(() => fetch("/api/forms/categories", { cache: "no-store" })
+    .then((r) => (r.ok ? r.json() : {}))
+    .catch(() => ({}))
+    .then((d: { categories?: FormCategory[] }) => setFormCats(d.categories || [])), []);
+  useEffect(() => { loadFormCats(); }, [loadFormCats]);
   const router = useRouter();
 
   useEffect(() => {
@@ -77,11 +75,6 @@ export default function AdminDashboard() {
     fetch("/api/forms")
       .then((r) => r.ok ? r.json() : { forms: [] })
       .then((d) => { if (d.forms?.length) setForms(d.forms); })
-      .catch(() => {});
-
-    fetch("/api/logbook/review")
-      .then((r) => r.ok ? r.json() : { pending: 0 })
-      .then((d) => setPendingReviews(d.pending || 0))
       .catch(() => {});
   }, []);
 
@@ -97,7 +90,7 @@ export default function AdminDashboard() {
   }, [authReady, user, isAdmin, router]);
 
   const visibleTabs = useMemo<Tab[]>(() => (
-    isAdmin ? ["records", "weekly", "insights", "instruments", "forms", "users"] : []
+    isAdmin ? ["records", "insights", "instruments", "forms", "users"] : []
   ), [isAdmin]);
   const activeTab = tab && visibleTabs.includes(tab) ? tab : visibleTabs[0];
 
@@ -132,26 +125,21 @@ export default function AdminDashboard() {
             <button key={t} className={`admin-tab-btn ${activeTab === t ? "active" : ""}`} type="button" onClick={() => setTab(t)}>
               {t === "instruments" && <Microscope size={16} />}
               {t === "records" && <FileText size={16} />}
-              {t === "weekly" && <Calendar size={16} />}
               {t === "insights" && <LayoutDashboard size={16} />}
               {t === "users" && <Users size={16} />}
               {t === "forms" && <FileSpreadsheet size={16} />}
               <span>{TAB_LABELS[t]}</span>
-              {t === "records" && pendingReviews > 0 && (
-                <span className="count-badge" title={`${pendingReviews} waiting for review`}>{pendingReviews}</span>
-              )}
             </button>
           ))}
         </div>
       </div>
 
       <div className="admin-content-area">
-        {activeTab === "insights"    && <InsightsTab onOpenRecords={openRecords} onOpenTab={setTab} />}
-        {activeTab === "records"     && <RecordsTab key={recordsView.key} initialStatus={recordsView.status} user={user} isAdmin={isAdmin} forms={forms} onPendingChange={setPendingReviews} />}
-        {isAdmin && activeTab === "weekly"      && <WeeklyReportsTab />}
+        {activeTab === "insights"    && <InsightsTab />}
+        {activeTab === "records"     && <RecordsTab forms={forms} formCats={formCats} />}
         {isAdmin && activeTab === "instruments" && <InstrumentsTab user={user} isAdmin={isAdmin} forms={forms} />}
         {isAdmin && activeTab === "users"       && <UsersTab user={user} isAdmin={isAdmin} />}
-        {isAdmin && activeTab === "forms"       && <FormsTab forms={forms} setForms={setForms} />}
+        {isAdmin && activeTab === "forms"       && <FormsTab forms={forms} setForms={setForms} formCats={formCats} reloadFormCats={loadFormCats} />}
       </div>
       </div>
     </main>
@@ -161,8 +149,6 @@ export default function AdminDashboard() {
 /* ════════════════════════════════════════════════════════════════════════════
    Tab 0 — Insights
    ════════════════════════════════════════════════════════════════════════════ */
-
-type RecordsStatus = "All" | "Pending" | "Approved" | "Rejected";
 
 // Shared inline notice for the admin tabs; success messages fade on their own.
 function TabNotice({ notice, onClose }: { notice: { type: "success" | "error"; text: string } | null; onClose: () => void }) {
@@ -181,25 +167,16 @@ function TabNotice({ notice, onClose }: { notice: { type: "success" | "error"; t
   );
 }
 
-function InsightsTab({ onOpenRecords, onOpenTab }: {
-  onOpenRecords: (status: RecordsStatus) => void;
-  onOpenTab: (tab: Tab) => void;
-}) {
+function InsightsTab() {
   const [records, setRecords] = useState<LogbookRecord[]>([]);
-  const [plans, setPlans] = useState<WeeklyPlan[]>([]);
-  const [people, setPeople] = useState<ProfilePublic[]>([]);
   const [loading, setLoading] = useState(true);
   const [days, setDays] = useState(14);
 
   useEffect(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const get = (url: string): Promise<any> => fetch(url, { cache: "no-store" }).then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
-    Promise.all([get("/api/logbook"), get("/api/weekly-plan"), get("/api/users")]).then(([l, w, u]) => {
-      setRecords(l.records || []);
-      setPlans(w.plans || []);
-      setPeople(u.profiles || []);
-      setLoading(false);
-    });
+    fetch("/api/logbook", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : {}))
+      .catch(() => ({}))
+      .then((d: { records?: LogbookRecord[] }) => { setRecords(d.records || []); setLoading(false); });
   }, []);
 
   const data = useMemo(() => {
@@ -227,55 +204,24 @@ function InsightsTab({ onOpenRecords, onOpenTab }: {
       return [...m.entries()].map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
     };
 
-    const week = mondayOf();
-    const analysts = people.filter((p) => !p.archived && p.role === "analyst");
-    const submitted = new Set(plans.filter((p) => p.weekStartDate === week && p.tasks.length > 0).map((p) => p.username));
-
     return {
-      pending: live.filter((r) => r.status === "Pending").length,
-      rejected: live.filter((r) => r.status === "Rejected").length,
       today: live.filter((r) => dayOf(r) === today).length,
       inRange: inRange.length,
       perDayAvg: inRange.length / days,
       activeInstruments: new Set(inRange.map((r) => r.instrumentName)).size,
       activeAnalysts: new Set(inRange.map((r) => r.analyst)).size,
-      missingPlans: analysts.filter((a) => !submitted.has(a.username)),
-      analystCount: analysts.length,
       trend,
       byType: countBy(inRange, (r) => LOG_TYPES.find((t) => t.id === r.activityType)?.label || r.activityType),
       byInstrument: countBy(inRange, (r) => r.instrumentName).slice(0, 8),
       byAnalyst: countBy(inRange, (r) => r.analyst).slice(0, 8),
     };
-  }, [records, plans, people, days]);
+  }, [records, days]);
 
   if (loading) return (
     <div className="insights-skeleton-grid">
       {[1, 2, 3, 4].map((i) => <div key={i} className="skeleton chart-card-skeleton" />)}
     </div>
   );
-
-  const attention = [
-    {
-      key: "pending", tone: "amber", icon: <Clock size={20} />, value: data.pending,
-      label: "Waiting for review", hint: data.pending ? "Open and approve" : "All caught up",
-      onClick: () => onOpenRecords("Pending"),
-    },
-    {
-      key: "rejected", tone: "red", icon: <XCircle size={20} />, value: data.rejected,
-      label: "Rejected records", hint: data.rejected ? "Waiting on the analyst to correct" : "None open",
-      onClick: () => onOpenRecords("Rejected"),
-    },
-    {
-      key: "plans", tone: "blue", icon: <Calendar size={20} />, value: data.missingPlans.length,
-      label: "Weekly plans missing", hint: data.analystCount ? `${data.analystCount - data.missingPlans.length} of ${data.analystCount} analysts submitted` : "No analysts yet",
-      onClick: () => onOpenTab("weekly"),
-    },
-    {
-      key: "today", tone: "green", icon: <FileText size={20} />, value: data.today,
-      label: "Logs today", hint: "See all records",
-      onClick: () => onOpenRecords("All"),
-    },
-  ];
 
   const hBar = (rows: { name: string; value: number }[], color: string) => (
     rows.length === 0 ? <p className="ov-empty">No logs in this period.</p> : (
@@ -293,23 +239,6 @@ function InsightsTab({ onOpenRecords, onOpenTab }: {
   return (
     <div className="ov">
       <section>
-        <h2 className="ov-heading">Needs attention</h2>
-        <div className="ov-attention">
-          {attention.map((a) => (
-            <button key={a.key} type="button" className={`ov-card ov-${a.tone} ${a.value ? "has" : ""}`} onClick={a.onClick}>
-              <span className="ov-card-icon">{a.icon}</span>
-              <span className="ov-card-value">{a.value}</span>
-              <span className="ov-card-label">{a.label}</span>
-              <span className="ov-card-hint">{a.hint} <ChevronRight size={14} /></span>
-            </button>
-          ))}
-        </div>
-        {data.missingPlans.length > 0 && (
-          <p className="ov-missing"><strong>No weekly plan yet:</strong> {data.missingPlans.map((p) => p.fullName || p.username).join(", ")}</p>
-        )}
-      </section>
-
-      <section>
         <div className="ov-section-head">
           <h2 className="ov-heading">Activity</h2>
           <div className="um-chips" role="group" aria-label="Period">
@@ -319,6 +248,7 @@ function InsightsTab({ onOpenRecords, onOpenTab }: {
           </div>
         </div>
         <div className="um-stats">
+          <div className="um-stat"><span className="um-stat-icon"><Clock size={18} /></span><span className="um-stat-value">{data.today}</span><span className="um-stat-label">Logs today</span></div>
           <div className="um-stat"><span className="um-stat-icon"><FileText size={18} /></span><span className="um-stat-value">{data.inRange}</span><span className="um-stat-label">Logs</span></div>
           <div className="um-stat"><span className="um-stat-icon"><TrendingUp size={18} /></span><span className="um-stat-value">{data.perDayAvg.toFixed(1)}</span><span className="um-stat-label">Per day</span></div>
           <div className="um-stat"><span className="um-stat-icon"><Microscope size={18} /></span><span className="um-stat-value">{data.activeInstruments}</span><span className="um-stat-label">Instruments used</span></div>
@@ -367,13 +297,7 @@ function InsightsTab({ onOpenRecords, onOpenTab }: {
    Tab 1 — Records
    ════════════════════════════════════════════════════════════════════════════ */
 
-function RecordsTab({ user, isAdmin, forms, onPendingChange, initialStatus = "All" }: {
-  initialStatus?: RecordsStatus;
-  user: AppUser | null;
-  isAdmin: boolean;
-  forms: FormDef[];
-  onPendingChange: (count: number) => void;
-}) {
+function RecordsTab({ forms, formCats }: { forms: FormDef[]; formCats: FormCategory[] }) {
   const [records, setRecords] = useState<LogbookRecord[]>([]);
   const [query, setQuery] = useState("");
   const [analystFilter, setAnalystFilter] = useState("All");
@@ -382,16 +306,12 @@ function RecordsTab({ user, isAdmin, forms, onPendingChange, initialStatus = "Al
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [loading, setLoading] = useState(true);
-  const [viewMode, setViewMode] = useState<"review" | "table">("table");
+  const [viewMode, setViewMode] = useState<"list" | "table">("table");
   const [openId, setOpenId] = useState<string | null>(null);
-  const [confirmBulk, setConfirmBulk] = useState(false);
   const [showOld, setShowOld] = useState(false);
-  const [scope, setScope] = useState<"All" | "Instrument" | "Sample">("Instrument");
+  const [scope, setScope] = useState<"All" | FormScope>("analytical");
   const [amendTarget, setAmendTarget] = useState<LogbookRecord | null>(null);
-  const [statusFilter, setStatusFilter] = useState<RecordsStatus>(initialStatus);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [bulkState, setBulkState] = useState<{ busy: boolean; message: string }>({ busy: false, message: "" });
   const [integrity, setIntegrity] = useState<{
     state: "idle" | "checking" | "ok" | "bad" | "error";
     checked?: number;
@@ -481,8 +401,7 @@ function RecordsTab({ user, isAdmin, forms, onPendingChange, initialStatus = "Al
     return Array.from(new Set(records.map((rec) => rec.activityType).filter(Boolean))).sort((a, b) => a.localeCompare(b));
   }, [records]);
 
-  const scopeMatch = useCallback((rec: LogbookRecord) => scope === "All"
-    || (scope === "Sample" ? isSampleRecord(rec) : !isSampleRecord(rec)), [scope]);
+  const scopeMatch = useCallback((rec: LogbookRecord) => scope === "All" || recordScope(rec, forms) === scope, [scope, forms]);
 
   const filtered = useMemo(() => {
     const search = query.trim().toLowerCase();
@@ -494,7 +413,6 @@ function RecordsTab({ user, isAdmin, forms, onPendingChange, initialStatus = "Al
       const matchActivity = activityFilter === "All" || rec.activityType === activityFilter;
       const matchDateFrom = !dateFrom || recordDate >= dateFrom;
       const matchDateTo = !dateTo || recordDate <= dateTo;
-      const matchStatus = statusFilter === "All" || (rec.status === statusFilter && latestActiveIds.has(rec.id));
       // Old versions live inside their record; only auditors need them as rows.
       if (!showOld && !latestActiveIds.has(rec.id)) return false;
       const matchSearch = !search || [
@@ -511,80 +429,30 @@ function RecordsTab({ user, isAdmin, forms, onPendingChange, initialStatus = "Al
         rec.location,
       ]
         .join(" ").toLowerCase().includes(search);
-      return matchScope && matchAnalyst && matchInstrument && matchActivity && matchDateFrom && matchDateTo && matchStatus && matchSearch;
+      return matchScope && matchAnalyst && matchInstrument && matchActivity && matchDateFrom && matchDateTo && matchSearch;
     });
-  }, [records, scopeMatch, query, analystFilter, instrumentFilter, activityFilter, dateFrom, dateTo, statusFilter, latestActiveIds, showOld]);
+  }, [records, scopeMatch, query, analystFilter, instrumentFilter, activityFilter, dateFrom, dateTo, latestActiveIds, showOld]);
 
   const openRecord = openId ? filtered.find((r) => r.id === openId) : undefined;
 
-  const pendingCount = records.filter((r) => r.status === "Pending" && latestActiveIds.has(r.id)).length;
-
-  useEffect(() => {
-    if (!loading) onPendingChange(pendingCount);
-  }, [loading, pendingCount, onPendingChange]);
-
-  // Only pending current versions someone else submitted can be bulk approved.
-  function canBulkApprove(rec: LogbookRecord) {
-    return rec.status === "Pending" && latestActiveIds.has(rec.id) && rec.submittedBy !== user?.id;
-  }
-
-  function toggleSelected(id: string) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  }
-
-  // selections hidden by a filter change are ignored
-  const visibleSelected = filtered.filter((r) => selectedIds.has(r.id)).map((r) => r.id);
-
-  async function approveSelected() {
-    const ids = visibleSelected;
-    if (ids.length === 0) return;
-    // First click arms the button, the second one approves.
-    if (!confirmBulk) {
-      setConfirmBulk(true);
-      setTimeout(() => setConfirmBulk(false), 5000);
-      return;
-    }
-    setConfirmBulk(false);
-    setBulkState({ busy: true, message: "" });
-    try {
-      const r = await fetch("/api/logbook/review", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recordIds: ids, decision: "Approved" }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error || "Approval failed.");
-      const failed: { error: string }[] = d.failed || [];
-      setBulkState({
-        busy: false,
-        message: failed.length
-          ? `Approved ${d.reviews.length}. ${failed.length} not approved: ${failed[0].error}`
-          : `Approved ${d.reviews.length} record${d.reviews.length === 1 ? "" : "s"}.`,
-      });
-      setSelectedIds(new Set());
-      await loadRecords();
-    } catch (e) {
-      setBulkState({ busy: false, message: e instanceof Error ? e.message : "Approval failed." });
-    }
-  }
-
   function resetFilters() {
     setQuery(""); setAnalystFilter("All"); setInstrumentFilter("All"); setActivityFilter("All");
-    setDateFrom(""); setDateTo(""); setStatusFilter("All");
+    setDateFrom(""); setDateTo("");
   }
 
-  const instrumentCount = records.filter((r) => !isSampleRecord(r)).length;
-  const sampleCount = records.filter((r) => isSampleRecord(r)).length;
+  const scopeButtons: [FormScope, string, React.ReactNode][] = [
+    ["analytical", "Instrument", <Microscope key="i" size={16} />],
+    ["sample", "Sample Preparation", <Activity key="i" size={16} />],
+    ...formCats.map((c) => [c.id, c.name, <Tag key="i" size={16} />] as [FormScope, string, React.ReactNode]),
+  ];
+  const scopeCount = (s: FormScope) => records.filter((r) => recordScope(r, forms) === s).length;
+  const scopeLabel = scope === "All" ? "All records" : scopeButtons.find(([s]) => s === scope)?.[1] || "Records";
 
   // A compact, filesystem-safe tag describing the active filters so each export
   // is self-describing (e.g. logbook-records-Instrument-Jane-2024-01-01_to_…).
   function filterSlug() {
     const parts: string[] = [];
-    if (scope !== "All") parts.push(scope);
+    if (scope !== "All") parts.push(scopeLabel);
     if (analystFilter !== "All") parts.push(analystFilter);
     if (instrumentFilter !== "All") parts.push(instrumentFilter);
     if (activityFilter !== "All") parts.push(LOG_TYPES.find((t) => t.id === activityFilter)?.label || activityFilter);
@@ -685,10 +553,6 @@ function RecordsTab({ user, isAdmin, forms, onPendingChange, initialStatus = "Al
 
   const activeFilterCount = [analystFilter !== "All", instrumentFilter !== "All", activityFilter !== "All", !!(dateFrom || dateTo)].filter(Boolean).length;
   const showFilters = filtersOpen || activeFilterCount > 0;
-  const selectablePending = filtered.filter(canBulkApprove);
-  const statusCount = (st: RecordsStatus) => st === "All"
-    ? records.filter((r) => scopeMatch(r)).length
-    : records.filter((r) => scopeMatch(r) && r.status === st && latestActiveIds.has(r.id)).length;
 
   function presetDays(n: number | null) {
     if (n === null) { setDateFrom(""); setDateTo(""); return; }
@@ -706,27 +570,14 @@ function RecordsTab({ user, isAdmin, forms, onPendingChange, initialStatus = "Al
     <>
       <div className="rec-top">
         <div className="scope-switch">
-          <button type="button" className={`scope-switch-btn ${scope === "Instrument" ? "active" : ""}`} onClick={() => setScope("Instrument")}>
-            <Microscope size={16} /> <span>Instrument</span> <span className="scope-count">{instrumentCount}</span>
-          </button>
-          <button type="button" className={`scope-switch-btn ${scope === "Sample" ? "active" : ""}`} onClick={() => setScope("Sample")}>
-            <Activity size={16} /> <span>Sample Preparation</span> <span className="scope-count">{sampleCount}</span>
-          </button>
+          {scopeButtons.map(([s, label, icon]) => (
+            <button key={s} type="button" className={`scope-switch-btn ${scope === s ? "active" : ""}`} onClick={() => setScope(s)}>
+              {icon} <span>{label}</span> <span className="scope-count">{scopeCount(s)}</span>
+            </button>
+          ))}
           <button type="button" className={`scope-switch-btn ${scope === "All" ? "active" : ""}`} onClick={() => setScope("All")}>
             <FileText size={16} /> <span>All</span> <span className="scope-count">{records.length}</span>
           </button>
-        </div>
-        <div className="rec-status" role="group" aria-label="Review status">
-          {([
-            ["Pending", "Needs review", <Clock key="i" size={14} />],
-            ["Rejected", "Rejected", <XCircle key="i" size={14} />],
-            ["Approved", "Approved", <CheckCircle2 key="i" size={14} />],
-            ["All", "Any status", null],
-          ] as [RecordsStatus, string, React.ReactNode][]).map(([st, label, icon]) => (
-            <button key={st} type="button" className={`rec-status-btn rec-status-${st.toLowerCase()} ${statusFilter === st ? "active" : ""}`} onClick={() => setStatusFilter(st)}>
-              {icon}<span>{label}</span><span className="rec-status-count">{statusCount(st)}</span>
-            </button>
-          ))}
         </div>
       </div>
 
@@ -746,7 +597,7 @@ function RecordsTab({ user, isAdmin, forms, onPendingChange, initialStatus = "Al
               <Filter size={15} /> <span>Filters</span>{activeFilterCount > 0 && <span className="count-badge">{activeFilterCount}</span>}
             </button>
             <div className="btn-group shadow-sm">
-              <button className={`view-toggle-btn ${viewMode === "review" ? "active" : ""}`} onClick={() => setViewMode("review")} title="Review view" aria-label="Review view">
+              <button className={`view-toggle-btn ${viewMode === "list" ? "active" : ""}`} onClick={() => setViewMode("list")} title="List view" aria-label="List view">
                 <Inbox size={16} />
               </button>
               <button className={`view-toggle-btn ${viewMode === "table" ? "active" : ""}`} onClick={() => setViewMode("table")} title="Logbook table" aria-label="Logbook table">
@@ -760,7 +611,7 @@ function RecordsTab({ user, isAdmin, forms, onPendingChange, initialStatus = "Al
               <div className="rec-menu-list" onClick={(e) => (e.currentTarget.parentElement as HTMLDetailsElement).removeAttribute("open")}>
                 <button type="button" disabled={filtered.length === 0} onClick={exportXlsx}><FileSpreadsheet size={15} /> Excel (.xlsx)</button>
                 <button type="button" disabled={filtered.length === 0} onClick={exportCsv}><FileOutput size={15} /> CSV</button>
-                <button type="button" disabled={filtered.length === 0} onClick={() => printRecordSheet(filtered, forms, scope === "All" ? "All records" : scope === "Sample" ? "Sample preparation" : "Instrument")}><Printer size={15} /> Print / PDF</button>
+                <button type="button" disabled={filtered.length === 0} onClick={() => printRecordSheet(filtered, forms, scopeLabel)}><Printer size={15} /> Print / PDF</button>
                 <span className="rec-menu-note">Exports the {filtered.length} record{filtered.length === 1 ? "" : "s"} shown</span>
               </div>
             </details>
@@ -779,7 +630,7 @@ function RecordsTab({ user, isAdmin, forms, onPendingChange, initialStatus = "Al
                 ))}
                 <button type="button" className={`um-chip ${!dateFrom && !dateTo ? "active" : ""}`} onClick={() => presetDays(null)}>Any date</button>
               </div>
-              {(activeFilterCount > 0 || query || statusFilter !== "All") && (
+              {(activeFilterCount > 0 || query) && (
                 <button className="btn-text-only btn-sm" onClick={resetFilters}>Clear all</button>
               )}
             </div>
@@ -826,23 +677,6 @@ function RecordsTab({ user, isAdmin, forms, onPendingChange, initialStatus = "Al
 
       <div className="results-count-strip">
         <span className="count-label">Showing <strong>{filtered.length}</strong> of {records.length} records</span>
-        {isAdmin && viewMode === "table" && (selectablePending.length > 0 || visibleSelected.length > 0 || bulkState.message) && (
-          <span className="bulk-strip">
-            {visibleSelected.length > 0 ? (
-              <>
-                <button className="btn btn-primary btn-sm btn-icon-gap" type="button" onClick={approveSelected} disabled={bulkState.busy}>
-                  {bulkState.busy ? <RefreshCw size={15} className="spin" /> : <CheckCircle2 size={15} />} {confirmBulk ? `Click again to approve ${visibleSelected.length}` : `Approve ${visibleSelected.length} selected`}
-                </button>
-                <button className="btn-text-only btn-sm" type="button" onClick={() => setSelectedIds(new Set())} disabled={bulkState.busy}>Clear</button>
-              </>
-            ) : selectablePending.length > 0 && (
-              <button className="btn btn-outline btn-sm btn-icon-gap" type="button" onClick={() => setSelectedIds(new Set(selectablePending.map((r) => r.id)))}>
-                <CheckCircle2 size={15} /> Select all {selectablePending.length} pending
-              </button>
-            )}
-            {bulkState.message && <span className="bulk-message">{bulkState.message}</span>}
-          </span>
-        )}
         <span className="integrity-strip">
           <button className="btn btn-ghost btn-sm btn-icon-gap" type="button" onClick={verifyIntegrity} disabled={integrity.state === "checking"} title="Recompute the tamper-evidence hash chain">
             <ShieldCheck size={15} /> <span>{integrity.state === "checking" ? "Verifying…" : "Verify integrity"}</span>
@@ -864,33 +698,28 @@ function RecordsTab({ user, isAdmin, forms, onPendingChange, initialStatus = "Al
         </span>
       </div>
 
-      {!loading && statusFilter === "Pending" && filtered.length === 0 && (
-        <div className="notice notice-success um-notice"><CheckCircle2 size={18} /><span>Nothing is waiting for review{scope !== "All" ? " in this section" : ""}.</span></div>
-      )}
-
       {viewMode === "table" ? (
         <div className={`lw ${openRecord ? "has-open" : ""}`}>
           <div className="lw-sheet">
             {loading && records.length === 0 ? <div className="skeleton" style={{ height: 360, borderRadius: 8 }} /> : (
               <RecordWorkbook records={filtered} forms={forms} selectedId={openRecord?.id} onOpen={(r) => setOpenId(r.id)}
                 isCurrent={(r) => latestActiveIds.has(r.id)} showAnalyst
-                selection={isAdmin ? { ids: selectedIds, toggle: toggleSelected, canSelect: canBulkApprove } : undefined}
                 empty={<div className="ml-empty ml-detail-empty"><Search size={28} /><p>No records match these filters.</p></div>} />
             )}
           </div>
           {openRecord && (
             <aside className="lw-panel">
-              <ReviewDetail key={openRecord.id} record={openRecord} chain={versionChain(records, openRecord)}
+              <RecordDetail key={openRecord.id} record={openRecord} chain={versionChain(records, openRecord)}
                 form={forms.find((f) => f.activityType === openRecord.activityType)}
                 title={forms.find((f) => f.activityType === openRecord.activityType)?.title || LOG_TYPES.find((t) => t.id === openRecord.activityType)?.label || openRecord.activityType}
-                user={user} isCurrent={latestActiveIds.has(openRecord.id)}
-                onBack={() => setOpenId(null)} onAmend={() => setAmendTarget(openRecord)} onChanged={loadRecords} />
+                isCurrent={latestActiveIds.has(openRecord.id)}
+                onBack={() => setOpenId(null)} onAmend={() => setAmendTarget(openRecord)} />
             </aside>
           )}
         </div>
       ) : (
-        <ReviewSplit records={filtered} allRecords={records} loading={loading} forms={forms} user={user}
-          latestActiveIds={latestActiveIds} onAmend={setAmendTarget} onChanged={loadRecords} />
+        <RecordSplit records={filtered} allRecords={records} loading={loading} forms={forms}
+          latestActiveIds={latestActiveIds} onAmend={setAmendTarget} />
       )}
 
       {amendTarget && (
@@ -937,16 +766,8 @@ function escHtml(value: string): string {
 // Opens a print-ready log sheet in a new window and triggers the browser print
 // dialog (which the user can "Save as PDF"). Renders each log-type group as a
 // bordered table matching the paper logbook — instrument header, entries, and a
-// review/approval sign-off block. Self-contained HTML so it ignores the app's
+// sign-off block. Self-contained HTML so it ignores the app's
 // screen styling and CSP.
-function reviewCell(rec: LogbookRecord) {
-  const last = [...rec.reviews].reverse().find((r) => r.decision !== "Comment");
-  if (!last) return "Pending";
-  const when = new Date(last.createdAt).toLocaleDateString();
-  const note = last.comment ? `<div class="muted">${escHtml(last.comment)}</div>` : "";
-  return `<strong>${escHtml(last.decision)}</strong><div>${escHtml(last.reviewerName)}, ${escHtml(when)}</div>${note}`;
-}
-
 function printRecordSheet(records: LogbookRecord[], forms: FormDef[], scopeLabel: string) {
   if (records.length === 0) return;
 
@@ -969,7 +790,7 @@ function printRecordSheet(records: LogbookRecord[], forms: FormDef[], scopeLabel
 
   const sections = orderedTypes.map((type) => {
     const form = forms.find((f) => f.activityType === type);
-    const isSample = form?.scope === "sample";
+    const isSample = !!form && !isInstrumentScope(form.scope);
     const showInstrument = !isSample && !singleInstrument;
     const fields = (form?.fields || []).filter((f) => f.key !== "instrumentUsed");
     const title = form?.title || LOG_TYPES.find((t) => t.id === type)?.label || type;
@@ -981,7 +802,6 @@ function printRecordSheet(records: LogbookRecord[], forms: FormDef[], scopeLabel
       ...fields.map((f) => `<th>${escHtml(f.label)}</th>`),
       "<th>Analyst</th>",
       "<th>Signature</th>",
-      "<th>Review</th>",
     ].join("");
 
     const bodyRows = rows.map((rec, i) => {
@@ -995,7 +815,6 @@ function printRecordSheet(records: LogbookRecord[], forms: FormDef[], scopeLabel
         ...fields.map((f) => `<td>${escHtml(fieldValue(rec, f) || "—")}</td>`),
         `<td>${escHtml(rec.analyst || sig.signedBy || "—")}</td>`,
         `<td class="sig-cell">${sigCell}${rec.amends ? `<div class="muted">Corrected by ${escHtml(rec.submitterName || "admin")}: ${escHtml(rec.amendmentReason)}</div>` : ""}</td>`,
-        `<td>${reviewCell(rec)}</td>`,
       ].join("");
       return `<tr>${cells}</tr>`;
     }).join("");
@@ -1124,13 +943,7 @@ function AmendModal({ record, form, onCancel, onSubmit }: {
       <div className="modal-body" style={{ display: "grid", gap: 12 }}>
         <p style={{ fontSize: 13, color: "var(--muted)", margin: 0 }}>
           The original record stays locked. This saves a linked correction stamped with your name, the time, and the reason below.
-          The correction starts as <strong>Pending</strong> and needs its own review.
         </p>
-        {record.status === "Approved" && (
-          <div className="notice notice-warning">
-            This record is already approved. Saving a correction replaces the approved version, and the correction has to be approved again.
-          </div>
-        )}
         {fields.map((f) => (
           <div className="field-modern" key={f.key}>
             <label>{f.label}</label>
@@ -1161,15 +974,13 @@ function AmendModal({ record, form, onCancel, onSubmit }: {
   );
 }
 
-function ReviewSplit({ records, allRecords, loading, forms, user, latestActiveIds, onAmend, onChanged }: {
+function RecordSplit({ records, allRecords, loading, forms, latestActiveIds, onAmend }: {
   records: LogbookRecord[];
   allRecords: LogbookRecord[];
   loading: boolean;
   forms: FormDef[];
-  user: AppUser | null;
   latestActiveIds: Set<string>;
   onAmend: (rec: LogbookRecord) => void;
-  onChanged: () => Promise<void>;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Desktop falls back to the first record so the right side is never blank.
@@ -1195,13 +1006,13 @@ function ReviewSplit({ records, allRecords, loading, forms, user, latestActiveId
             return (
               <li key={r.id}>
                 <button type="button" className={`ml-item ${selected?.id === r.id ? "active" : ""}`} onClick={() => setSelectedId(r.id)} aria-current={selected?.id === r.id}>
-                  <span className={`ml-dot ${current ? r.status.toLowerCase() : "old"}`} aria-hidden="true" />
+                  <span className={`ml-dot ${current ? "approved" : "old"}`} aria-hidden="true" />
                   <span className="ml-item-main">
                     <strong>{r.instrumentName || titleOf(r)}{r.amends ? <span className="rv-fix"> · corrected</span> : null}</strong>
                     <span>{r.analyst} · {titleOf(r)} · {r.date}</span>
                   </span>
                   {current
-                    ? <span className={`log-status-badge ${r.status.toLowerCase()}`}>{r.status}</span>
+                    ? <span className="log-status-badge approved">Approved</span>
                     : <span className="record-flag superseded">Old version</span>}
                   <ChevronRight size={16} className="ml-item-caret" />
                 </button>
@@ -1212,69 +1023,31 @@ function ReviewSplit({ records, allRecords, loading, forms, user, latestActiveId
       </aside>
       <section className="ml-detail">
         {selected ? (
-          <ReviewDetail key={selected.id} record={selected} chain={versionChain(allRecords, selected)} form={formOf(selected)}
-            title={titleOf(selected)} user={user} isCurrent={latestActiveIds.has(selected.id)}
-            onBack={() => setSelectedId(null)} onAmend={() => onAmend(selected)} onChanged={onChanged} />
+          <RecordDetail key={selected.id} record={selected} chain={versionChain(allRecords, selected)} form={formOf(selected)}
+            title={titleOf(selected)} isCurrent={latestActiveIds.has(selected.id)}
+            onBack={() => setSelectedId(null)} onAmend={() => onAmend(selected)} />
         ) : (
-          <div className="ml-empty ml-detail-empty"><FileText size={28} /><p>Pick a record to review it.</p></div>
+          <div className="ml-empty ml-detail-empty"><FileText size={28} /><p>Pick a record to open it.</p></div>
         )}
       </section>
     </div>
   );
 }
 
-function ReviewDetail({ record, chain, form, title, user, isCurrent, onBack, onAmend, onChanged }: {
+function RecordDetail({ record, chain, form, title, isCurrent, onBack, onAmend }: {
   record: LogbookRecord;
   chain: LogbookRecord[];
   form: FormDef | undefined;
   title: string;
-  user: AppUser | null;
   isCurrent: boolean;
   onBack: () => void;
   onAmend: () => void;
-  onChanged: () => Promise<void>;
 }) {
-  const [comment, setComment] = useState("");
-  const [saving, setSaving] = useState<ReviewDecision | null>(null);
-  const [error, setError] = useState("");
-  const [done, setDone] = useState("");
-  // Once decided, the form stays closed until the reviewer asks to change it.
-  const [reopen, setReopen] = useState(false);
-
   const fields = displayFields(record, form?.fields);
   const signature = parseAnalystSignature(record.analystSignature);
-  const isOwn = !!user && record.submittedBy === user.id;
-  const canDecide = isCurrent && !isOwn;
   const prev = chain.length > 1 ? chain[chain.findIndex((r) => r.id === record.id) - 1] : undefined;
   const changes = prev ? recordChanges(prev, record, fields) : [];
   const changedKeys = new Set(changes.map((c) => c.key));
-  const lastDecision = [...record.reviews].reverse().find((r) => r.decision !== "Comment");
-
-  async function submit(decision: ReviewDecision) {
-    if (decision !== "Approved" && !comment.trim()) {
-      setError(decision === "Rejected" ? "Write why it's rejected, so the analyst knows what to fix." : "Write a comment first.");
-      return;
-    }
-    setSaving(decision); setError(""); setDone("");
-    try {
-      const r = await fetch("/api/logbook/review", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recordId: record.id, decision, comment: comment.trim() }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error || "Couldn't save the review.");
-      setComment("");
-      setReopen(false);
-      // A decision shows as the card above; only a comment needs its own note.
-      setDone(decision === "Comment" ? "Comment added." : "");
-      await onChanged();
-    } catch (e) {
-      setError(e instanceof Error && e.message !== "Failed to fetch" ? e.message : "Network error. Nothing was saved.");
-    }
-    setSaving(null);
-  }
-
   return (
     <article className="ml-card">
       <button type="button" className="ml-back lw-close" onClick={onBack}><X size={16} /> Close</button>
@@ -1291,12 +1064,12 @@ function ReviewDetail({ record, chain, form, title, user, isCurrent, onBack, onA
           </p>
         </div>
         {isCurrent
-          ? <span className={`log-status-badge ${record.status.toLowerCase()}`}>{record.status}</span>
+          ? <span className="log-status-badge approved">Approved</span>
           : <span className="record-flag superseded">Old version</span>}
       </header>
 
       {!isCurrent && (
-        <div className="ml-banner pending"><History size={20} /><div><strong>This is an old version</strong><p>A newer correction replaced it. Review the latest version instead.</p></div></div>
+        <div className="ml-banner pending"><History size={20} /><div><strong>This is an old version</strong><p>A newer correction replaced it.</p></div></div>
       )}
 
       {prev && isCurrent && (
@@ -1334,77 +1107,17 @@ function ReviewDetail({ record, chain, form, title, user, isCurrent, onBack, onA
       </section>
 
       {isCurrent && (
-        lastDecision && !isOwn && !reopen ? (
-        <section className="ml-section rv-review">
-          <h3>Review</h3>
-          <div className={`rv-decision ${lastDecision.decision.toLowerCase()}`}>
-            {lastDecision.decision === "Approved" ? <CheckCircle2 size={20} /> : <XCircle size={20} />}
-            <div>
-              <strong>{lastDecision.decision} by {lastDecision.reviewerName}</strong>
-              <span>{new Date(lastDecision.createdAt).toLocaleString()}</span>
-              {lastDecision.comment && <p>“{lastDecision.comment}”</p>}
-            </div>
-          </div>
-          {done && <div className="rv-done" role="status"><CheckCircle2 size={16} /> {done}</div>}
-          <div className="rv-actions">
-            <button type="button" className="btn btn-outline btn-sm btn-icon-gap" onClick={() => { setReopen(true); setDone(""); }}>
-              <Pencil size={15} /> <span>Change decision or comment</span>
-            </button>
-            <button type="button" className="btn btn-ghost btn-sm btn-icon-gap rv-amend" onClick={onAmend} title="Issue a correction yourself">
-              <Pencil size={15} /> <span>Amend</span>
-            </button>
-          </div>
-        </section>
-        ) : (
-        <section className="ml-section rv-review">
-          <h3>Your review</h3>
-          {isOwn ? (
-            <p className="ml-muted">You submitted this record, so another admin has to approve or reject it. You can still comment.</p>
-          ) : lastDecision ? (
-            <p className="ml-muted">Currently <strong>{lastDecision.decision}</strong> by {lastDecision.reviewerName}.</p>
-          ) : null}
-          <textarea rows={2} value={comment} onChange={(e) => { setComment(e.target.value); setError(""); }}
-            placeholder="Comment or reason (required to reject)" aria-label="Review comment" />
-          {error && <div className="ml-form-error" role="alert"><AlertTriangle size={16} /> {error}</div>}
-          {done && !error && <div className="rv-done" role="status"><CheckCircle2 size={16} /> {done}</div>}
-          <div className="rv-actions">
-            <button type="button" className="btn btn-primary btn-icon-gap" disabled={!canDecide || !!saving} onClick={() => submit("Approved")}>
-              {saving === "Approved" ? <RefreshCw size={16} className="spin" /> : <CheckCircle2 size={16} />} <span>Approve</span>
-            </button>
-            <button type="button" className="btn btn-danger btn-icon-gap" disabled={!canDecide || !!saving} onClick={() => submit("Rejected")}>
-              {saving === "Rejected" ? <RefreshCw size={16} className="spin" /> : <XCircle size={16} />} <span>Reject</span>
-            </button>
-            <button type="button" className="btn btn-outline btn-icon-gap" disabled={!!saving} onClick={() => submit("Comment")}>
-              <MessageSquare size={16} /> <span>Comment</span>
-            </button>
-            {reopen
-              ? <button type="button" className="btn btn-ghost btn-icon-gap" onClick={() => { setReopen(false); setError(""); }}>Cancel</button>
-              : <button type="button" className="btn btn-ghost btn-icon-gap rv-amend" onClick={onAmend} title="Issue a correction yourself">
-                  <Pencil size={16} /> <span>Amend</span>
-                </button>}
-          </div>
-        </section>
-        )
+        <div className="rv-actions">
+          <button type="button" className="btn btn-outline btn-sm btn-icon-gap" onClick={onAmend} title="Issue a correction">
+            <Pencil size={15} /> <span>Amend</span>
+          </button>
+        </div>
       )}
 
       {chain.length > 1 && (
         <section className="ml-section">
           <h3>Edit history</h3>
           <VersionHistory chain={chain} currentId={record.id} fields={fields} />
-        </section>
-      )}
-
-      {record.reviews.length > 0 && (
-        <section className="ml-section">
-          <h3>Review history</h3>
-          <ol className="ml-timeline">
-            {record.reviews.map((r) => (
-              <li key={r.id} className={r.decision.toLowerCase()}>
-                <div><strong>{r.decision}</strong> · {r.reviewerName} <span className="ml-muted">{new Date(r.createdAt).toLocaleString()}</span></div>
-                {r.comment && <p>{r.comment}</p>}
-              </li>
-            ))}
-          </ol>
         </section>
       )}
 
@@ -2634,7 +2347,12 @@ type FormDraft = {
   isNew: boolean;
 };
 
-function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef[]) => void }) {
+function FormsTab({ forms, setForms, formCats, reloadFormCats }: {
+  forms: FormDef[];
+  setForms: (f: FormDef[]) => void;
+  formCats: FormCategory[];
+  reloadFormCats: () => Promise<void>;
+}) {
   const [loading, setLoading] = useState(false);
   const [draft, setDraft]     = useState<FormDraft | null>(null);
   const [saving, setSaving]   = useState(false);
@@ -2646,7 +2364,17 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
   const [draftError, setDraftError] = useState("");
   const [expanded, setExpanded] = useState<number | null>(null);
   const [reordering, setReordering] = useState(false);
+  const [catsOpen, setCatsOpen] = useState(false);
   const clearNotice = useCallback(() => setNotice(null), []);
+
+  const scopeTabs: [FormScope, string][] = [
+    ["analytical", "Analytical Logs"],
+    ["sample", "Sample Prep"],
+    ["instrument", "General Info"],
+    ...formCats.map((c) => [c.id, c.name] as [FormScope, string]),
+  ];
+  // A deleted category's tab falls back to the first one.
+  const activeScope = scopeTabs.some(([s]) => s === scopeTab) ? scopeTab : "analytical";
 
   function startDraft(d: FormDraft, tab: "settings" | "fields") {
     setDraft(d);
@@ -2676,7 +2404,7 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
 
   // Keep each form's original index (used as its display order) while showing
   // only the forms belonging to the selected scope tab.
-  const scopedForms = forms.map((f, i) => ({ f, i })).filter(({ f }) => f.scope === scopeTab);
+  const scopedForms = forms.map((f, i) => ({ f, i })).filter(({ f }) => f.scope === activeScope);
   const scopeCount = (s: FormScope) => forms.filter((f) => f.scope === s).length;
 
   async function loadForms() {
@@ -2714,7 +2442,7 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
   }
 
   function openNew() {
-    startDraft({ id: "", title: "", activityType: "", scope: scopeTab, displayOrder: forms.length, fields: [], isNew: true }, "settings");
+    startDraft({ id: "", title: "", activityType: "", scope: activeScope, displayOrder: forms.length, fields: [], isNew: true }, "settings");
   }
 
   function openEdit(form: FormDef, index: number) {
@@ -2831,7 +2559,10 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
           <p className="um-sub">The fields analysts fill in for each kind of log. Changes apply to new entries.</p>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
-          {scopeTab === "instrument" && forms.find(f => f.id === "instrument") && (
+          <button className="btn btn-outline btn-sm btn-icon-gap" type="button" onClick={() => setCatsOpen(true)}>
+            <Tag size={16} /> <span>Categories</span>
+          </button>
+          {activeScope === "instrument" && forms.find(f => f.id === "instrument") && (
             <button className="btn btn-outline btn-sm btn-icon-gap" type="button" onClick={() => openEdit(forms.find(f => f.id === "instrument")!, forms.findIndex(f => f.id === "instrument"))}>
               <ShieldAlert size={16} /> <span>Edit default info form</span>
             </button>
@@ -2843,17 +2574,13 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
       </div>
 
       <div className="scope-switch" role="tablist" style={{ marginBottom: 16 }}>
-        {([
-          ["analytical", "Analytical Logs"],
-          ["sample", "Sample Prep"],
-          ["instrument", "General Info"],
-        ] as [FormScope, string][]).map(([s, label]) => (
+        {scopeTabs.map(([s, label]) => (
           <button
             key={s}
             type="button"
             role="tab"
-            aria-selected={scopeTab === s}
-            className={`scope-switch-btn ${scopeTab === s ? "active" : ""}`}
+            aria-selected={activeScope === s}
+            className={`scope-switch-btn ${activeScope === s ? "active" : ""}`}
             onClick={() => setScopeTab(s)}
           >
             <span>{label}</span> <span className="scope-count">{scopeCount(s)}</span>
@@ -2952,6 +2679,7 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
                       <option value="analytical">Analytical instrument</option>
                       <option value="sample">Sample preparation</option>
                       <option value="instrument">Instrument metadata</option>
+                      {formCats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
                   </div>
                 </div>
@@ -3132,242 +2860,150 @@ function FormsTab({ forms, setForms }: { forms: FormDef[]; setForms: (f: FormDef
           </div>
         </ModalShell>
       )}
+
+      {catsOpen && (
+        <FormCategoriesDialog categories={formCats} forms={forms} onChanged={reloadFormCats} onClose={() => setCatsOpen(false)} />
+      )}
     </div>
+  );
+}
+
+// Admin-made form groups. The three built-in groups behave differently
+// (per instrument, standalone, instrument info), so only custom ones are editable.
+function FormCategoriesDialog({ categories, forms, onChanged, onClose }: {
+  categories: FormCategory[];
+  forms: FormDef[];
+  onChanged: () => Promise<void>;
+  onClose: () => void;
+}) {
+  const [names, setNames] = useState<Record<string, string>>({});
+  const [newName, setNewName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const clearNotice = useCallback(() => setNotice(null), []);
+
+  async function send(url: string, method: string, body?: unknown) {
+    setBusy(true);
+    try {
+      const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { setNotice({ type: "error", text: d.error || "That didn't work. Try again." }); return false; }
+      await onChanged();
+      return true;
+    } catch {
+      setNotice({ type: "error", text: "Network error. Nothing was saved." });
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function add() {
+    const name = newName.trim();
+    if (!name) return;
+    if (await send("/api/forms/categories", "POST", { name, displayOrder: categories.length })) {
+      setNewName("");
+      setNotice({ type: "success", text: `Added “${name}”.` });
+    }
+  }
+
+  async function rename(c: FormCategory) {
+    const name = (names[c.id] ?? c.name).trim();
+    if (!name || name === c.name) return;
+    if (await send(`/api/forms/categories?id=${encodeURIComponent(c.id)}`, "PATCH", { name })) {
+      setNames((p) => { const n = { ...p }; delete n[c.id]; return n; });
+      setNotice({ type: "success", text: `Renamed to “${name}”.` });
+    }
+  }
+
+  async function move(i: number, dir: -1 | 1) {
+    const next = [...categories];
+    [next[i], next[i + dir]] = [next[i + dir], next[i]];
+    setBusy(true);
+    const ok = await Promise.all(next.map((c, n) => c.displayOrder === n ? true
+      : fetch(`/api/forms/categories?id=${encodeURIComponent(c.id)}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ displayOrder: n }),
+        }).then((r) => r.ok, () => false)));
+    if (ok.some((x) => !x)) setNotice({ type: "error", text: "Couldn't save the new order." });
+    await onChanged();
+    setBusy(false);
+  }
+
+  async function remove(c: FormCategory) {
+    if (!await askConfirm({ title: `Delete “${c.name}”?`, message: "The category is empty, so no forms are affected.", confirmLabel: "Delete", danger: true })) return;
+    if (await send(`/api/forms/categories?id=${encodeURIComponent(c.id)}`, "DELETE")) {
+      setNotice({ type: "success", text: "Category deleted." });
+    }
+  }
+
+  return (
+    <ModalShell open onClose={onClose} className="modal shadow-3 modal-w-md" labelledBy="form-categories-title">
+      <div className="modal-header">
+        <h2 className="modal-title" id="form-categories-title">Form categories</h2>
+        <button className="btn btn-ghost btn-sm" type="button" onClick={onClose} aria-label="Close"><X size={16} /></button>
+      </div>
+      <div className="modal-body cat-body">
+        <p className="um-hint" style={{ marginTop: 0 }}>
+          Extra groups of forms, e.g. Certificate. Analysts see each one as its own section in the left menu,
+          filled in like Sample Preparation. Analytical Logs, Sample Prep and General Info are built in.
+        </p>
+        <TabNotice notice={notice} onClose={clearNotice} />
+
+        <form className="cat-add" onSubmit={(e) => { e.preventDefault(); add(); }}>
+          <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="New category, e.g. Certificate" aria-label="New category name" maxLength={60} />
+          <button className="btn btn-primary btn-sm btn-icon-gap" type="submit" disabled={!newName.trim() || busy}>
+            <Plus size={15} /> <span>Add</span>
+          </button>
+        </form>
+
+        {categories.length === 0 ? (
+          <div className="empty-state-modern" style={{ padding: 24 }}><p>No extra categories yet.</p></div>
+        ) : (
+          <ul className="cat-list">
+            {categories.map((c, i) => {
+              const count = forms.filter((f) => f.scope === c.id).length;
+              const value = names[c.id] ?? c.name;
+              const changed = value.trim() !== c.name && value.trim() !== "";
+              return (
+                <li key={c.id} className={`cat-row ${changed ? "changed" : ""}`}>
+                  <div className="inst-order">
+                    <button type="button" disabled={i === 0 || busy} onClick={() => move(i, -1)} title="Move up" aria-label={`Move ${c.name} up`}><ChevronDown size={13} style={{ transform: "rotate(180deg)" }} /></button>
+                    <button type="button" disabled={i === categories.length - 1 || busy} onClick={() => move(i, 1)} title="Move down" aria-label={`Move ${c.name} down`}><ChevronDown size={13} /></button>
+                  </div>
+                  <input
+                    className="cat-input"
+                    value={value}
+                    maxLength={60}
+                    aria-label={`Name of ${c.name}`}
+                    onChange={(e) => setNames((p) => ({ ...p, [c.id]: e.target.value }))}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { e.preventDefault(); if (changed) rename(c); }
+                      if (e.key === "Escape") { e.stopPropagation(); setNames((p) => ({ ...p, [c.id]: c.name })); }
+                    }}
+                  />
+                  <span className="cat-count" title={`${count} form${count === 1 ? "" : "s"}`}>{count} <FileSpreadsheet size={13} /></span>
+                  {changed ? (
+                    <button className="btn btn-primary btn-sm" type="button" disabled={busy} onClick={() => rename(c)}>Save</button>
+                  ) : (
+                    <button className="btn btn-ghost btn-sm btn-icon-only um-danger" type="button" disabled={busy || count > 0}
+                      onClick={() => remove(c)} aria-label={`Delete ${c.name}`}
+                      title={count > 0 ? "Has forms, move or delete them first" : "Delete category"}>
+                      <Trash2 size={15} />
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+      <div className="modal-footer">
+        <button className="btn btn-primary" type="button" onClick={onClose}>Done</button>
+      </div>
+    </ModalShell>
   );
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
    Shared UI Components
    ════════════════════════════════════════════════════════════════════════════ */
-
-
-
-
-/* ════════════════════════════════════════════════════════════════════════════
-   Tab — Weekly Plans (every analyst's plan vs achievement)
-   ════════════════════════════════════════════════════════════════════════════ */
-
-function wpColor(pct: number) {
-  return pct >= 90 ? "var(--success)" : pct >= 50 ? "var(--tertiary)" : "var(--primary)";
-}
-
-function WeeklyReportsTab() {
-  const [plans, setPlans] = useState<WeeklyPlan[]>([]);
-  const [people, setPeople] = useState<ProfilePublic[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [week, setWeek] = useState<string>(() => mondayOf());
-  const [allWeeks, setAllWeeks] = useState(false);
-  const [who, setWho] = useState("");
-  const [expanded, setExpanded] = useState<string | null>(null);
-
-  useEffect(() => {
-    Promise.all([
-      fetch("/api/weekly-plan").then((r) => (r.ok ? r.json() : { plans: [] })).catch(() => ({ plans: [] })),
-      fetch("/api/users").then((r) => (r.ok ? r.json() : { profiles: [] })).catch(() => ({ profiles: [] })),
-    ]).then(([p, u]) => {
-      const list = ((p.plans as WeeklyPlan[]) || []).filter((x) => x.tasks.length > 0);
-      setPlans(list);
-      setPeople((u.profiles as ProfilePublic[]) || []);
-      // Open on the latest week anyone has filled, if this week is still empty.
-      const thisWeek = mondayOf();
-      if (!list.some((x) => x.weekStartDate === thisWeek) && list.length) {
-        setWeek(list.map((x) => x.weekStartDate).sort().reverse()[0]);
-      }
-    }).finally(() => setLoading(false));
-  }, []);
-
-  const nameOf = (username: string) => people.find((p) => p.username === username)?.fullName || username;
-  const analysts = people.filter((p) => !p.archived && p.role === "analyst");
-  const everyone = [...new Set([...analysts.map((p) => p.username), ...plans.map((p) => p.username)])].sort();
-
-  const rows = plans
-    .filter((p) => allWeeks || p.weekStartDate === week)
-    .filter((p) => !who || p.username === who)
-    .sort((a, b) => b.weekStartDate.localeCompare(a.weekStartDate) || (b.updatedAt || "").localeCompare(a.updatedAt || ""));
-
-  const weekPlans = plans.filter((p) => p.weekStartDate === week);
-  const missing = analysts.filter((a) => !weekPlans.some((p) => p.username === a.username));
-  const avg = rows.length ? rows.reduce((s, p) => s + planStats(p.tasks).achievement, 0) / rows.length : 0;
-  const hours = rows.reduce((s, p) => s + planStats(p.tasks).totalHours, 0);
-
-  async function exportRows(list: WeeklyPlan[], tag: string) {
-    if (list.length === 0) return;
-    const XLSX = await import("xlsx");
-    const wb = XLSX.utils.book_new();
-    const used = new Set<string>();
-    if (list.length > 1) {
-      const { summary, detail } = summarySheets(XLSX, list, nameOf);
-      XLSX.utils.book_append_sheet(wb, summary, sheetName("Summary", used));
-      XLSX.utils.book_append_sheet(wb, detail, sheetName("All tasks", used));
-    }
-    for (const p of list) {
-      XLSX.utils.book_append_sheet(wb, templateSheet(XLSX, p, nameOf(p.username)), sheetName(`${p.username} ${p.weekStartDate}`, used));
-    }
-    XLSX.writeFile(wb, `weekly_plans_${fileSafe(tag)}.xlsx`);
-  }
-
-  if (loading) return <div className="skeleton" style={{ height: 360, borderRadius: 12 }} />;
-
-  const exportTag = `${who || "all"}_${allWeeks ? "all-weeks" : week}`;
-
-  return (
-    <div className="wp-admin">
-      <div className="wp-admin-head">
-        <div>
-          <h2 className="wp-admin-title">Weekly Plans</h2>
-          <p className="wp-admin-sub">What each analyst planned and how much they achieved.</p>
-        </div>
-        <button className="btn btn-primary btn-sm btn-icon-gap" onClick={() => exportRows(rows, exportTag)} disabled={rows.length === 0}>
-          <FileSpreadsheet size={16} /> <span>Export {rows.length > 0 ? `(${rows.length})` : ""}</span>
-        </button>
-      </div>
-
-      <div className="wpa-toolbar">
-        <div className={`wp-weeknav ${allWeeks ? "is-off" : ""}`} role="group" aria-label="Week">
-          <button type="button" className="wp-weeknav-btn" disabled={allWeeks} onClick={() => setWeek(addWeeks(week, -1))} aria-label="Previous week"><ChevronLeft size={18} /></button>
-          <label className="wp-weeknav-label">
-            <Calendar size={16} />
-            <span><small>Week of</small>{weekLabel(week)}</span>
-            <input type="date" value={week} disabled={allWeeks} aria-label="Pick a week" onChange={(e) => e.target.value && setWeek(mondayOf(e.target.value))} />
-          </label>
-          <button type="button" className="wp-weeknav-btn" disabled={allWeeks} onClick={() => setWeek(addWeeks(week, 1))} aria-label="Next week"><ChevronRight size={18} /></button>
-        </div>
-        <label className="wpa-check">
-          <input type="checkbox" checked={allWeeks} onChange={(e) => setAllWeeks(e.target.checked)} /> All weeks
-        </label>
-        <select className="input-modern wpa-select" value={who} onChange={(e) => setWho(e.target.value)} aria-label="Analyst">
-          <option value="">Everyone</option>
-          {everyone.map((u) => <option key={u} value={u}>{nameOf(u)}{nameOf(u) !== u ? ` (${u})` : ""}</option>)}
-        </select>
-      </div>
-
-      <div className="um-stats">
-        {!allWeeks && !who && (
-          <div className="um-stat">
-            <span className="um-stat-icon"><UserCheck size={18} /></span>
-            <span className="um-stat-value">{analysts.length - missing.length}<small className="wpa-of">/{analysts.length}</small></span>
-            <span className="um-stat-label">Submitted</span>
-          </div>
-        )}
-        <div className="um-stat">
-          <span className="um-stat-icon"><TrendingUp size={18} /></span>
-          <span className="um-stat-value" style={{ color: rows.length ? wpColor(avg) : undefined }}>{rows.length ? `${avg.toFixed(0)}%` : "—"}</span>
-          <span className="um-stat-label">Avg achievement</span>
-        </div>
-        <div className="um-stat">
-          <span className="um-stat-icon"><Clock size={18} /></span>
-          <span className="um-stat-value">{hours}</span>
-          <span className="um-stat-label">Planned hours</span>
-        </div>
-        <div className="um-stat">
-          <span className="um-stat-icon"><FileText size={18} /></span>
-          <span className="um-stat-value">{rows.length}</span>
-          <span className="um-stat-label">Plans shown</span>
-        </div>
-      </div>
-
-
-      {rows.length === 0 ? (
-        <div className="empty-state-modern" style={{ padding: 40 }}>
-          <div className="empty-icon-wrap"><Calendar size={36} /></div>
-          <p>{allWeeks ? "No weekly plans saved yet." : `No plans for ${weekLabel(week)}.`}</p>
-        </div>
-      ) : (
-        <div className="wp-admin-list">
-          {rows.map((plan) => {
-            const s = planStats(plan.tasks);
-            const color = wpColor(s.achievement);
-            const key = `${plan.username}:${plan.weekStartDate}`;
-            const open = expanded === key;
-            return (
-              <div key={key} className={`wp-admin-card ${open ? "open" : ""}`}>
-                <div className="wp-admin-row-wrap">
-                  <button type="button" className="wp-admin-row" onClick={() => setExpanded(open ? null : key)} aria-expanded={open}>
-                    <ChevronRight size={16} className={`wp-admin-caret ${open ? "open" : ""}`} />
-                    <UserAvatar name={plan.username} seed={people.find((p) => p.username === plan.username)?.id} size="sm" />
-                    <div className="wp-admin-who">
-                      <strong>{nameOf(plan.username)}</strong>
-                      <span>{allWeeks ? weekLabel(plan.weekStartDate) : `@${plan.username}`}</span>
-                    </div>
-                    <div className="wp-admin-meta">
-                      <span><Clock size={13} /> {s.totalHours} h</span>
-                      <span><CheckCircle2 size={13} /> {s.completed}/{s.taskCount} done</span>
-                    </div>
-                    <div className="wp-admin-ach">
-                      <div className="wp-progress" style={{ width: 110 }}>
-                        <span style={{ width: `${Math.min(s.achievement, 100)}%`, background: color }} />
-                      </div>
-                      <strong style={{ color }}>{s.achievement.toFixed(1)}%</strong>
-                    </div>
-                  </button>
-                  <button type="button" className="btn btn-ghost btn-sm btn-icon-only" title="Export this plan (official template)" aria-label="Export this plan"
-                    onClick={() => exportRows([plan], `${plan.username}_${plan.weekStartDate}`)}>
-                    <Download size={15} />
-                  </button>
-                </div>
-
-                {open && (
-                  <div className="wp-admin-detail">
-                    <table className="spreadsheet-table">
-                      <thead>
-                        <tr>
-                          <th className="doc-rowno-head">No.</th>
-                          <th style={{ minWidth: 110 }}><span className="wp-th-am">ቀን</span><span className="wp-th-en">Date</span></th>
-                          <th style={{ minWidth: 70 }}><span className="wp-th-am">ሰዓት</span><span className="wp-th-en">Hours</span></th>
-                          <th style={{ minWidth: 260 }}><span className="wp-th-am">ዋና ዋና ተግባራት</span><span className="wp-th-en">Main Tasks</span></th>
-                          <th style={{ minWidth: 80 }}><span className="wp-th-am">እቅድ (የሳምንቱ)</span><span className="wp-th-en">Plan %</span></th>
-                          <th style={{ minWidth: 120 }}><span className="wp-th-am">አፈጻጸም (የሳምንቱ)</span><span className="wp-th-en">Achievement %</span></th>
-                          <th style={{ minWidth: 220 }}><span className="wp-th-am">አስተያየት</span><span className="wp-th-en">Comment / Issues</span></th>
-                          <th style={{ minWidth: 90 }}><span className="wp-th-am">የስራው ክብደት</span><span className="wp-th-en">Weight</span></th>
-                          <th style={{ minWidth: 110 }}><span className="wp-th-am">የአፈጻጸም ክብደት</span><span className="wp-th-en">Ach. Weight</span></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {plan.tasks.map((t, i) => {
-                          const weight = taskWeight(t);
-                          const achWeight = taskAchWeight(t);
-                          const planPct = s.totalWeight > 0 ? (weight / s.totalWeight) * 100 : 0;
-                          const achPct = s.totalWeight > 0 ? (achWeight / s.totalWeight) * 100 : 0;
-                          const done = weight > 0 && achWeight >= weight - 1e-9;
-                          return (
-                            <tr key={t.id} className={done ? "wp-row-done" : ""}>
-                              <td className="doc-rowno">{i + 1}</td>
-                              <td className="spreadsheet-cell" style={{ padding: "8px 12px", fontSize: 13 }}>{t.date || "—"}</td>
-                              <td className="spreadsheet-cell wp-calc">{t.hours || 0}</td>
-                              <td className="spreadsheet-cell" style={{ padding: "8px 12px", fontSize: 13 }}>{t.activity || "—"}</td>
-                              <td className="spreadsheet-cell wp-calc">{planPct.toFixed(1)}%</td>
-                              <td className="spreadsheet-cell wp-calc" style={{ color: wpColor(achPct), fontWeight: 800 }}>{achPct.toFixed(1)}%</td>
-                              <td className="spreadsheet-cell" style={{ padding: "8px 12px", fontSize: 13, color: "var(--muted)" }}>{t.comment || "—"}</td>
-                              <td className="spreadsheet-cell wp-calc">{weight.toFixed(3)}</td>
-                              <td className="spreadsheet-cell wp-calc wp-calc-strong">{achWeight.toFixed(3)}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                      <tfoot>
-                        <tr className="wp-total-row">
-                          <td className="doc-rowno" />
-                          <td className="wp-total-label"><span className="wp-th-am">ድምር</span><span className="wp-th-en">Total</span></td>
-                          <td className="wp-calc">{s.totalHours}</td>
-                          <td />
-                          <td className="wp-calc">{s.totalHours > 0 ? "100.0%" : "0%"}</td>
-                          <td className="wp-calc" style={{ color: wpColor(s.achievement) }}>{s.achievement.toFixed(1)}%</td>
-                          <td />
-                          <td className="wp-calc">{s.totalWeight.toFixed(3)}</td>
-                          <td className="wp-calc wp-calc-strong">{s.totalAchWeight.toFixed(3)}</td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                    {plan.updatedAt && (
-                      <p className="wp-admin-updated">Last saved {new Date(plan.updatedAt).toLocaleString()}</p>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}

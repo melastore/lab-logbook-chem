@@ -1,9 +1,9 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState, useRef, KeyboardEvent } from "react";
+import { FormEvent, Fragment, useEffect, useMemo, useState, useRef, KeyboardEvent } from "react";
 import Link from "next/link";
 import {
-  Activity, ArrowRight, X, Search,
+  Activity, ArrowRight, X,
   CheckCircle2, Microscope,
   ChevronRight, ChevronDown, Zap, Droplets, Beaker,
   PanelLeftClose, PanelLeft, Plus, Trash2
@@ -12,7 +12,7 @@ import { LabLogo } from "@/components/LabLogo";
 import type { AppUser, InstrumentTemplate, InstrumentCategory } from "@/lib/logbook";
 import {
   INSTRUMENT_TREE, ANALYTICAL_FORMS, SAMPLE_FORMS, INSTRUMENT_INFO_FORM, STANDARD_KEYS, INSTRUMENT_STANDARD_KEYS,
-  type InstrumentNode, type FormDef, type FormField,
+  type InstrumentNode, type FormDef, type FormField, type FormCategory,
 } from "@/lib/forms";
 import { SignOff } from "@/components/SignOff";
 import { FormExcel, isBlankRow, labDate } from "@/components/FormExcel";
@@ -82,6 +82,9 @@ export default function AnalystEntryPage() {
   // are the initial value / fallback so the page renders before the fetch.
   const [analyticalForms, setAnalyticalForms] = useState<FormDef[]>(ANALYTICAL_FORMS);
   const [sampleForms, setSampleForms] = useState<FormDef[]>(SAMPLE_FORMS);
+  // Forms in admin-made categories; filled in on their own like sample prep.
+  const [otherForms, setOtherForms] = useState<FormDef[]>([]);
+  const [formCats, setFormCats] = useState<FormCategory[]>([]);
   const [allForms, setAllForms] = useState<FormDef[]>([]);
   // Default to the built-in General Information form so the General tab is never
   // empty; a DB-defined instrument form (if any) overrides it once loaded.
@@ -157,7 +160,13 @@ export default function AnalystEntryPage() {
           setSampleForms(sample);
           setSampleFormId((id) => (sample.some((f) => f.id === id) ? id : sample[0].id));
         }
+        setOtherForms(forms.filter((f) => !["analytical", "sample", "instrument"].includes(f.scope)));
       })
+      .catch(() => {});
+
+    fetch("/api/forms/categories")
+      .then((r) => r.ok ? r.json() : { categories: [] })
+      .then((d) => setFormCats(d.categories || []))
       .catch(() => {});
   }, []);
 
@@ -176,7 +185,7 @@ export default function AnalystEntryPage() {
   const isGeneral = mode === "analytical" && analyticalFormId === GENERAL_TAB;
   const currentForm: FormDef = mode === "analytical"
     ? (analyticalForms.find((f) => f.id === analyticalFormId) ?? analyticalForms[0])
-    : (sampleForms.find((f) => f.id === sampleFormId) ?? sampleForms[0]);
+    : (sampleForms.find((f) => f.id === sampleFormId) ?? otherForms.find((f) => f.id === sampleFormId) ?? sampleForms[0]);
 
   const showForm = mode === "analytical" ? selectedInstrument !== null : true;
 
@@ -243,13 +252,6 @@ export default function AnalystEntryPage() {
     resetTransient();
   }
 
-  function switchMode(next: Mode) {
-    if (next === mode) return;
-    setMode(next);
-    setNavOpen(false);
-    resetEntry(keyFor(next, selectedInstrument?.id, formIdFor(next)));
-  }
-
   function toggleGroup(id: string) {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -259,7 +261,8 @@ export default function AnalystEntryPage() {
   }
 
   function pickInstrument(node: InstrumentNode) {
-    if (selectedInstrument?.id === node.id) { setNavOpen(false); return; }
+    if (mode === "analytical" && selectedInstrument?.id === node.id) { setNavOpen(false); return; }
+    setMode("analytical");
     const matched = templates.find(t => t.instrumentId === node.instrumentId);
     if (matched) {
       const t = matched;
@@ -315,20 +318,9 @@ export default function AnalystEntryPage() {
     return groups;
   }, [templates, categories]);
 
-  const [navQuery, setNavQuery] = useState("");
-  const navQ = navQuery.trim().toLowerCase();
-  const searching = navQ.length > 0;
-  const visibleGroups = templateGroups
-    .map((g) => ({
-      ...g,
-      items: searching
-        ? g.items.filter((t) => [t.instrumentName, t.instrumentId, t.instrumentModel, g.name].some((v) => (v || "").toLowerCase().includes(navQ)))
-        : g.items,
-    }))
-    .filter((g) => !searching || g.items.length > 0);
-
   function pickTemplate(t: InstrumentTemplate) {
-    if (selectedInstrument?.id === t.id) { setNavOpen(false); return; }
+    if (mode === "analytical" && selectedInstrument?.id === t.id) { setNavOpen(false); return; }
+    setMode("analytical");
     setSelectedInstrument({
       id: t.id,
       name: t.instrumentName,
@@ -358,7 +350,8 @@ export default function AnalystEntryPage() {
   }
 
   function pickSampleForm(id: string) {
-    if (id === sampleFormId) { setNavOpen(false); return; }
+    if (mode === "sampleprep" && id === sampleFormId) { setNavOpen(false); return; }
+    setMode("sampleprep");
     setSampleFormId(id);
     setNavOpen(false);
     resetEntry(keyFor("sampleprep", undefined, id));
@@ -396,6 +389,9 @@ export default function AnalystEntryPage() {
     setSubmitState("submitting");
     setMessage("");
 
+    // Sample prep and custom-category forms aren't tied to the instrument
+    // that may still be selected from earlier.
+    const instrument = mode === "analytical" ? selectedInstrument : null;
     const payloads = entryRows.map(row => {
       const meta: Record<string, string> = {};
       const std: Record<string, string> = {};
@@ -405,21 +401,21 @@ export default function AnalystEntryPage() {
         else if (v) meta[f.key] = v;
       }
 
-      const instrumentName = selectedInstrument
-        ? selectedInstrument.name
+      const instrumentName = instrument
+        ? instrument.name
         : (row.instrumentUsed || currentForm.title);
 
       return {
-        laboratoryName: selectedInstrument?.laboratoryName ?? "",
-        department: selectedInstrument?.department ?? "",
-        location: selectedInstrument?.location ?? "",
+        laboratoryName: instrument?.laboratoryName ?? "",
+        department: instrument?.department ?? "",
+        location: instrument?.location ?? "",
         instrumentName,
-        instrumentModel: selectedInstrument?.model ?? "",
-        serialNumber: selectedInstrument?.serialNumber ?? "",
-        manufacturer: selectedInstrument?.manufacturer ?? "",
-        installationDate: selectedInstrument?.installationDate ?? "",
-        instrumentId: selectedInstrument?.instrumentId ?? "",
-        methodUsed: std.methodUsed || selectedInstrument?.methodUsed || "",
+        instrumentModel: instrument?.model ?? "",
+        serialNumber: instrument?.serialNumber ?? "",
+        manufacturer: instrument?.manufacturer ?? "",
+        installationDate: instrument?.installationDate ?? "",
+        instrumentId: instrument?.instrumentId ?? "",
+        methodUsed: std.methodUsed || instrument?.methodUsed || "",
         date: std.date ?? todayISO(),
         analyst: std.analyst ?? user.fullName ?? user.username,
         activityType: currentForm.activityType,
@@ -428,7 +424,7 @@ export default function AnalystEntryPage() {
         startTime: std.startTime ?? "",
         endTime: std.endTime ?? "",
         remarks: std.remarks ?? "",
-        metadata: { ...selectedInstrument?.metadata, ...meta },
+        metadata: { ...instrument?.metadata, ...meta },
         analystSignature: encodeAnalystSignature({
           typed: "",
           image: signatureImage,
@@ -464,7 +460,7 @@ export default function AnalystEntryPage() {
     const n = result.count ?? payloads.length;
     const at = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     setSubmitState("sent");
-    setMessage(`Sent ${n} ${n === 1 ? "entry" : "entries"} for review at ${at}.`);
+    setMessage(`Sent ${n} ${n === 1 ? "entry" : "entries"} at ${at}.`);
     // Saving the signature is the user's choice, and only after it was used to sign.
     if (signatureImage !== savedSignature && saveNext) {
       const image = signatureImage;
@@ -497,10 +493,10 @@ export default function AnalystEntryPage() {
         user={user}
       />
       <div className="entry-shell">
-      {/* ── Instrument list ── */}
-      <aside className={`lab-nav ${navOpen ? "open" : ""} ${collapsed ? "collapsed" : ""}`} aria-label="Instruments">
+      {/* ── Instruments and sample prep forms ── */}
+      <aside className={`lab-nav ${navOpen ? "open" : ""} ${collapsed ? "collapsed" : ""}`} aria-label="Log menu">
         <div className="lab-nav-brand">
-          <span className="lab-nav-title">{mode === "analytical" ? "Instruments" : "Sample preparation"}</span>
+          <span className="lab-nav-title">Logbook</span>
           <button className="lab-nav-close" type="button" onClick={() => setNavOpen(false)} aria-label="Close list"><X size={18} /></button>
           <button className="nav-collapse-btn" type="button" onClick={() => setCollapsed(true)} title="Collapse menu" aria-label="Collapse menu">
             <PanelLeftClose size={18} />
@@ -508,99 +504,107 @@ export default function AnalystEntryPage() {
         </div>
 
         <nav className="lab-nav-tree">
-          {mode === "analytical" ? (
-            <>
-              {templates.length > 0 && (
-                <div className="nav-search">
-                  <Search size={15} aria-hidden="true" />
-                  <input value={navQuery} onChange={(e) => setNavQuery(e.target.value)} placeholder="Find instrument…" aria-label="Find instrument" />
-                  {navQuery && <button type="button" onClick={() => setNavQuery("")} aria-label="Clear"><X size={14} /></button>}
-                </div>
-              )}
-              {templateGroups.length > 0 ? (
-                visibleGroups.length === 0 ? (
-                  <p className="nav-empty">No instrument matches “{navQuery}”.</p>
-                ) : visibleGroups.map((group) => {
-                  // While searching, every matching group is open.
-                  const open = searching || expanded.has(group.name);
-                  return (
-                    <div key={group.name} className="nav-group">
-                      <button type="button" className="nav-group-head" onClick={() => toggleGroup(group.name)} aria-expanded={open}>
-                        <span className="nav-group-icon">{categoryIcon(group.name)}</span>
-                        <span className="nav-group-name">{group.name}</span>
-                        <span className="nav-group-count">{group.items.length}</span>
-                        <ChevronDown size={15} className={`nav-caret ${open ? "open" : ""}`} />
-                      </button>
-                      {open && (
-                        <div className="nav-instruments">
-                          {group.items.length === 0 && <p className="nav-empty">No instruments yet.</p>}
-                          {group.items.map((tpl) => (
-                            <button
-                              key={tpl.id}
-                              type="button"
-                              className={`nav-instrument ${selectedInstrument?.id === tpl.id ? "active" : ""}`}
-                              onClick={() => pickTemplate(tpl)}
-                              aria-current={selectedInstrument?.id === tpl.id ? "true" : undefined}
-                            >
-                              <ChevronRight size={13} />
-                              <span className="nav-instrument-text">
-                                <span>{tpl.instrumentName}</span>
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
-              ) : (
-                INSTRUMENT_TREE.map((group) => {
-                  const open = expanded.has(group.id);
-                  return (
-                    <div key={group.id} className="nav-group">
-                      <button type="button" className="nav-group-head" onClick={() => toggleGroup(group.id)}>
-                        <span className="nav-group-icon">{GROUP_ICONS[group.id]}</span>
-                        <span className="nav-group-name">{group.name}</span>
-                        <ChevronDown size={15} className={`nav-caret ${open ? "open" : ""}`} />
-                      </button>
-                      {open && (
-                        <div className="nav-instruments">
-                          {group.children.map((node) => (
-                            <button
-                              key={node.id}
-                              type="button"
-                              className={`nav-instrument ${selectedInstrument?.id === node.id ? "active" : ""}`}
-                              onClick={() => pickInstrument(node)}
-                            >
-                              <ChevronRight size={13} />
-                              <span>{node.name}</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
-              )}
-            </>
-          ) : (
-            <>
-              <p className="nav-section-label">Sample Preparation &amp; Reagent</p>
-              <div className="nav-instruments" style={{ marginLeft: 4 }}>
-                {sampleForms.map((f) => (
-                  <button
-                    key={f.id}
-                    type="button"
-                    className={`nav-instrument ${sampleFormId === f.id ? "active" : ""}`}
-                    onClick={() => pickSampleForm(f.id)}
-                  >
-                    <ChevronRight size={13} />
-                    <span>{f.title}</span>
+          <p className="nav-section-label">Instruments</p>
+          {templateGroups.length > 0 ? (
+            templateGroups.map((group) => {
+              const open = expanded.has(group.name);
+              return (
+                <div key={group.name} className="nav-group">
+                  <button type="button" className="nav-group-head" onClick={() => toggleGroup(group.name)} aria-expanded={open}>
+                    <span className="nav-group-icon">{categoryIcon(group.name)}</span>
+                    <span className="nav-group-name">{group.name}</span>
+                    <span className="nav-group-count">{group.items.length}</span>
+                    <ChevronDown size={15} className={`nav-caret ${open ? "open" : ""}`} />
                   </button>
-                ))}
-              </div>
-            </>
+                  {open && (
+                    <div className="nav-instruments">
+                      {group.items.length === 0 && <p className="nav-empty">No instruments yet.</p>}
+                      {group.items.map((tpl) => (
+                        <button
+                          key={tpl.id}
+                          type="button"
+                          className={`nav-instrument ${mode === "analytical" && selectedInstrument?.id === tpl.id ? "active" : ""}`}
+                          onClick={() => pickTemplate(tpl)}
+                          aria-current={mode === "analytical" && selectedInstrument?.id === tpl.id ? "true" : undefined}
+                        >
+                          <ChevronRight size={13} />
+                          <span className="nav-instrument-text">
+                            <span>{tpl.instrumentName}</span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          ) : (
+            INSTRUMENT_TREE.map((group) => {
+              const open = expanded.has(group.id);
+              return (
+                <div key={group.id} className="nav-group">
+                  <button type="button" className="nav-group-head" onClick={() => toggleGroup(group.id)}>
+                    <span className="nav-group-icon">{GROUP_ICONS[group.id]}</span>
+                    <span className="nav-group-name">{group.name}</span>
+                    <ChevronDown size={15} className={`nav-caret ${open ? "open" : ""}`} />
+                  </button>
+                  {open && (
+                    <div className="nav-instruments">
+                      {group.children.map((node) => (
+                        <button
+                          key={node.id}
+                          type="button"
+                          className={`nav-instrument ${mode === "analytical" && selectedInstrument?.id === node.id ? "active" : ""}`}
+                          onClick={() => pickInstrument(node)}
+                        >
+                          <ChevronRight size={13} />
+                          <span>{node.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })
           )}
+
+          <p className="nav-section-label">Sample Preparation</p>
+          <div className="nav-instruments" style={{ marginLeft: 4 }}>
+            {sampleForms.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                className={`nav-instrument ${mode === "sampleprep" && sampleFormId === f.id ? "active" : ""}`}
+                onClick={() => pickSampleForm(f.id)}
+              >
+                <ChevronRight size={13} />
+                <span>{f.title}</span>
+              </button>
+            ))}
+          </div>
+
+          {formCats.map((cat) => {
+            const catForms = otherForms.filter((f) => f.scope === cat.id);
+            if (catForms.length === 0) return null;
+            return (
+              <Fragment key={cat.id}>
+                <p className="nav-section-label">{cat.name}</p>
+                <div className="nav-instruments" style={{ marginLeft: 4 }}>
+                  {catForms.map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      className={`nav-instrument ${mode === "sampleprep" && sampleFormId === f.id ? "active" : ""}`}
+                      onClick={() => pickSampleForm(f.id)}
+                    >
+                      <ChevronRight size={13} />
+                      <span>{f.title}</span>
+                    </button>
+                  ))}
+                </div>
+              </Fragment>
+            );
+          })}
         </nav>
 
         <div className="lab-nav-foot">
@@ -613,7 +617,7 @@ export default function AnalystEntryPage() {
       <div className="app-frame entry-frame">
         <div className="entry-topbar">
           <button className="entry-list-btn" type="button" onClick={() => setNavOpen(true)} aria-label="Choose instrument">
-            <PanelLeft size={18} /> <span>{mode === "analytical" ? (selectedInstrument?.name || "Choose instrument") : currentForm.title}</span>
+            <PanelLeft size={18} /> <span>{mode === "analytical" ? (selectedInstrument?.name || "Choose from menu") : currentForm.title}</span>
           </button>
           {collapsed && (
             <button className="nav-reopen" type="button" onClick={() => setCollapsed(false)} title="Show list" aria-label="Show list">
@@ -625,23 +629,12 @@ export default function AnalystEntryPage() {
           </div>
         </div>
 
-        <div className="mode-tabs">
-          <button type="button" className={`mode-tab ${mode === "analytical" ? "active" : ""}`} onClick={() => switchMode("analytical")}>
-            <Microscope size={18} />
-            <span>Analytical Instrument</span>
-          </button>
-          <button type="button" className={`mode-tab ${mode === "sampleprep" ? "active" : ""}`} onClick={() => switchMode("sampleprep")}>
-            <Beaker size={18} />
-            <span>Sample Preparation</span>
-          </button>
-        </div>
-
         <div className="entry-body">
           {!showForm ? (
             <div className="entry-welcome">
               <div className="empty-icon-wrap"><Microscope size={40} /></div>
-              <h2>Choose an instrument to begin</h2>
-              <p>Expand a group in the left menu and select an instrument.</p>
+              <h2>Choose what to log</h2>
+              <p>Pick an instrument or a form from the left menu.</p>
             </div>
           ) : (
             <>

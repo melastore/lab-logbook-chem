@@ -29,7 +29,6 @@ export function VersionHistory({ chain, currentId, fields }: {
             <div className="vh-head">
               <strong>{n === 0 ? "Original" : `Correction ${n}`}</strong>
               {isCurrent && <span className="vh-tag">Current</span>}
-              <span className={`log-status-badge ${rec.status.toLowerCase()}`}>{rec.status}</span>
             </div>
             <div className="vh-meta">
               {when(rec.createdAt)}{n > 0 && rec.submitterName ? ` · by ${rec.submitterName}` : n === 0 && rec.analyst ? ` · by ${rec.analyst}` : ""}

@@ -100,7 +100,7 @@ function LoginForm() {
         <div className="lg-brand-main">
           <p className="lg-kicker">Chemical Metrology Laboratory</p>
           <h1>Instrument logbook</h1>
-          <p className="lg-lede">Record instrument use, sample preparation and weekly plans, all in one place.</p>
+          <p className="lg-lede">Record instrument use and sample preparation, all in one place.</p>
           <ul className="lg-points">
             <li><FileCheck2 size={18} /><span><strong>Signed records</strong> Every entry carries the analyst&apos;s signature.</span></li>
             <li><ShieldCheck size={18} /><span><strong>Tamper-evident</strong> Records are sealed and can&apos;t be silently changed.</span></li>

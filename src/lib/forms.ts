@@ -104,7 +104,8 @@ export type FormField = {
   full?: boolean;
 };
 
-export type FormScope = "analytical" | "sample" | "instrument";
+// The three built-in scopes, or the id of an admin-made form category.
+export type FormScope = "analytical" | "sample" | "instrument" | (string & {});
 
 export type FormDef = {
   id: string;          // doubles as the default selected form id
@@ -113,6 +114,21 @@ export type FormDef = {
   scope: FormScope;    // analytical instrument log vs. sample-preparation log vs. instrument info
   fields: FormField[];
 };
+
+// Admin-made group of forms (e.g. Certificate). Works like Sample Preparation:
+// its forms are filled in on their own, not against an instrument.
+export type FormCategory = {
+  id: string;
+  name: string;
+  displayOrder: number;
+};
+
+export const BUILTIN_SCOPES = ["analytical", "sample", "instrument"] as const;
+
+// Forms logged against a selected instrument. Everything else stands alone.
+export function isInstrumentScope(scope: FormScope) {
+  return scope === "analytical";
+}
 
 // ─── Analytical-instrument forms ─────────────────────────────────────────────
 

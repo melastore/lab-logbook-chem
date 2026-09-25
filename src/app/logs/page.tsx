@@ -16,9 +16,6 @@ import { displayFields, recordValue, versionChain } from "@/lib/record-diff";
 import { VersionHistory } from "@/components/VersionHistory";
 import { RecordWorkbook } from "@/components/RecordWorkbook";
 
-const STATUSES = ["All", "Pending", "Approved", "Rejected"] as const;
-type StatusFilter = typeof STATUSES[number];
-
 const valueOf = recordValue;
 
 function formFor(forms: FormDef[], rec: LogbookRecord) {
@@ -45,7 +42,6 @@ function MyLogs() {
   const [forms, setForms] = useState<FormDef[]>(ALL_FORMS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [status, setStatus] = useState<StatusFilter>("All");
   const [query, setQuery] = useState("");
 
   const load = useCallback(async (username: string) => {
@@ -79,15 +75,8 @@ function MyLogs() {
     return records.filter((r) => ids.has(r.id));
   }, [records]);
 
-  const counts = useMemo(() => {
-    const c: Record<StatusFilter, number> = { All: current.length, Pending: 0, Approved: 0, Rejected: 0 };
-    for (const r of current) c[r.status]++;
-    return c;
-  }, [current]);
-
   const q = query.trim().toLowerCase();
   const visible = current.filter((r) =>
-    (status === "All" || r.status === status) &&
     (!q || [r.instrumentName, r.instrumentId, r.activityType, r.sampleId, r.date, r.methodUsed, r.remarks,
       formFor(forms, r)?.title].some((v) => (v || "").toLowerCase().includes(q))));
 
@@ -105,13 +94,8 @@ function MyLogs() {
         <header className="ml-head">
           <div>
             <h1>My logs</h1>
-            <p>Everything you submitted, newest first. Rejected records can be corrected here.</p>
+            <p>Everything you submitted, newest first. Open a record to correct it.</p>
           </div>
-          {counts.Rejected > 0 && status !== "Rejected" && (
-            <button type="button" className="ml-alert" onClick={() => setStatus("Rejected")}>
-              <XCircle size={16} /> {counts.Rejected} need{counts.Rejected === 1 ? "s" : ""} your correction
-            </button>
-          )}
         </header>
 
         <div className="lw-tools">
@@ -119,13 +103,6 @@ function MyLogs() {
             <Search size={16} />
             <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search instrument, sample, date…" aria-label="Search logs" />
             {query && <button type="button" onClick={() => setQuery("")} aria-label="Clear search"><X size={14} /></button>}
-          </div>
-          <div className="ml-chips" role="group" aria-label="Status">
-            {STATUSES.map((s) => (
-              <button key={s} type="button" className={`um-chip ${status === s ? "active" : ""}`} onClick={() => setStatus(s)}>
-                {s} <span className="ml-chip-count">{counts[s]}</span>
-              </button>
-            ))}
           </div>
         </div>
 
@@ -173,8 +150,7 @@ function RecordDetail({ record, chain, form, user, onBack, onCorrected }: {
   const [editing, setEditing] = useState(false);
   const fields = useMemo(() => displayFields(record, form?.fields), [form, record]);
   const signature = parseAnalystSignature(record.analystSignature);
-  const lastDecision = [...(record.reviews ?? [])].reverse().find((r) => r.decision !== "Comment");
-  const canCorrect = record.status === "Rejected" && !!user && chain[0]?.submittedBy === user.id;
+  const canCorrect = !!user && chain[0]?.submittedBy === user.id;
 
   const instrumentInfo = [
     ["Instrument ID", record.instrumentId], ["Model", record.instrumentModel], ["Serial No.", record.serialNumber],
@@ -196,31 +172,7 @@ function RecordDetail({ record, chain, form, user, onBack, onCorrected }: {
             {record.amends && <span><Pencil size={13} /> Correction</span>}
           </p>
         </div>
-        <span className={`log-status-badge ${record.status.toLowerCase()}`}>{record.status}</span>
       </header>
-
-      {record.status === "Rejected" && (
-        <div className="ml-banner rejected" role="alert">
-          <XCircle size={20} />
-          <div>
-            <strong>Rejected{lastDecision ? ` by ${lastDecision.reviewerName}` : ""}</strong>
-            {lastDecision?.comment && <p>“{lastDecision.comment}”</p>}
-            {lastDecision && <span className="ml-banner-time">{niceDate(lastDecision.createdAt)}</span>}
-          </div>
-          {canCorrect && !editing && (
-            <button type="button" className="btn btn-primary btn-sm btn-icon-gap" onClick={() => setEditing(true)}>
-              <Pencil size={15} /> <span>Correct and resubmit</span>
-            </button>
-          )}
-        </div>
-      )}
-      {record.status === "Pending" && (
-        <div className="ml-banner pending"><Clock size={20} /><div><strong>Waiting for review</strong><p>An admin will approve or reject it.</p></div></div>
-      )}
-      {record.status === "Approved" && (
-        <div className="ml-banner approved"><CheckCircle2 size={20} /><div><strong>Approved{lastDecision ? ` by ${lastDecision.reviewerName}` : ""}</strong>
-          {lastDecision && <span className="ml-banner-time">{niceDate(lastDecision.createdAt)}</span>}</div></div>
-      )}
 
       {editing ? (
         <CorrectionForm record={record} fields={fields} onCancel={() => setEditing(false)} onDone={onCorrected} />
@@ -247,21 +199,13 @@ function RecordDetail({ record, chain, form, user, onBack, onCorrected }: {
             )}
             <span>Signed by <strong>{signature.signedBy || record.analyst}</strong>{record.createdAt ? ` · ${niceDate(record.createdAt)}` : ""}</span>
           </div>
-        </section>
-      )}
-
-
-      {record.reviews?.length > 0 && (
-        <section className="ml-section">
-          <h3>Review history</h3>
-          <ol className="ml-timeline">
-            {record.reviews.map((r) => (
-              <li key={r.id} className={r.decision.toLowerCase()}>
-                <div><strong>{r.decision}</strong> · {r.reviewerName} <span className="ml-muted">{niceDate(r.createdAt)}</span></div>
-                {r.comment && <p>{r.comment}</p>}
-              </li>
-            ))}
-          </ol>
+          {canCorrect && (
+            <div className="ml-form-actions">
+              <button type="button" className="btn btn-outline btn-sm btn-icon-gap" onClick={() => setEditing(true)}>
+                <Pencil size={15} /> <span>Correct this record</span>
+              </button>
+            </div>
+          )}
         </section>
       )}
 
@@ -354,7 +298,7 @@ function CorrectionForm({ record, fields, onCancel, onDone }: {
   return (
     <form className="ml-section ml-correct" onSubmit={submit} noValidate>
       <h3>Correct this record</h3>
-      <p className="ml-muted">Your original entry is kept in the history. The corrected version goes back to an admin for review.</p>
+      <p className="ml-muted">Your original entry is kept in the history.</p>
       <div className="ml-edit-grid">
         {fields.map((f) => {
           const v = values[f.key] ?? "";
@@ -381,7 +325,7 @@ function CorrectionForm({ record, fields, onCancel, onDone }: {
         })}
         <label className="field full">
           <span className="field-label">What did you correct? <span className="req">*</span></span>
-          <textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Added the reagent lot number the reviewer asked for" />
+          <textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Added the missing reagent lot number" />
         </label>
       </div>
       {error && <div className="ml-form-error" role="alert"><AlertTriangle size={16} /> {error}</div>}

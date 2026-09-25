@@ -75,8 +75,7 @@ export async function POST(request: Request) {
 
   // A single record carrying `amends` is a correction, not a new entry.
   if (!isBulk && typeof body.amends === "string" && body.amends) {
-    // Admins can correct anything. Analysts can correct their own record once
-    // it has been rejected, so they can act on the reviewer's comment.
+    // Admins can correct anything, analysts only their own records.
     if (!canReview(user)) {
       const mine = await listRecords(user, user.username);
       const target = mine.find((r) => r.id === body.amends);
@@ -84,8 +83,8 @@ export async function POST(request: Request) {
       const current = currentVersionIds(mine);
       const latest = mine.find((r) => current.has(r.id) && (r.amends || r.id) === root);
       const original = mine.find((r) => r.id === root);
-      if (!latest || !original || original.submittedBy !== user.id || latest.status !== "Rejected") {
-        return NextResponse.json({ error: "You can only correct your own records after they are rejected." }, { status: 403 });
+      if (!latest || !original || original.submittedBy !== user.id) {
+        return NextResponse.json({ error: "You can only correct your own records." }, { status: 403 });
       }
       recordsToCreate[0].analyst = latest.analyst;
     }

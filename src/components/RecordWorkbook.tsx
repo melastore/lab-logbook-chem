@@ -3,27 +3,20 @@
 import { useState, type ReactNode } from "react";
 import type { LogbookRecord } from "@/lib/logbook";
 import { LOG_TYPES } from "@/lib/logbook";
-import type { FormDef } from "@/lib/forms";
+import { isInstrumentScope, type FormDef } from "@/lib/forms";
 import { displayFields, recordValue } from "@/lib/record-diff";
 import { parseAnalystSignature } from "@/lib/signature";
 import { colName, colWidth, colMaxWidth, fitWidth } from "./SheetCell";
 import { labDate } from "./FormExcel";
 
-export type SheetSelection = {
-  ids: Set<string>;
-  toggle: (id: string) => void;
-  canSelect: (rec: LogbookRecord) => boolean;
-};
-
 // Submitted records as an Excel workbook: one sheet per log type, with the
 // sheet tabs at the bottom. Rows are read-only; clicking one opens it.
-export function RecordWorkbook({ records, forms, selectedId, onOpen, isCurrent, selection, showAnalyst, empty }: {
+export function RecordWorkbook({ records, forms, selectedId, onOpen, isCurrent, showAnalyst, empty }: {
   records: LogbookRecord[];
   forms: FormDef[];
   selectedId?: string | null;
   onOpen: (rec: LogbookRecord) => void;
   isCurrent: (rec: LogbookRecord) => boolean;
-  selection?: SheetSelection;
   showAnalyst?: boolean;
   empty?: ReactNode;
 }) {
@@ -46,15 +39,12 @@ export function RecordWorkbook({ records, forms, selectedId, onOpen, isCurrent, 
   const rows = groups.get(type)!;
   const form = formOf(type);
   const fields = displayFields(rows[0], form?.fields).filter((f) => f.key !== "instrumentUsed" && (showAnalyst || f.key !== "analyst"));
-  const withInstrument = form?.scope !== "sample";
-  const pick = selection ? rows.filter(selection.canSelect) : [];
+  const withInstrument = !form || isInstrumentScope(form.scope);
 
-  // Columns after the row header: [select], No., Status, [Instrument, ID], fields, Signed.
+  // Columns after the row header: No., Status, [Instrument, ID], fields, Signed.
   // Status sits up front so it stays in view when the sheet scrolls sideways.
-  const lead = (selection ? 1 : 0) + 2 + (withInstrument ? 2 : 0);
+  const lead = 2 + (withInstrument ? 2 : 0);
   const cols = lead + fields.length + 1;
-  const counts = { Pending: 0, Approved: 0, Rejected: 0 };
-  for (const r of rows) if (isCurrent(r)) counts[r.status]++;
 
   return (
     <div className="xl-book">
@@ -62,7 +52,6 @@ export function RecordWorkbook({ records, forms, selectedId, onOpen, isCurrent, 
         <table className="xl-sheet xl-read">
           <colgroup>
             <col className="xl-c-hdr" />
-            {selection && <col style={{ width: 34 }} />}
             <col style={{ width: 44 }} />
             <col style={{ width: 100 }} />
             {withInstrument && <><col style={{ width: 150 }} /><col style={{ width: 110 }} /></>}
@@ -80,14 +69,7 @@ export function RecordWorkbook({ records, forms, selectedId, onOpen, isCurrent, 
             <tr className="xl-h10"><th>2</th><td colSpan={cols} /></tr>
             <tr className="xl-head xl-top">
               <th>3</th>
-              {selection && (
-                <td className="xl-l m">
-                  <input type="checkbox" aria-label="Select all pending" disabled={pick.length === 0}
-                    checked={pick.length > 0 && pick.every((r) => selection.ids.has(r.id))}
-                    onChange={(e) => { for (const r of pick) if (selection.ids.has(r.id) !== e.target.checked) selection.toggle(r.id); }} />
-                </td>
-              )}
-              <td className={`m${selection ? "" : " xl-l"}`}>No.</td>
+              <td className="m xl-l">No.</td>
               <td className="m">Status</td>
               {withInstrument && <><td className="m">Instrument</td><td className="m">ID</td></>}
               {fields.map((f) => <td key={f.key} className="m">{f.label}</td>)}
@@ -103,16 +85,9 @@ export function RecordWorkbook({ records, forms, selectedId, onOpen, isCurrent, 
                   onClick={() => onOpen(rec)} tabIndex={0} aria-selected={open}
                   onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(rec); } }}>
                   <th className={open ? "on" : ""}>{r}</th>
-                  {selection && (
-                    <td className="xl-l c" onClick={(e) => e.stopPropagation()}>
-                      {selection.canSelect(rec) && (
-                        <input type="checkbox" aria-label="Select for approval" checked={selection.ids.has(rec.id)} onChange={() => selection.toggle(rec.id)} />
-                      )}
-                    </td>
-                  )}
-                  <td className={`c xl-no${selection ? "" : " xl-l"}`}>{i + 1}</td>
-                  <td className={`c xl-status-cell ${current ? rec.status.toLowerCase() : "old"}`}>
-                    {current ? rec.status : "Old version"}{rec.amends && current ? " *" : ""}
+                  <td className="c xl-no xl-l">{i + 1}</td>
+                  <td className={`c xl-status-cell ${current ? "approved" : "old"}`}>
+                    {current ? "Approved" : "Old version"}{rec.amends && current ? " *" : ""}
                   </td>
                   {withInstrument && <><td className="b">{rec.instrumentName || ""}</td><td>{rec.instrumentId || ""}</td></>}
                   {fields.map((f) => {
@@ -148,12 +123,7 @@ export function RecordWorkbook({ records, forms, selectedId, onOpen, isCurrent, 
       <div className="xl-status xl-status-book">
         <span>Ready</span>
         {rows.some((r) => r.amends) && <span className="xl-status-hint">* corrected record</span>}
-        <span className="xl-status-end">
-          Count: {rows.length}
-          {counts.Pending > 0 && <> · Pending: {counts.Pending}</>}
-          {counts.Approved > 0 && <> · Approved: {counts.Approved}</>}
-          {counts.Rejected > 0 && <> · Rejected: {counts.Rejected}</>}
-        </span>
+        <span className="xl-status-end">Count: {rows.length}</span>
       </div>
     </div>
   );

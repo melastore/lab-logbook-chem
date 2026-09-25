@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { errorResponse } from "@/lib/errors";
-import { listForms, createForm, updateForm, deleteForm } from "@/lib/logbook";
+import { listForms, createForm, updateForm, deleteForm, listFormCategories } from "@/lib/logbook";
 import type { FieldType, FormField, FormScope } from "@/lib/forms";
 import { canReview, currentUser, passwordChangeGate } from "@/lib/session";
 
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
       id,
       title,
       activityType,
-      scope: scope(body.scope),
+      scope: await scope(body.scope),
       fields: sanitizeFields(body.fields),
       displayOrder: Number(body.displayOrder) || 0,
     });
@@ -77,7 +77,7 @@ export async function PATCH(request: Request) {
     const form = await updateForm(id, {
       title:        body.title        !== undefined ? clean(body.title)                    : undefined,
       activityType: body.activityType !== undefined ? clean(body.activityType).toUpperCase() : undefined,
-      scope:        body.scope        !== undefined ? scope(body.scope)                    : undefined,
+      scope:        body.scope        !== undefined ? await scope(body.scope)              : undefined,
       fields:       body.fields       !== undefined ? sanitizeFields(body.fields)          : undefined,
       displayOrder: body.displayOrder !== undefined ? Number(body.displayOrder)            : undefined,
     });
@@ -134,8 +134,12 @@ function slug(value: unknown) {
   return clean(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
-function scope(value: unknown): FormScope {
-  return value === "sample" || value === "instrument" ? value : "analytical";
+async function scope(value: unknown): Promise<FormScope> {
+  if (value === "sample" || value === "instrument") return value;
+  if (typeof value === "string" && value && value !== "analytical") {
+    if ((await listFormCategories()).some((c) => c.id === value)) return value;
+  }
+  return "analytical";
 }
 
 // Drops malformed fields and coerces each into a clean FormField. A field must

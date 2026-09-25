@@ -4387,41 +4387,18 @@ button:disabled {
   background: rgba(0, 0, 0, 0.02);
 }
 
-/* ==========================================================================
-   Mode tabs (Analytical Instrument / Sample Preparation) + nav labels
-   ========================================================================== */
-.mode-tabs {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 20px;
-  border-bottom: 2px solid var(--outline-variant);
-}
-.mode-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 20px;
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--on-surface-variant);
-  border-bottom: 3px solid transparent;
-  margin-bottom: -2px;
-  transition: all 0.15s ease;
-}
-.mode-tab:hover { color: var(--on-surface); }
-.mode-tab.active {
-  color: var(--primary);
-  border-bottom-color: var(--primary);
-}
-
+/* Sidebar section label (Sample Preparation under the instruments) */
 .nav-section-label {
   font-size: 11px;
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--muted);
-  padding: 4px 12px 8px;
+  padding: 14px 12px 8px;
+  margin-top: 10px;
+  border-top: 1px solid var(--outline-variant);
 }
+.lab-nav-tree > .nav-section-label:first-child { margin-top: 0; padding-top: 4px; border-top: none; }
 
 /* ==========================================================================
    Doc-style spreadsheet entry table
@@ -9799,13 +9776,6 @@ button:disabled {
 .modal select[aria-invalid="true"], .modal input[aria-invalid="true"] { border-color: var(--error); }
 
 /* Entry page instrument list */
-.nav-search {
-  display: flex; align-items: center; gap: 8px; height: 38px; margin: 2px 4px 10px; padding: 0 10px; border-radius: 10px;
-  border: 1px solid var(--outline-variant); background: var(--surface-1); color: var(--muted);
-}
-.nav-search:focus-within { border-color: var(--primary); }
-.nav-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font: inherit; font-size: 14px; font-weight: 500; color: var(--on-surface); }
-.nav-search button { display: grid; place-items: center; border: 0; background: none; color: var(--muted); cursor: pointer; }
 .nav-group-count {
   margin-left: auto; min-width: 22px; padding: 0 6px; border-radius: 999px; background: var(--surface-3);
   font-size: 11px; font-weight: 700; color: var(--on-surface-variant); text-align: center; font-variant-numeric: tabular-nums;
@@ -9842,7 +9812,8 @@ button:disabled {
 }
 
 /* In-app confirm dialog */
-.confirm-overlay { z-index: 400; }
+/* above every other dialog, since it often opens on top of one */
+.confirm-overlay { z-index: 10000; }
 .confirm-dialog { width: min(420px, calc(100vw - 32px)); padding: 24px; border-radius: 20px; display: grid; gap: 20px; }
 .confirm-body { display: grid; gap: 8px; }
 .confirm-icon { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 14px; margin-bottom: 6px; background: var(--primary-container); color: var(--on-primary-container); }

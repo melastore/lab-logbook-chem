@@ -1,5 +1,5 @@
 import { GENERATED_USER_ACCOUNTS, type GeneratedUserAccount } from "./generated-users";
-import { ALL_FORMS, type FormDef, type FormField, type FormScope } from "./forms";
+import { ALL_FORMS, BUILTIN_SCOPES, type FormCategory, type FormDef, type FormField, type FormScope } from "./forms";
 import { PublicError } from "./errors";
 import { disableTwoFactor, renameTwoFactor } from "./twofactor";
 import { MIN_PASSWORD_LENGTH } from "./password";
@@ -64,31 +64,15 @@ export type LogbookRecord = {
   recordHash: string;
   amends: string | null;
   amendmentReason: string;
-  status: ReviewStatus;
-  reviews: RecordReview[];
   submitterName: string;
-};
-
-export type ReviewStatus = "Pending" | "Approved" | "Rejected";
-export type ReviewDecision = "Approved" | "Rejected" | "Comment";
-
-export type RecordReview = {
-  id: string;
-  createdAt: string;
-  recordId: string;
-  decision: ReviewDecision;
-  comment: string;
-  reviewerName: string;
-  // false if the record changed after this review was made
-  hashMatches: boolean;
 };
 
 export type LogbookInput = Omit<
   LogbookRecord,
   "id" | "createdAt" | "updatedAt" | "submittedBy"
   | "chainIndex" | "prevHash" | "recordHash" | "amends" | "amendmentReason"
-  | "status" | "reviews" | "submitterName"
->; // integrity and review fields are written by the database, not the client
+  | "submitterName"
+>; // integrity fields are written by the database, not the client
 
 export type InstrumentCategory = {
   id: string;
@@ -439,14 +423,9 @@ export async function listRecords(user: AppUser, username?: string, columns = "*
     rows.sort((a, b) => b.created_at.localeCompare(a.created_at));
   }
 
-  const [reviews, names] = await Promise.all([
-    listReviewsFor(rows),
-    profileNames(rows.map((r) => r.submitted_by)),
-  ]);
+  const names = await profileNames(rows.map((r) => r.submitted_by));
   return rows.map((row) => {
     const rec = mapRecord(row);
-    rec.reviews = reviews.get(row.id) || [];
-    rec.status = statusFrom(rec.reviews);
     rec.submitterName = (row.submitted_by && names.get(row.submitted_by)) || "";
     return rec;
   });
@@ -470,18 +449,6 @@ async function profileNames(ids: (string | null)[]): Promise<Map<string, string>
   return names;
 }
 
-// ─── Reviews ──────────────────────────────────────────────────────────────────
-
-type ReviewRow = {
-  id: string;
-  created_at: string;
-  record_id: string;
-  record_hash: string;
-  decision: ReviewDecision;
-  comment: string | null;
-  reviewer_name: string | null;
-};
-
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // ids of the newest version of each record (the original or its latest correction)
@@ -495,118 +462,6 @@ export function currentVersionIds(records: Pick<LogbookRecord, "id" | "amends" |
   return new Set([...latest.values()].map((r) => r.id));
 }
 
-// Managers get records waiting for review, analysts their rejected records.
-export async function reviewCounts(user: AppUser) {
-  const records = await listRecords(user, undefined, "id,amends,created_at,submitted_by,record_hash");
-  const current = currentVersionIds(records);
-  const count = (status: ReviewStatus) =>
-    records.filter((r) => current.has(r.id) && r.status === status).length;
-  // When each currently approved record was approved, so the header can count
-  // approvals the analyst hasn't seen yet.
-  const approvedAt = records
-    .filter((r) => current.has(r.id) && r.status === "Approved")
-    .map((r) => [...r.reviews].reverse().find((v) => v.decision === "Approved")?.createdAt || "")
-    .filter(Boolean);
-  return { pending: count("Pending"), rejected: count("Rejected"), approvedAt };
-}
-
-export function statusFrom(reviews: RecordReview[]): ReviewStatus {
-  for (let i = reviews.length - 1; i >= 0; i--) {
-    const d = reviews[i].decision;
-    if (d === "Approved" || d === "Rejected") return d;
-  }
-  return "Pending";
-}
-
-async function listReviewsFor(rows: LogbookRow[]): Promise<Map<string, RecordReview[]>> {
-  const byRecord = new Map<string, RecordReview[]>();
-  const hashes = new Map(rows.map((r) => [r.id, r.record_hash || ""]));
-  try {
-    for (const ids of chunk(rows.map((r) => r.id), 100)) {
-      const reviewRows = await supabaseRest<ReviewRow[]>(
-        `/logbook_reviews?select=*&record_id=in.(${ids.join(",")})&order=created_at.asc`
-      );
-      for (const r of reviewRows) {
-        const list = byRecord.get(r.record_id) || [];
-        list.push({
-          id: r.id,
-          createdAt: r.created_at,
-          recordId: r.record_id,
-          decision: r.decision,
-          comment: r.comment || "",
-          reviewerName: r.reviewer_name || "",
-          hashMatches: r.record_hash === hashes.get(r.record_id),
-        });
-        byRecord.set(r.record_id, list);
-      }
-    }
-  } catch {
-    // reviews.sql not run yet
-  }
-  return byRecord;
-}
-
-export async function addReview(
-  recordId: string,
-  decision: ReviewDecision,
-  comment: string,
-  reviewer: AppUser
-): Promise<RecordReview> {
-  if (!UUID_RE.test(recordId)) throw new PublicError("Record not found.", 404);
-  if (!["Approved", "Rejected", "Comment"].includes(decision)) throw new PublicError("Invalid decision.", 400);
-  const text = comment.trim();
-  if (decision !== "Approved" && !text) {
-    throw new PublicError(decision === "Rejected" ? "A reason is required to reject a record." : "Comment is empty.", 400);
-  }
-  if (text.length > 2000) throw new PublicError("Comment is too long (2000 characters max).", 400);
-
-  const [record] = await supabaseRest<LogbookRow[]>(
-    `/logbook_records?id=eq.${recordId}&select=id,amends,record_hash,submitted_by,created_at`
-  );
-  if (!record) throw new PublicError("Record not found.", 404);
-
-  if (decision !== "Comment") {
-    // no approving your own work
-    if (record.submitted_by === reviewer.id) {
-      throw new PublicError("You cannot approve or reject a record you submitted.", 403);
-    }
-    const rootId = record.amends || record.id;
-    const [latest] = await supabaseRest<{ id: string }[]>(
-      `/logbook_records?select=id&amends=eq.${rootId}&order=created_at.desc&limit=1`
-    );
-    if (latest && latest.id !== record.id) {
-      throw new PublicError("This record has a newer correction. Review the latest version instead.", 409);
-    }
-  }
-
-  let rows: ReviewRow[];
-  try {
-    rows = await supabaseRest<ReviewRow[]>("/logbook_reviews?select=*", {
-      method: "POST",
-      prefer: "return=representation",
-      body: [{
-        record_id: recordId,
-        record_hash: record.record_hash || "",
-        decision,
-        comment: text,
-        reviewer_id: reviewer.id,
-        reviewer_name: reviewer.fullName || reviewer.username,
-      }],
-    });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "";
-    if (msg.includes("logbook_reviews") && (msg.includes("PGRST205") || msg.includes("does not exist"))) {
-      throw new PublicError("Reviews are not set up yet. Run supabase/reviews.sql in the Supabase SQL editor.", 503);
-    }
-    throw e;
-  }
-  const r = rows[0];
-  return {
-    id: r.id, createdAt: r.created_at, recordId: r.record_id, decision: r.decision,
-    comment: r.comment || "", reviewerName: r.reviewer_name || "", hashMatches: true,
-  };
-}
-
 // Records are append-only; the database blocks UPDATE/DELETE. Corrections go
 // through createAmendment, so there is no deleteRecord here.
 
@@ -617,7 +472,6 @@ function recordToRow(
 ) {
   return {
     submitted_by: submittedBy,
-    // status is left at its default; reviews live in logbook_reviews
     laboratory_name: input.laboratoryName,
     department: input.department,
     location: input.location,
@@ -894,7 +748,7 @@ function mapForm(row: FormDefinitionRow): FormDef {
     id: row.id,
     title: row.title,
     activityType: row.activity_type,
-    scope: row.scope === "sample" ? "sample" : row.scope === "instrument" ? "instrument" : "analytical",
+    scope: row.scope || "analytical",
     fields: Array.isArray(row.fields) ? row.fields : [],
   };
 }
@@ -981,6 +835,80 @@ export async function deleteForm(id: string): Promise<void> {
     `/form_definitions?id=eq.${encodeURIComponent(id)}`,
     { method: "DELETE" }
   );
+}
+
+// ─── Form Categories ──────────────────────────────────────────────────────────
+
+type FormCategoryRow = { id: string; name: string; display_order: number };
+
+const mapFormCategory = (r: FormCategoryRow): FormCategory => ({ id: r.id, name: r.name, displayOrder: r.display_order });
+
+function formCategoriesMissing(e: unknown) {
+  const msg = e instanceof Error ? e.message : "";
+  return msg.includes("form_categories") && (msg.includes("PGRST205") || msg.includes("does not exist"));
+}
+const SETUP_HINT = "Form categories are not set up yet. Run supabase/form-categories.sql in the Supabase SQL editor.";
+
+// Empty until form-categories.sql has been run.
+export async function listFormCategories(): Promise<FormCategory[]> {
+  try {
+    const rows = await supabaseRest<FormCategoryRow[]>("/form_categories?select=*&order=display_order.asc");
+    return rows.map(mapFormCategory);
+  } catch (e) {
+    if (formCategoriesMissing(e)) return [];
+    throw e;
+  }
+}
+
+export async function createFormCategory(name: string, displayOrder: number): Promise<FormCategory> {
+  const existing = await listFormCategories();
+  if (existing.some((c) => c.name.toLowerCase() === name.toLowerCase())) {
+    throw new PublicError(`A category called "${name}" already exists.`, 400);
+  }
+  const base = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "category";
+  const taken = new Set<string>([...BUILTIN_SCOPES, ...existing.map((c) => c.id)]);
+  let id = base;
+  for (let n = 2; taken.has(id); n++) id = `${base}-${n}`;
+  try {
+    const rows = await supabaseRest<FormCategoryRow[]>("/form_categories?select=*", {
+      method: "POST",
+      prefer: "return=representation",
+      body: { id, name, display_order: displayOrder },
+    });
+    return mapFormCategory(rows[0]);
+  } catch (e) {
+    if (formCategoriesMissing(e)) throw new PublicError(SETUP_HINT, 503);
+    throw e;
+  }
+}
+
+export async function updateFormCategory(
+  id: string,
+  input: { name?: string; displayOrder?: number }
+): Promise<FormCategory | null> {
+  const body: Record<string, unknown> = {};
+  if (input.name !== undefined) {
+    const clash = (await listFormCategories()).find((c) => c.id !== id && c.name.toLowerCase() === input.name!.toLowerCase());
+    if (clash) throw new PublicError(`A category called "${input.name}" already exists.`, 400);
+    body.name = input.name;
+  }
+  if (input.displayOrder !== undefined) body.display_order = input.displayOrder;
+  const rows = await supabaseRest<FormCategoryRow[]>(
+    `/form_categories?id=eq.${encodeURIComponent(id)}&select=*`,
+    { method: "PATCH", prefer: "return=representation", body }
+  );
+  return rows[0] ? mapFormCategory(rows[0]) : null;
+}
+
+// Blocked while forms still use it, so no form ends up in a category that's gone.
+export async function deleteFormCategory(id: string): Promise<void> {
+  const inUse = await supabaseRest<{ id: string }[]>(
+    `/form_definitions?scope=eq.${encodeURIComponent(id)}&select=id&limit=1`
+  );
+  if (inUse.length > 0) {
+    throw new PublicError("This category still has forms. Move or delete them first.", 400);
+  }
+  await supabaseRest<unknown>(`/form_categories?id=eq.${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 // ─── User Management ──────────────────────────────────────────────────────────
@@ -1251,8 +1179,6 @@ function mapRecord(row: LogbookRow): LogbookRecord {
     recordHash: row.record_hash || "",
     amends: row.amends ?? null,
     amendmentReason: row.amendment_reason || "",
-    status: "Pending",
-    reviews: [],
     submitterName: "",
   };
 }
